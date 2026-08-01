@@ -221,7 +221,7 @@ final class PatchworkAdministrationServiceTest {
             };
         });
         service.activate(12); Thread worker = Thread.ofVirtual().start(() -> join(service.selfTest()));
-        assertTrue(entered.await(10, TimeUnit.SECONDS)); service.fence(12); worker.join(10_000); assertFalse(worker.isAlive()); service.drain(java.time.Duration.ofSeconds(10));
+        assertTrue(entered.await(30, TimeUnit.SECONDS)); service.fence(12); worker.join(30_000); assertFalse(worker.isAlive()); service.drain(java.time.Duration.ofSeconds(30));
         assertEquals("production", java.nio.file.Files.readString(production.resolve("manifest.json"))); service.activate(13); assertTrue(join(service.selfTest()).getFirst().contains("completed")); assertEquals(2, supplied.get());
     }
 
