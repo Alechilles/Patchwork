@@ -72,7 +72,7 @@ public final class StartupPackPublisher {
             move(staging, live, "FAILED_NEW", "ACTIVATION", intents);
             activationConfirmed = true;
             layout.requireSafeExistingComponents(live);
-            registration = registrar.prepare(PACK_ID);
+            registration = registrar.prepare(PACK_ID, plan);
             registration.commit();
             return new Publication(true, "", live, List.copyOf(evidence), List.of(), false);
         } catch (Exception failure) {
@@ -245,6 +245,8 @@ public final class StartupPackPublisher {
 
     @FunctionalInterface public interface PackRegistrar {
         void register(String packId) throws Exception;
+        /** Supplies the exact staged plan to registrars that need matching runtime metadata. */
+        default RegistrationAttempt prepare(String packId, PatchGenerationService.GenerationPlan plan) { return prepare(packId); }
         /** Compatibility adapter: a failed one-way registration is unresolved because it cannot prove rollback. */
         default RegistrationAttempt prepare(String packId) { return new RegistrationAttempt() { public void commit() throws Exception { register(packId); } public void rollback() throws Exception { throw new IOException("One-way registrar cannot prove rollback."); } }; }
     }

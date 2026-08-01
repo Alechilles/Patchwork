@@ -117,6 +117,14 @@ final class PatchGenerationServiceTest {
     }
 
     @Test
+    void resolverIsSharedWithinOnePassButRejectedForAnotherPass() {
+        ConditionSourceResolver shared = resolver();
+        PatchGenerationService service = testService(List.of(), PatchConditionEvaluator.Status.MATCHED);
+        service.generate(new PatchGenerationService.GenerationRequest(List.of(), Set.of(), Map.of(), "1", shared));
+        assertThrows(IllegalStateException.class, () -> service.generate(new PatchGenerationService.GenerationRequest(List.of(), Set.of(), Map.of(), "1", shared)));
+    }
+
+    @Test
     void matchedConditionAppliesItsTarget() {
         var plan = stagedPlan(PatchConditionEvaluator.Status.MATCHED, true);
         assertEquals(List.of("Server/Test.json"), plan.entries().stream().map(GeneratedPackManifest.Entry::target).toList());
@@ -169,6 +177,41 @@ final class PatchGenerationServiceTest {
         assertEquals(List.of("A", "B"), status.rejectedTargets().keySet().stream().toList()); assertThrows(UnsupportedOperationException.class, () -> status.skipped().add("x"));
         var plan = new PatchGenerationService.GenerationPlan(manifest.entries(), status, manifest, List.of("Zulu", "Alpha", "Zulu"));
         assertEquals(List.of("Alpha", "Zulu"), plan.sourcePackIds()); assertThrows(UnsupportedOperationException.class, () -> plan.entries().clear());
+    }
+
+    @Test
+    void realScannerEvaluatesDefinitionLocalModDataAndLegacyConditionsWithoutIdCollisions() throws Exception {
+        Path first = Files.createDirectories(temporary.resolve("first/Server/Patchwork/Patches"));
+        Path firstRoot = first.getParent().getParent().getParent();
+        Path second = Files.createDirectories(temporary.resolve("second/Server/Patchwork/Patches"));
+        Path secondRoot = second.getParent().getParent().getParent();
+        Path data = Files.createDirectories(temporary.resolve("mod-data"));
+        Files.writeString(data.resolve("config.json"), "{\"enabled\":true}");
+        Files.writeString(firstRoot.resolve("Server/Test.json"), "{\"value\":0}");
+        Files.writeString(secondRoot.resolve("Server/Legacy.json"), "{\"enabled\":true,\"value\":0}");
+        String modWhen = "\"When\":{\"JsonPathEquals\":{\"Source\":{\"Type\":\"ModData\",\"Mod\":\"Test:Mod\",\"Path\":\"config.json\"},\"Path\":\"/enabled\",\"Value\":true}}";
+        Files.writeString(first.resolve("one.json"), "{\"Id\":\"same\",\"Target\":\"Server/Test.json\"," + modWhen + ",\"Operations\":[{\"Op\":\"Replace\",\"Path\":\"/value\",\"Value\":1}]}");
+        Files.writeString(second.resolve("two.json"), "{\"Id\":\"same\",\"Target\":\"Server/Legacy.json\",\"When\":{\"JsonPathEquals\":{\"Asset\":\"$Target\",\"Path\":\"/enabled\",\"Equals\":true}},\"Operations\":[{\"Op\":\"Replace\",\"Path\":\"/value\",\"Value\":2}]}");
+        List<PatchSource> sources = List.of(PatchSource.directory("First:Pack", 0, firstRoot), PatchSource.directory("Second:Pack", 1, secondRoot));
+        PatchGenerationService service = new PatchGenerationService();
+        var truePlan = service.generate(new PatchGenerationService.GenerationRequest(sources, Set.of("Test:Mod"), Map.of(), "1", new ConditionSourceResolver(new PatchTargetResolver(), new ModDataRootRegistry(Map.of("Test:Mod", data)), new ConditionDocumentCache())));
+        assertEquals(List.of("Server/Legacy.json", "Server/Test.json"), truePlan.entries().stream().map(GeneratedPackManifest.Entry::target).toList());
+        Files.writeString(data.resolve("config.json"), "{\"enabled\":false}");
+        var falsePlan = service.generate(new PatchGenerationService.GenerationRequest(sources, Set.of("Test:Mod"), Map.of(), "1", new ConditionSourceResolver(new PatchTargetResolver(), new ModDataRootRegistry(Map.of("Test:Mod", data)), new ConditionDocumentCache())));
+        assertEquals(List.of("Server/Legacy.json"), falsePlan.entries().stream().map(GeneratedPackManifest.Entry::target).toList());
+    }
+
+    @Test
+    void malformedWhenIsReportedWithoutSuppressingUnrelatedValidPatch() throws Exception {
+        Path pack = Files.createDirectories(temporary.resolve("invalid-when/Server/Patchwork/Patches"));
+        Path root = pack.getParent().getParent().getParent();
+        Files.writeString(root.resolve("Server/Good.json"), "{\"value\":0}");
+        Files.writeString(pack.resolve("bad.json"), "{\"Id\":\"bad\",\"Target\":\"Server/Bad.json\",\"When\":{\"Unknown\":true},\"Operations\":[]}");
+        Files.writeString(pack.resolve("good.json"), "{\"Id\":\"good\",\"Target\":\"Server/Good.json\",\"Operations\":[{\"Op\":\"Replace\",\"Path\":\"/value\",\"Value\":1}]}");
+        var plan = new PatchGenerationService().generate(new PatchGenerationService.GenerationRequest(List.of(PatchSource.directory("Test:Pack", 0, root)), Set.of(), Map.of(), "1", resolver()));
+        assertEquals(List.of("Server/Good.json"), plan.entries().stream().map(GeneratedPackManifest.Entry::target).toList());
+        assertEquals(1, plan.status().scanFailures().size());
+        assertTrue(plan.status().scanFailures().getFirst().contains("bad.json"));
     }
 
     private PatchGenerationService.GenerationPlan stagedPlan(PatchConditionEvaluator.Status status, boolean required) {

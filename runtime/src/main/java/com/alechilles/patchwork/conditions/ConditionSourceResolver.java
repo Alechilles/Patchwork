@@ -8,12 +8,14 @@ import com.google.gson.JsonParser;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Resolves one condition source to a cached JSON snapshot without exposing JSON values in diagnostics. */
 public final class ConditionSourceResolver {
     private final PatchTargetResolver targetResolver;
     private final ModDataRootRegistry modDataRoots;
     private final ConditionDocumentCache cache;
+    private final AtomicBoolean claimed = new AtomicBoolean();
     /** Creates a resolver for exactly one generation pass. */
     public ConditionSourceResolver(PatchTargetResolver targetResolver, ModDataRootRegistry modDataRoots, ConditionDocumentCache cache) { this.targetResolver = Objects.requireNonNull(targetResolver); this.modDataRoots = Objects.requireNonNull(modDataRoots); this.cache = Objects.requireNonNull(cache); }
     /** Resolves target bytes, game assets, or ModData with first-snapshot cache semantics. */
@@ -26,6 +28,10 @@ public final class ConditionSourceResolver {
     }
     /** Returns this pass's document cache for lifecycle inspection. */
     public ConditionDocumentCache documentCache() { return cache; }
+    /** Claims this resolver for one complete generation pass. Callers must create a fresh resolver/cache for each startup or reload. */
+    public void claimGenerationPass() {
+        if (!claimed.compareAndSet(false, true)) throw new IllegalStateException("ConditionSourceResolver is single-use; create a fresh resolver/cache for each generation pass.");
+    }
     /** Checks an asset without parsing it as JSON. */
     public PatchTargetResolver.Resolution assetResolution(List<PatchSource> sources, String path) { return targetResolver.resolveDetailed(sources, path); }
     private ConditionDocumentCache.Snapshot read(ConditionSource source, String target, byte[] bytes, List<PatchSource> sources) {

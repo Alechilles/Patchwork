@@ -8,6 +8,7 @@ import com.alechilles.patchwork.discovery.PatchSource;
 import com.alechilles.patchwork.discovery.PatchTargetResolver;
 import com.alechilles.patchwork.engine.PatchDefinition;
 import com.alechilles.patchwork.engine.PatchEngine;
+import com.alechilles.patchwork.engine.PatchMacroRegistry;
 import com.google.gson.JsonParser;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -28,11 +29,15 @@ public final class PatchGenerationService {
     public PatchGenerationService() {
         this(new PatchScanner(), new PatchTargetResolver(), new PatchEngine());
     }
+    /** Creates a production generator that expands the elected host's contribution macros. */
+    public PatchGenerationService(PatchMacroRegistry macros) {
+        this(new PatchScanner(), new PatchTargetResolver(), new PatchEngine(Objects.requireNonNull(macros, "macros")));
+    }
     PatchGenerationService(PatchScanner scanner, PatchTargetResolver targetResolver, PatchEngine patchEngine) {
         this(request -> scanner.scan(request.sources(), request.installedIds()),
                 (request, target) -> targetResolver.resolveDetailed(request.sources(), target),
                 (definition, request, target, bytes) -> new PatchConditionEvaluator().evaluate(
-                        request.conditionsByPatchId().getOrDefault(definition.id(), new PatchCondition.Always()),
+                        request.conditionsByPatchId().getOrDefault(definition.id(), definition.condition()),
                         new PatchConditionEvaluator.EvaluationContext(request.installedIds(), request.versions(), request.serverVersion(), target, bytes, request.conditionResolver(), request.sources())),
                 patchEngine::apply);
     }
@@ -43,6 +48,7 @@ public final class PatchGenerationService {
     /** Scans and applies definitions into a pure, deterministic plan; a rejected target never blocks unrelated targets. */
     public GenerationPlan generate(GenerationRequest request) {
         Objects.requireNonNull(request, "request");
+        request.conditionResolver().claimGenerationPass();
         PatchScanner.ScanResult scan = scanner.scan(request);
         Map<String, List<PatchDefinition>> targets = new java.util.TreeMap<>();
         for (PatchDefinition definition : scan.definitions()) targets.computeIfAbsent(definition.target(), ignored -> new ArrayList<>()).add(definition);

@@ -16,6 +16,14 @@ public final class PatchOperation {
     static PatchOperation parse(JsonObject object, String patchId, int index) {
         return new PatchOperation(PatchDefinition.readString(object,"Id",patchId+"#"+index), PatchDefinition.readRequiredString(object,"Op",patchId+" operation "+index), PatchDefinition.readString(object,"Path",null), PatchDefinition.readString(object,"Position",null), PatchDefinition.readString(object,"Macro",null), PatchDefinition.readBoolean(object,"Required",true), object.get("Value"), object(object,"Find"), object(object,"Existing"), object(object,"Options"));
     }
+    /** Parses a host-expanded operation with a stable synthetic source position. */
+    public static PatchOperation parseHostOperation(JsonObject object, String patchId) { return parse(object, patchId, 0); }
+    /** Serializes this operation for the isolated host macro boundary. */
+    public JsonObject toJson() {
+        JsonObject object = new JsonObject(); object.addProperty("Id", id); object.addProperty("Op", op);
+        if (path != null) object.addProperty("Path", path); if (position != null) object.addProperty("Position", position); if (macro != null) object.addProperty("Macro", macro);
+        object.addProperty("Required", required); if (value != null) object.add("Value", value()); if (find != null) object.add("Find", find()); if (existing != null) object.add("Existing", existing()); if (options != null) object.add("Options", options()); return object;
+    }
     /** Creates an explicit non-macro operation. */
     public static PatchOperation raw(String id, String op, String path, String position, boolean required, JsonElement value, JsonObject find, JsonObject existing) { return new PatchOperation(id,op,path,position,null,required,value,find,existing,null); }
     /** Returns this operation with the supplied macro identifier. */

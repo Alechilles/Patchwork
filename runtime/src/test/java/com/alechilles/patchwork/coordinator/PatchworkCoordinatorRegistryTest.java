@@ -190,6 +190,24 @@ final class PatchworkCoordinatorRegistryTest {
     }
 
     @Test
+    void blocksContributionMutationReentryDuringOwnershipTransfer() {
+        // Catches a lifecycle callback mutating the contribution snapshot while the winning epoch is incomplete.
+        var registry = PatchworkCoordinatorRegistry.current();
+        PatchworkCoordinatorBridge bridge = new PatchworkCoordinatorBridge() {
+            @Override public void start(long epoch) {
+                assertThrows(IllegalStateException.class, () -> PatchworkCoordinatorRegistry.registerContribution(Map.of(
+                        "hostPluginIdentifier", "reentrant-host", "contributionVersion", "1",
+                        "macroIds", List.of(), "adapterIds", List.of(), "bridge", new Object())));
+            }
+        };
+
+        registry.registerCandidate(new PatchworkRuntimeCandidate("owner", PatchworkRuntimeOrigin.STANDALONE, "1.0.0", 1,
+                "owner", "1", Path.of("mods/owner.jar"), Path.of("mods/owner"), bridge));
+
+        assertEquals("owner", registry.activeProviderId());
+    }
+
+    @Test
     void publicJdkOnlyRegistrationThrowsAfterRestoringThePreviousOwner() {
         // Catches a foreign registration API returning a removed token after its bridge fails to start.
         String old = PatchworkCoordinatorRegistry.register(descriptor("public-old", "1.0.0", new PublicStableBridge()));

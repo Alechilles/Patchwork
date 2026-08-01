@@ -4,6 +4,8 @@ import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Objects;
 
@@ -13,6 +15,7 @@ public final class PatchworkCoordinatorRegistry {
     public static final int COORDINATOR_ABI = 1;
 
     private final Map<PatchworkRegistrationToken, PatchworkRuntimeCandidate> candidates = new LinkedHashMap<>();
+    private Map<String, Map<String, ?>> contributions = Map.of();
     private PatchworkRegistrationToken activeToken;
     private long epoch;
     private boolean transitioning;
@@ -131,6 +134,7 @@ public final class PatchworkCoordinatorRegistry {
         long nextEpoch = ++epoch;
         try {
             candidate.bridge().activate(nextEpoch);
+            candidate.bridge().replayContributions(nextEpoch, contributionSnapshot());
             candidate.bridge().start(nextEpoch);
             activeToken = token;
             return true;
@@ -194,6 +198,7 @@ public final class PatchworkCoordinatorRegistry {
     }
 
     private PatchworkRuntimeCandidate activeCandidate() { return activeToken == null ? null : candidates.get(activeToken); }
+    private List<Map<String, ?>> contributionSnapshot() { return List.copyOf(contributions.values()); }
 
     private void checkAvailable() {
         if (failedClosed) throw failure("Coordinator is fail-closed after unsafe lifecycle cleanup");
@@ -213,6 +218,13 @@ public final class PatchworkCoordinatorRegistry {
     public static boolean unregister(String token) { return Boolean.parseBoolean(withRegistry("unregister", token)); }
     public static boolean publish(String token) { return Boolean.parseBoolean(withRegistry("publish", token)); }
     public static String activeProviderId() { return withRegistry("activeProviderId", null); }
+    /** Registers a JDK-map contribution descriptor that is replayed to every elected runtime. */
+    public static String registerContribution(Map<String, ?> descriptor) { return withRegistry("registerContribution", descriptor); }
+    public static boolean unregisterContribution(String token) { return Boolean.parseBoolean(withRegistry("unregisterContribution", token)); }
+    public static String generatedPatchRoot() { return withRegistry("generatedPatchRoot", null); }
+    public static boolean recordObservation(Map<String, ?> observation) { return Boolean.parseBoolean(withRegistry("recordObservation", observation)); }
+    /** Expands one UTF-8/JSON operation through the elected runtime. */
+    public static String expandOperationJson(String operationJson) { return withRegistry("expandOperationJson", operationJson); }
 
     private static String withRegistry(String operation, Object value) {
         Object state = installedRegistry();
@@ -221,6 +233,11 @@ public final class PatchworkCoordinatorRegistry {
             case "register" -> registry.registerExternal((Map<String, ?>) value);
             case "unregister" -> Boolean.toString(registry.unregisterExternal((String) value));
             case "publish" -> Boolean.toString(registry.publishExternal((String) value));
+            case "registerContribution" -> registry.registerContributionExternal((Map<String, ?>) value);
+            case "unregisterContribution" -> Boolean.toString(registry.unregisterContributionExternal((String) value));
+            case "generatedPatchRoot" -> registry.generatedPatchRootExternal();
+            case "recordObservation" -> Boolean.toString(registry.recordObservationExternal((Map<String, ?>) value));
+            case "expandOperationJson" -> registry.expandOperationJsonExternal((String) value);
             default -> registry.localActiveProviderId();
         };
     }
@@ -241,6 +258,91 @@ public final class PatchworkCoordinatorRegistry {
     }
 
     private synchronized boolean publishExternal(String text) { return publish(findToken(this, text)); }
+
+    private synchronized String registerContributionExternal(Map<String, ?> descriptor) {
+        checkAvailable();
+        Map<String, ?> canonical = canonicalContribution(descriptor);
+        rejectContributionConflicts(canonical);
+        String token = new PatchworkRegistrationToken().toString();
+        Map<String, Map<String, ?>> proposed = new LinkedHashMap<>(contributions);
+        Map<String, Object> registered = new LinkedHashMap<>(canonical); registered.put("contributionToken", token);
+        proposed.put(token, Map.copyOf(registered));
+        applyContributionSnapshot(proposed);
+        contributions = Map.copyOf(proposed);
+        return token;
+    }
+
+    private synchronized boolean unregisterContributionExternal(String token) {
+        checkAvailable();
+        Map<String, ?> removed = contributions.get(token);
+        if (removed == null) return false;
+        Map<String, Map<String, ?>> proposed = new LinkedHashMap<>(contributions); proposed.remove(token);
+        applyContributionSnapshot(proposed);
+        contributions = Map.copyOf(proposed);
+        return true;
+    }
+
+    private synchronized String generatedPatchRootExternal() {
+        PatchworkRuntimeCandidate active = activeCandidate();
+        return active == null ? null : active.bridge().generatedPatchRoot();
+    }
+
+    private synchronized boolean recordObservationExternal(Map<String, ?> observation) {
+        PatchworkRuntimeCandidate active = activeCandidate();
+        return active != null && active.bridge().recordObservation(Map.copyOf(observation));
+    }
+    private synchronized String expandOperationJsonExternal(String operationJson) {
+        if (operationJson == null || operationJson.isBlank()) throw new IllegalArgumentException("Operation JSON is required.");
+        PatchworkRuntimeCandidate active = activeCandidate(); if (active == null) throw new IllegalStateException("No active Patchwork runtime is available.");
+        return active.bridge().expandOperationJson(operationJson);
+    }
+
+    private void replayActiveContributions() { applyContributionSnapshot(contributions); }
+    private void applyContributionSnapshot(Map<String, Map<String, ?>> snapshot) {
+        PatchworkRuntimeCandidate active = activeCandidate();
+        if (active == null) return;
+        try { active.bridge().replayContributions(epoch, List.copyOf(snapshot.values())); }
+        catch (RuntimeException failure) {
+            try { active.bridge().replayContributions(epoch, contributionSnapshot()); }
+            catch (RuntimeException rollbackFailure) { failClosed("Contribution replay rollback failed"); }
+            throw failure;
+        }
+    }
+
+    private static Map<String, ?> canonicalContribution(Map<String, ?> descriptor) {
+        Objects.requireNonNull(descriptor, "descriptor");
+        require(descriptor, "hostPluginIdentifier", String.class); require(descriptor, "contributionVersion", String.class);
+        require(descriptor, "bridge", Object.class); require(descriptor, "macroIds", List.class); require(descriptor, "adapterIds", List.class);
+        Map<String, Object> copy = new LinkedHashMap<>();
+        copy.put("hostPluginIdentifier", require(descriptor, "hostPluginIdentifier", String.class));
+        copy.put("contributionVersion", require(descriptor, "contributionVersion", String.class));
+        copy.put("bridge", require(descriptor, "bridge", Object.class));
+        copy.put("macroIds", copyTextList(descriptor.get("macroIds"), "macroIds"));
+        copy.put("adapterIds", copyTextList(descriptor.get("adapterIds"), "adapterIds"));
+        return Map.copyOf(copy);
+    }
+    private void rejectContributionConflicts(Map<String, ?> descriptor) {
+        String host = (String) descriptor.get("hostPluginIdentifier"); String version = (String) descriptor.get("contributionVersion");
+        List<?> newMacros = (List<?>) descriptor.get("macroIds"); List<?> newAdapters = (List<?>) descriptor.get("adapterIds");
+        for (Map<String, ?> existing : contributions.values()) {
+            List<?> oldAdapters = (List<?>) existing.get("adapterIds");
+            for (Object adapter : newAdapters) if (oldAdapters.contains(adapter)) throw new IllegalArgumentException("Duplicate Patchwork target adapter ID: " + adapter);
+            if (host.equals(existing.get("hostPluginIdentifier")) && version.equals(existing.get("contributionVersion"))) {
+                List<?> oldMacros = (List<?>) existing.get("macroIds");
+                for (Object macro : newMacros) if (oldMacros.contains(macro)) throw new IllegalArgumentException("Duplicate Patchwork macro tuple: " + host + ":" + version + ":" + macro);
+            }
+        }
+        if (newMacros.stream().distinct().count() != newMacros.size() || newAdapters.stream().distinct().count() != newAdapters.size()) throw new IllegalArgumentException("Contribution contains duplicate macro or adapter identifiers.");
+    }
+    private static List<String> copyTextList(Object value, String field) {
+        if (!(value instanceof List<?> source)) throw new IllegalArgumentException("Invalid contribution field: " + field);
+        List<String> copy = new ArrayList<>();
+        for (Object entry : source) {
+            if (!(entry instanceof String text) || text.isBlank()) throw new IllegalArgumentException("Invalid contribution field: " + field);
+            copy.add(text);
+        }
+        return List.copyOf(copy);
+    }
 
     /** Resolves and validates a public replacement handle while holding the election monitor. */
     private synchronized String registerExternal(Map<String, ?> descriptor) {
@@ -295,7 +397,7 @@ public final class PatchworkCoordinatorRegistry {
 
     private static final class ReflectiveBridge implements PatchworkCoordinatorBridge {
         private final Object receiver;
-        private final Method fence, drain, deactivate, activate, start, publish;
+        private final Method fence, drain, deactivate, activate, start, publish, replay, generatedRoot, observation;
 
         ReflectiveBridge(Object receiver) {
             this.receiver = Objects.requireNonNull(receiver);
@@ -304,6 +406,8 @@ public final class PatchworkCoordinatorRegistry {
                 fence = method(type, "fence", void.class); drain = method(type, "stopAcceptingAndDrain", void.class);
                 deactivate = method(type, "deactivate", void.class); activate = method(type, "activate", void.class);
                 start = method(type, "start", void.class); publish = method(type, "publish", boolean.class);
+                replay = optionalContributionMethod(type, "replayContributions"); generatedRoot = optionalNoArgMethod(type, "generatedPatchRoot", String.class);
+                observation = optionalContributionMethod(type, "recordObservation");
             } catch (ReflectiveOperationException exception) { throw new IllegalArgumentException("Invalid coordinator bridge", exception); }
         }
 
@@ -313,11 +417,28 @@ public final class PatchworkCoordinatorRegistry {
         public void activate(long value) { invoke(activate, value, Void.class); }
         public void start(long value) { invoke(start, value, Void.class); }
         public boolean publish(long value) { return (Boolean) invoke(publish, value, Boolean.class); }
+        public void replayContributions(long value, List<Map<String, ?>> contributions) { if (replay != null) invoke(replay, value, contributions, Void.class); }
+        public String generatedPatchRoot() { return generatedRoot == null ? null : (String) invoke(generatedRoot, String.class); }
+        public boolean recordObservation(Map<String, ?> value) { return observation != null && (Boolean) invoke(observation, value, Boolean.class); }
+        public String expandOperationJson(String value) { try { Method method = receiver.getClass().getMethod("expandOperationJson", String.class); return (String) invoke(method, value, String.class); } catch (ReflectiveOperationException exception) { throw new IllegalStateException("Macro expansion is unavailable.", exception); } }
 
         private static Method method(Class<?> type, String name, Class<?> result) throws ReflectiveOperationException {
             Method method = type.getMethod(name, long.class);
             if (method.getReturnType() != result) throw new NoSuchMethodException(name);
             return method;
+        }
+        private static Method contributionMethod(Class<?> type, String name) throws ReflectiveOperationException {
+            if (name.equals("replayContributions")) return type.getMethod(name, long.class, List.class);
+            return type.getMethod(name, Map.class);
+        }
+        private static Method optionalContributionMethod(Class<?> type, String name) {
+            try { return contributionMethod(type, name); } catch (ReflectiveOperationException ignored) { return null; }
+        }
+        private static Method noArgMethod(Class<?> type, String name, Class<?> result) throws ReflectiveOperationException {
+            Method method = type.getMethod(name); if (method.getReturnType() != result) throw new NoSuchMethodException(name); return method;
+        }
+        private static Method optionalNoArgMethod(Class<?> type, String name, Class<?> result) {
+            try { return noArgMethod(type, name, result); } catch (ReflectiveOperationException ignored) { return null; }
         }
 
         private Object invoke(Method method, long value, Class<?> expected) {
@@ -326,6 +447,18 @@ public final class PatchworkCoordinatorRegistry {
                 if (expected == Void.class || expected.isInstance(result)) return result;
                 throw new IllegalStateException("Invalid bridge return: " + method.getName());
             } catch (ReflectiveOperationException exception) { throw new IllegalStateException("Bridge lifecycle failure: " + method.getName(), exception); }
+        }
+        private Object invoke(Method method, Object value, Class<?> expected) {
+            try { Object result = method.invoke(receiver, value); if (expected == Void.class || expected.isInstance(result)) return result; throw new IllegalStateException("Invalid bridge return: " + method.getName()); }
+            catch (ReflectiveOperationException exception) { throw new IllegalStateException("Bridge lifecycle failure: " + method.getName(), exception); }
+        }
+        private Object invoke(Method method, long epoch, Object value, Class<?> expected) {
+            try { Object result = method.invoke(receiver, epoch, value); if (expected == Void.class || expected.isInstance(result)) return result; throw new IllegalStateException("Invalid bridge return: " + method.getName()); }
+            catch (ReflectiveOperationException exception) { throw new IllegalStateException("Bridge lifecycle failure: " + method.getName(), exception); }
+        }
+        private Object invoke(Method method, Class<?> expected) {
+            try { Object result = method.invoke(receiver); if (expected == Void.class || expected.isInstance(result)) return result; throw new IllegalStateException("Invalid bridge return: " + method.getName()); }
+            catch (ReflectiveOperationException exception) { throw new IllegalStateException("Bridge lifecycle failure: " + method.getName(), exception); }
         }
     }
 }
