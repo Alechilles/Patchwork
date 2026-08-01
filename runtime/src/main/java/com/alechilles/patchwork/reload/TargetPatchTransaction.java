@@ -6,6 +6,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.LinkOption;
+import java.nio.file.StandardOpenOption;
+import java.nio.ByteBuffer;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.DosFileAttributes;
 import java.util.ArrayList;
@@ -23,7 +26,7 @@ public final class TargetPatchTransaction {
 
     /** Captures the target's exact prior bytes and hash before a mutation. */
     public TargetJournalEntry journal(String target) throws IOException {
-        Path path = resolve(target); byte[] old = Files.exists(path) ? Files.readAllBytes(path) : null;
+        Path path = resolve(target); byte[] old = Files.exists(path, LinkOption.NOFOLLOW_LINKS) ? readStable(path) : null;
         return new TargetJournalEntry(target, old, TargetJournalEntry.hash(old));
     }
     /** Atomically writes replacement bytes, or deletes the target when bytes are absent. */
@@ -57,6 +60,7 @@ public final class TargetPatchTransaction {
             try { moves.atomicMove(temporary, target); }
             catch (AtomicMoveNotSupportedException unsupported) { moves.nonAtomicMove(temporary, target); }
             requireSameAncestry(target.getParent(), before);
+            verifyNoFollow(target);
         } finally { Files.deleteIfExists(temporary); }
     }
     private static final class FileMoveStrategy implements MoveStrategy {
@@ -68,6 +72,21 @@ public final class TargetPatchTransaction {
     /** Captures observable no-follow ancestry identity, including a creation-time fallback for null file keys. */
     static AncestryIdentity captureAncestry(Path path) throws IOException { verifyNoFollow(path); return new AncestryIdentity(snapshot(path)); }
     static void requireSameAncestry(Path path, AncestryIdentity identity) throws IOException { verifyNoFollow(path); if (!identity.equals(captureAncestry(path))) throw new IOException("Reload ancestry changed before mutation."); }
+    /** Reads a regular final file without following links and rejects any identity change during the read. */
+    static byte[] readStable(Path path) throws IOException {
+        verifyNoFollow(path); AncestryIdentity ancestry = captureAncestry(path.getParent()); FileIdentity before = fileIdentity(path);
+        if (!before.regular()) throw new IOException("Reload path is not a regular file.");
+        byte[] bytes;
+        try (SeekableByteChannel channel = Files.newByteChannel(path, java.util.Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS))) {
+            if (channel.size() > Integer.MAX_VALUE) throw new IOException("Reload file is too large.");
+            ByteBuffer data = ByteBuffer.allocate((int) channel.size());
+            while (data.hasRemaining()) { if (channel.read(data) < 0) throw new IOException("Reload file changed during read."); }
+            bytes = data.array();
+        }
+        requireSameAncestry(path.getParent(), ancestry);
+        if (!before.equals(fileIdentity(path))) throw new IOException("Reload file changed during read.");
+        return bytes;
+    }
     /** Practical portable fallback: validates observable ancestors before each mutation; mkdir races remain OS-level residuals. */
     private static void verifyNoFollow(Path end) throws IOException {
         Path absolute = end.toAbsolutePath().normalize(); Path root = absolute.getRoot();
@@ -87,6 +106,11 @@ public final class TargetPatchTransaction {
         for (Path part : filesystemRoot.relativize(absolute)) { current = current.resolve(part); if (!Files.exists(current, LinkOption.NOFOLLOW_LINKS)) break; BasicFileAttributes attributes = Files.readAttributes(current, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS); result.add(new Component(current, String.valueOf(attributes.fileKey()), attributes.isDirectory(), attributes.creationTime().toMillis())); }
         return List.copyOf(result);
     }
+    private static FileIdentity fileIdentity(Path path) throws IOException {
+        BasicFileAttributes attributes = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        return new FileIdentity(String.valueOf(attributes.fileKey()), attributes.isRegularFile(), attributes.creationTime().toMillis(), attributes.lastModifiedTime().toMillis(), attributes.size());
+    }
     record AncestryIdentity(List<Component> components) { }
+    private record FileIdentity(String fileKey, boolean regular, long creationTime, long modifiedTime, long size) { }
     private record Component(Path path, String fileKey, boolean directory, long creationTime) { }
 }

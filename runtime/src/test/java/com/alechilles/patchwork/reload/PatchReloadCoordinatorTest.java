@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -32,7 +33,7 @@ final class PatchReloadCoordinatorTest {
         AtomicBoolean manifestPresent = new AtomicBoolean();
         HytalePatchTargetAdapter builtIn = adapter("built-in", target -> {
             manifestPresent.set(Files.exists(root.resolve("manifest.json")));
-            tracker.record(new PatchReloadTracker.Observation(target.epoch(), target.target(), target.expectedHash(), PatchReloadTracker.Outcome.LOADED));
+            tracker.record(new PatchReloadTracker.Observation(target.token(), target.epoch(), target.target(), target.expectedHash(), PatchReloadTracker.Outcome.LOADED));
             return HytalePatchTargetAdapter.AdapterReply.confirmed();
         });
         PatchReloadCoordinator coordinator = new PatchReloadCoordinator(root, tracker, builtIn, List.of(), Duration.ofSeconds(1));
@@ -83,7 +84,7 @@ final class PatchReloadCoordinatorTest {
     void observerFailureRollsBackAndMarksRollbackFailureWhenRestoreCannotBeConfirmed() throws Exception {
         Path root = Files.createDirectories(temporary.resolve("generated/Server/AssetStore")); Path target = root.resolve("Test.json"); Files.writeString(target, "old");
         PatchReloadTracker tracker = new PatchReloadTracker(); AtomicBoolean first = new AtomicBoolean(true);
-        HytalePatchTargetAdapter adapter = adapter("built-in", request -> { if (first.getAndSet(false)) tracker.record(new PatchReloadTracker.Observation(request.epoch(), request.target(), request.expectedHash(), PatchReloadTracker.Outcome.FAILED)); return HytalePatchTargetAdapter.AdapterReply.confirmed(); });
+        HytalePatchTargetAdapter adapter = adapter("built-in", request -> { if (first.getAndSet(false)) tracker.record(new PatchReloadTracker.Observation(request.token(), request.epoch(), request.target(), request.expectedHash(), PatchReloadTracker.Outcome.FAILED)); return HytalePatchTargetAdapter.AdapterReply.confirmed(); });
         var coordinator = new PatchReloadCoordinator(temporary.resolve("generated"), tracker, adapter, List.of(), Duration.ofMillis(15));
 
         var outcome = coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Server/AssetStore/Test.json", "new"))));
@@ -175,7 +176,7 @@ final class PatchReloadCoordinatorTest {
     void observerFailureWithConfirmedRestoreReportsStale() throws Exception {
         Path root = Files.createDirectories(temporary.resolve("generated/Server/AssetStore")); Path target = root.resolve("Test.json"); Files.writeString(target, "old");
         PatchReloadTracker tracker = new PatchReloadTracker(); AtomicBoolean first = new AtomicBoolean(true);
-        HytalePatchTargetAdapter adapter = adapter("built-in", request -> { if (first.getAndSet(false)) tracker.record(new PatchReloadTracker.Observation(request.epoch(), request.target(), request.expectedHash(), PatchReloadTracker.Outcome.FAILED)); else tracker.record(loaded(request)); return HytalePatchTargetAdapter.AdapterReply.confirmed(); });
+        HytalePatchTargetAdapter adapter = adapter("built-in", request -> { if (first.getAndSet(false)) tracker.record(new PatchReloadTracker.Observation(request.token(), request.epoch(), request.target(), request.expectedHash(), PatchReloadTracker.Outcome.FAILED)); else tracker.record(loaded(request)); return HytalePatchTargetAdapter.AdapterReply.confirmed(); });
         var coordinator = new PatchReloadCoordinator(temporary.resolve("generated"), tracker, adapter, List.of(), Duration.ofMillis(15));
 
         var outcome = coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Server/AssetStore/Test.json", "new"))));
@@ -263,10 +264,10 @@ final class PatchReloadCoordinatorTest {
     void acceptsSynchronousObserverFiredByTheFilesystemMutation() throws Exception {
         Path root = Files.createDirectories(temporary.resolve("generated")); PatchReloadTracker tracker = new PatchReloadTracker();
         TargetPatchTransaction.MoveStrategy moves = new TargetPatchTransaction.MoveStrategy() {
-            @Override public void atomicMove(Path from, Path to) throws java.io.IOException { Files.move(from, to, StandardCopyOption.REPLACE_EXISTING); tracker.record(new PatchReloadTracker.Observation(1L, "Server/AssetStore/Test.json", TargetJournalEntry.hash("new".getBytes()), PatchReloadTracker.Outcome.LOADED)); }
+            @Override public void atomicMove(Path from, Path to) throws java.io.IOException { Files.move(from, to, StandardCopyOption.REPLACE_EXISTING); }
             @Override public void nonAtomicMove(Path from, Path to) throws java.io.IOException { Files.move(from, to, StandardCopyOption.REPLACE_EXISTING); }
         };
-        var coordinator = new PatchReloadCoordinator(root, tracker, adapter("built-in", target -> HytalePatchTargetAdapter.AdapterReply.confirmed()), List.of(), Duration.ofMillis(25), moves, defaultManifestMoves());
+        var coordinator = new PatchReloadCoordinator(root, tracker, adapter("built-in", target -> { tracker.record(loaded(target)); return HytalePatchTargetAdapter.AdapterReply.confirmed(); }), List.of(), Duration.ofMillis(25), moves, defaultManifestMoves());
 
         var outcome = coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Server/AssetStore/Test.json", "new"))));
 
@@ -313,6 +314,13 @@ final class PatchReloadCoordinatorTest {
         coordinator.activate(2L); coordinator.revoke(1L);
 
         assertTrue(coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Server/AssetStore/A.json", "a")))).started());
+    }
+
+    @Test
+    void equalActivationCannotResurrectRevokedOwner() throws Exception {
+        Path root = Files.createDirectories(temporary.resolve("generated")); var coordinator = new PatchReloadCoordinator(root, new PatchReloadTracker(), unsupported(), List.of(), Duration.ofMillis(5));
+        coordinator.activate(2L); coordinator.revoke(2L); coordinator.activate(2L);
+        assertFalse(coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest"))).started());
     }
 
     @Test
@@ -365,6 +373,16 @@ final class PatchReloadCoordinatorTest {
     }
 
     @Test
+    void revokeCancelsPromptlyWhileAnAdapterIsBlocked() throws Exception {
+        Path root = Files.createDirectories(temporary.resolve("generated")); PatchReloadTracker tracker = new PatchReloadTracker(); CountDownLatch adapterStarted = new CountDownLatch(1); CountDownLatch unblockAdapter = new CountDownLatch(1);
+        var coordinator = new PatchReloadCoordinator(root, tracker, adapter("built-in", target -> { adapterStarted.countDown(); assertTrue(unblockAdapter.await(1, TimeUnit.SECONDS)); return HytalePatchTargetAdapter.AdapterReply.confirmed(); }), List.of(), Duration.ofSeconds(2));
+        CompletableFuture<PatchReloadCoordinator.ReloadOutcome> pass = CompletableFuture.supplyAsync(() -> coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Server/AssetStore/A.json", "a")))));
+
+        CountDownLatch revocationReturned = new CountDownLatch(1); assertTrue(adapterStarted.await(1, TimeUnit.SECONDS)); CompletableFuture.runAsync(() -> { coordinator.revoke(0L); revocationReturned.countDown(); }); assertTrue(revocationReturned.await(100, TimeUnit.MILLISECONDS)); assertFalse(coordinator.drain(Duration.ofMillis(10)));
+        unblockAdapter.countDown(); assertTrue(pass.get(1, TimeUnit.SECONDS).started()); assertTrue(coordinator.drain(Duration.ofMillis(100)));
+    }
+
+    @Test
     void preMutationParentReplacementIsDetectedBeforeOutsideWrite() throws Exception {
         Path root = Files.createDirectories(temporary.resolve("generated/Server/AssetStore")); Path outside = Files.createDirectories(temporary.resolve("outside")); Path marker = outside.resolve("marker"); Files.writeString(marker, "safe"); AtomicBoolean adapterCalled = new AtomicBoolean();
         TargetPatchTransaction.MoveStrategy moves = new TargetPatchTransaction.MoveStrategy() {
@@ -402,14 +420,44 @@ final class PatchReloadCoordinatorTest {
     }
 
     @Test
+    void inventoryReconciliationIsUncertainWhenANewFileAppearsAfterCommit() throws Exception {
+        Path root = Files.createDirectories(temporary.resolve("generated")); PatchReloadTracker tracker = new PatchReloadTracker();
+        TargetPatchTransaction.MoveStrategy manifestMoves = new TargetPatchTransaction.MoveStrategy() {
+            @Override public void atomicMove(Path from, Path to) throws java.io.IOException { Files.move(from, to, StandardCopyOption.REPLACE_EXISTING); if (to.getFileName().toString().equals("patchwork-manifest.json")) Files.writeString(root.resolve("Server/AssetStore/late.json"), "late"); }
+            @Override public void nonAtomicMove(Path from, Path to) throws java.io.IOException { atomicMove(from, to); }
+        };
+        var coordinator = new PatchReloadCoordinator(root, tracker, adapter("built-in", target -> { tracker.record(loaded(target)); return HytalePatchTargetAdapter.AdapterReply.confirmed(); }), List.of(), Duration.ofMillis(20), defaultTargetMoves(), manifestMoves);
+
+        var outcome = coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Server/AssetStore/A.json", "a"))));
+
+        assertEquals(PatchReloadCoordinator.IntegrityState.UNCERTAIN, outcome.integrityState());
+    }
+
+    @Test
     void lateObservationAfterRollbackFailureIsRejected() throws Exception {
         Path root = Files.createDirectories(temporary.resolve("generated/Server/AssetStore")); Files.writeString(root.resolve("A.json"), "old"); PatchReloadTracker tracker = new PatchReloadTracker();
         var coordinator = new PatchReloadCoordinator(temporary.resolve("generated"), tracker, adapter("built-in", t -> HytalePatchTargetAdapter.AdapterReply.rejected("no")), List.of(), Duration.ofMillis(5));
         var outcome = coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Server/AssetStore/A.json", "new"))));
-        assertEquals(PatchReloadCoordinator.TargetState.ROLLBACK_FAILED, outcome.targets().getFirst().state()); assertFalse(tracker.record(new PatchReloadTracker.Observation(outcome.epoch(), "Server/AssetStore/A.json", TargetJournalEntry.hash("old".getBytes()), PatchReloadTracker.Outcome.LOADED)));
+        assertEquals(PatchReloadCoordinator.TargetState.ROLLBACK_FAILED, outcome.targets().getFirst().state()); assertFalse(tracker.record(new PatchReloadTracker.Observation("late-token", outcome.epoch(), "Server/AssetStore/A.json", TargetJournalEntry.hash("old".getBytes()), PatchReloadTracker.Outcome.LOADED)));
     }
 
-    private static PatchReloadTracker.Observation loaded(HytalePatchTargetAdapter.ReloadTarget target) { return new PatchReloadTracker.Observation(target.epoch(), target.target(), target.expectedHash(), target.removal() ? PatchReloadTracker.Outcome.REMOVED : PatchReloadTracker.Outcome.LOADED); }
+    @Test
+    void rollbackUsesTheActivePassTokenInsteadOfALegacyEpochToken() throws Exception {
+        Path root = Files.createDirectories(temporary.resolve("generated/Server/AssetStore")); Files.writeString(root.resolve("A.json"), "old");
+        PatchReloadTracker tracker = new PatchReloadTracker(); List<String> tokens = new ArrayList<>(); AtomicBoolean first = new AtomicBoolean(true);
+        var coordinator = new PatchReloadCoordinator(temporary.resolve("generated"), tracker, adapter("built-in", target -> {
+            tokens.add(target.token());
+            if (first.getAndSet(false)) tracker.record(new PatchReloadTracker.Observation(target.token(), target.epoch(), target.target(), target.expectedHash(), PatchReloadTracker.Outcome.FAILED));
+            else tracker.record(loaded(target));
+            return HytalePatchTargetAdapter.AdapterReply.confirmed();
+        }), List.of(), Duration.ofMillis(20));
+
+        var outcome = coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Server/AssetStore/A.json", "new"))));
+
+        assertEquals(PatchReloadCoordinator.TargetState.STALE, outcome.targets().getFirst().state()); assertEquals(2, tokens.size()); assertEquals(tokens.getFirst(), tokens.getLast()); assertFalse(tokens.getLast().startsWith("legacy:"));
+    }
+
+    private static PatchReloadTracker.Observation loaded(HytalePatchTargetAdapter.ReloadTarget target) { return new PatchReloadTracker.Observation(target.token(), target.epoch(), target.target(), target.expectedHash(), target.removal() ? PatchReloadTracker.Outcome.REMOVED : PatchReloadTracker.Outcome.LOADED); }
     private static TargetPatchTransaction.MoveStrategy moveThenThrow(Path expectedTarget) { AtomicBoolean thrown = new AtomicBoolean(); return new TargetPatchTransaction.MoveStrategy() {
         @Override public void atomicMove(Path from, Path to) throws java.io.IOException { Files.move(from, to, StandardCopyOption.REPLACE_EXISTING); if (to.equals(expectedTarget) && thrown.compareAndSet(false, true)) throw new java.io.IOException("move committed then reported failure"); }
         @Override public void nonAtomicMove(Path from, Path to) throws java.io.IOException { Files.move(from, to, StandardCopyOption.REPLACE_EXISTING); }
