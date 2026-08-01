@@ -189,10 +189,13 @@ final class PatchConditionEvaluatorTest {
         ConditionSource.Asset source = new ConditionSource.Asset("settings.json");
         assertTrue(evaluator.evaluate(new PatchCondition.JsonPathExists(source, "/enabled"), context).matched());
         assertTrue(evaluator.evaluate(new PatchCondition.JsonPathEquals(source, "/enabled", JsonParser.parseString("true")), context).matched());
-        PatchConditionEvaluator.Evaluation miss = evaluator.evaluate(new PatchCondition.JsonPathEquals(source, "/secret-source", JsonParser.parseString("\"expected-secret\"")), context);
+        Files.writeString(assets.resolve("secrets.json"), "{\"actual-secret\":\"actual-secret-value\"}", StandardCharsets.UTF_8);
+        PatchConditionEvaluator.Evaluation miss = evaluator.evaluate(new PatchCondition.JsonPathEquals(new ConditionSource.Asset("secrets.json"), "/actual-secret", JsonParser.parseString("\"expected-secret-value\"")), context);
         assertEquals(PatchConditionEvaluator.Status.NOT_MATCHED, miss.status());
-        assertFalse(miss.diagnostic().contains("expected-secret"));
-        assertFalse(miss.diagnostic().contains("secret-source"));
+        assertFalse(miss.diagnostic().contains("expected-secret-value"));
+        assertFalse(miss.diagnostic().contains("actual-secret-value"));
+        assertFalse(miss.diagnostic().contains("actual-secret"));
+        assertFalse(miss.diagnostic().contains("secrets.json"));
     }
 
     @Test

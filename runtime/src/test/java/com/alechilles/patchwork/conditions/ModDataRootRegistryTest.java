@@ -210,6 +210,62 @@ final class ModDataRootRegistryTest {
     }
 
     @Test
+    void failsClosedWhenRegisteredRootIsReplacedByOutsideSymlinkAtOpenHandoff() throws Exception {
+        try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+            Path root = Files.createDirectories(fs.getPath("/data"));
+            Path outside = Files.createDirectories(fs.getPath("/outside"));
+            Files.writeString(root.resolve("settings.json"), "{\"inside\":true}", StandardCharsets.UTF_8);
+            Files.writeString(outside.resolve("settings.json"), "{\"outside\":true}", StandardCharsets.UTF_8);
+            ModDataRootRegistry registry = new ModDataRootRegistry(Map.of("Example:Mod", root), path -> { }, path -> { }, ModDataRootRegistry.FileAttributes::readSystem, path -> {
+                Files.move(root, fs.getPath("/data-old"));
+                Files.createSymbolicLink(root, outside);
+            });
+
+            ModDataRootRegistry.ReadResult result = registry.readJson("Example:Mod", "settings.json");
+
+            assertEquals(ModDataRootRegistry.ReadStatus.FAILED, result.status());
+            assertEquals(null, result.bytes());
+        }
+    }
+
+    @Test
+    void treatsFallbackFinalDisappearanceAfterAttributesAsFailed() throws Exception {
+        Path root = Files.createDirectories(temporaryDirectory.resolve("fallback-final-window"));
+        Path file = root.resolve("settings.json");
+        Files.writeString(file, "{}", StandardCharsets.UTF_8);
+        ModDataRootRegistry registry = new ModDataRootRegistry(Map.of("Example:Mod", root), path -> { }, Files::delete);
+
+        assertEquals(ModDataRootRegistry.ReadStatus.FAILED, registry.readJson("Example:Mod", "settings.json").status());
+    }
+
+    @Test
+    void treatsFallbackDeletionBetweenFinalPostReadAttributesAndRealPathAsFailed() throws Exception {
+        Path root = Files.createDirectories(temporaryDirectory.resolve("fallback-real-path-window"));
+        Path file = root.resolve("settings.json");
+        Files.writeString(file, "{}", StandardCharsets.UTF_8);
+        int[] fileReads = {0};
+        ModDataRootRegistry.AttributeReader attributes = path -> {
+            ModDataRootRegistry.FileAttributes value = ModDataRootRegistry.FileAttributes.readSystem(path);
+            if (path.equals(file) && ++fileReads[0] == 3) Files.delete(file);
+            return value;
+        };
+        ModDataRootRegistry registry = new ModDataRootRegistry(Map.of("Example:Mod", root), path -> { }, path -> { }, attributes);
+
+        assertEquals(ModDataRootRegistry.ReadStatus.FAILED, registry.readJson("Example:Mod", "settings.json").status());
+    }
+
+    @Test
+    void treatsSecureIntermediateDisappearanceAfterAttributesAsFailed() throws Exception {
+        try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+            Path root = Files.createDirectories(fs.getPath("/data/config"));
+            Files.writeString(root.resolve("settings.json"), "{}", StandardCharsets.UTF_8);
+            ModDataRootRegistry registry = new ModDataRootRegistry(Map.of("Example:Mod", root.getParent()), path -> { }, path -> { }, ModDataRootRegistry.FileAttributes::readSystem, path -> { }, path -> Files.move(path, fs.getPath("/data/config-gone")));
+
+            assertEquals(ModDataRootRegistry.ReadStatus.FAILED, registry.readJson("Example:Mod", "config/settings.json").status());
+        }
+    }
+
+    @Test
     void defensivelyCopiesResolvedModDataBytes() throws Exception {
         Path root = Files.createDirectories(temporaryDirectory.resolve("copy-data"));
         Files.writeString(root.resolve("settings.json"), "{}", StandardCharsets.UTF_8);

@@ -27,27 +27,39 @@ public final class ModDataRootRegistry {
     private final ReadHook readHook;
     private final ReadHook afterReadHook;
     private final AttributeReader attributeReader;
+    private final ReadHook rootHandoffHook;
+    private final ReadHook beforeComponentOpenHook;
 
     /** Creates a registry from exact identifiers; primarily useful for deterministic tests. */
     public ModDataRootRegistry(Map<String, Path> roots) {
-        this(roots, path -> { }, path -> { }, FileAttributes::readSystem);
+        this(roots, path -> { }, path -> { }, FileAttributes::readSystem, path -> { }, path -> { });
     }
 
     ModDataRootRegistry(Map<String, Path> roots, ReadHook readHook) {
-        this(roots, readHook, path -> { }, FileAttributes::readSystem);
+        this(roots, readHook, path -> { }, FileAttributes::readSystem, path -> { }, path -> { });
     }
 
     ModDataRootRegistry(Map<String, Path> roots, ReadHook readHook, ReadHook afterReadHook) {
-        this(roots, readHook, afterReadHook, FileAttributes::readSystem);
+        this(roots, readHook, afterReadHook, FileAttributes::readSystem, path -> { }, path -> { });
     }
 
     ModDataRootRegistry(Map<String, Path> roots, ReadHook readHook, ReadHook afterReadHook, AttributeReader attributeReader) {
+        this(roots, readHook, afterReadHook, attributeReader, path -> { }, path -> { });
+    }
+
+    ModDataRootRegistry(Map<String, Path> roots, ReadHook readHook, ReadHook afterReadHook, AttributeReader attributeReader, ReadHook rootHandoffHook) {
+        this(roots, readHook, afterReadHook, attributeReader, rootHandoffHook, path -> { });
+    }
+
+    ModDataRootRegistry(Map<String, Path> roots, ReadHook readHook, ReadHook afterReadHook, AttributeReader attributeReader, ReadHook rootHandoffHook, ReadHook beforeComponentOpenHook) {
         Map<String, Path> copy = new LinkedHashMap<>();
         roots.forEach((id, root) -> copy.put(require(id, "mod ID"), root.toAbsolutePath().normalize()));
         this.roots = Map.copyOf(copy);
         this.readHook = readHook;
         this.afterReadHook = afterReadHook;
         this.attributeReader = attributeReader;
+        this.rootHandoffHook = rootHandoffHook;
+        this.beforeComponentOpenHook = beforeComponentOpenHook;
     }
 
     /** Snapshots loaded Java plugins only; content packs cannot become ModData roots. */
@@ -84,17 +96,61 @@ public final class ModDataRootRegistry {
         final String safe;
         try { safe = validateRelativePath(relativePath); }
         catch (IllegalArgumentException e) { return new ReadResult(ReadStatus.FAILED, null, "Unsafe ModData relative path."); }
-        try { return new ReadResult(ReadStatus.FOUND, read(root, safe), ""); }
-        catch (java.nio.file.NoSuchFileException e) { return new ReadResult(ReadStatus.MISSING, null, "ModData file is missing: " + modId + "/" + safe); }
+        try {
+            byte[] bytes = read(root, safe);
+            return bytes == null ? new ReadResult(ReadStatus.MISSING, null, "ModData file is missing: " + modId + "/" + safe) : new ReadResult(ReadStatus.FOUND, bytes, "");
+        }
         catch (Exception e) { return new ReadResult(ReadStatus.FAILED, null, "Unable to safely read ModData: " + modId + "/" + safe); }
     }
 
     private byte[] read(Path root, String relative) throws IOException {
-        if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(root)) throw new IOException("unsafe root");
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(root)) {
-            if (stream instanceof SecureDirectoryStream<Path> secure) return secureRead(root, relative, secure);
+        FileAttributes initialRoot;
+        try { initialRoot = attributeReader.read(root); }
+        catch (java.nio.file.NoSuchFileException missing) { return null; }
+        if (!initialRoot.directory() || initialRoot.other() || Files.isSymbolicLink(root)) throw new IOException("unsafe root");
+        Path filesystemRoot = root.toAbsolutePath().normalize().getRoot();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(filesystemRoot)) {
+            if (stream instanceof SecureDirectoryStream<Path> secure) {
+                rootHandoffHook.beforeRead(root);
+                try (SecureDirectoryStream<Path> openedRoot = openSecureRoot(root, initialRoot, secure)) {
+                    return secureRead(root, relative, openedRoot);
+                }
+            }
+        }
+        rootHandoffHook.beforeRead(root);
+        try (DirectoryStream<Path> ignored = Files.newDirectoryStream(root)) {
+            FileAttributes reopened;
+            try { reopened = attributeReader.read(root); }
+            catch (java.nio.file.NoSuchFileException disappeared) { throw new IOException("root disappeared after validation", disappeared); }
+            if (!initialRoot.sameAs(reopened) || Files.isSymbolicLink(root)) throw new IOException("root changed during open");
+        } catch (java.nio.file.NoSuchFileException disappeared) {
+            throw new IOException("root disappeared after validation", disappeared);
         }
         return fallbackRead(root, relative);
+    }
+
+    private static SecureDirectoryStream<Path> openSecureRoot(Path root, FileAttributes expected, SecureDirectoryStream<Path> filesystemRoot) throws IOException {
+        SecureDirectoryStream<Path> current = filesystemRoot;
+        boolean transferred = false;
+        try {
+            for (Path segment : root.toAbsolutePath().normalize().getRoot().relativize(root.toAbsolutePath().normalize())) {
+                BasicFileAttributes attrs;
+                try { attrs = current.getFileAttributeView(segment, java.nio.file.attribute.BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS).readAttributes(); }
+                catch (java.nio.file.NoSuchFileException disappeared) { throw new IOException("root disappeared after validation", disappeared); }
+                if (!attrs.isDirectory() || attrs.isOther()) throw new IOException("unsafe root");
+                SecureDirectoryStream<Path> next;
+                try { next = current.newDirectoryStream(segment, LinkOption.NOFOLLOW_LINKS); }
+                catch (java.nio.file.NoSuchFileException disappeared) { throw new IOException("root disappeared after validation", disappeared); }
+                if (current != filesystemRoot) current.close();
+                current = next;
+            }
+            BasicFileAttributes actual = current.getFileAttributeView(root.getFileSystem().getPath("."), java.nio.file.attribute.BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS).readAttributes();
+            if (!expected.sameAs(actual)) throw new IOException("root changed during open");
+            transferred = true;
+            return current;
+        } finally {
+            if (!transferred && current != filesystemRoot) current.close();
+        }
     }
 
     /**
@@ -102,14 +158,23 @@ public final class ModDataRootRegistry {
      * between checks that preserves every captured attribute and real path, making it otherwise unobservable.
      */
     private byte[] fallbackRead(Path root, String relative) throws IOException {
-        Path realRoot = root.toRealPath(LinkOption.NOFOLLOW_LINKS);
+        Path realRoot;
+        try { realRoot = root.toRealPath(LinkOption.NOFOLLOW_LINKS); }
+        catch (java.nio.file.NoSuchFileException disappeared) { throw new IOException("root disappeared after validation", disappeared); }
         String[] parts = relative.split("/");
         Path current = root;
         List<ComponentAttributes> components = new ArrayList<>();
         components.add(ComponentAttributes.from(attributeReader.read(root)));
         for (int i = 0; i < parts.length; i++) {
             current = current.resolve(parts[i]);
-            FileAttributes attributes = attributeReader.read(current);
+            FileAttributes attributes;
+            try { attributes = attributeReader.read(current); }
+            catch (java.nio.file.NoSuchFileException missing) {
+                Path parent = i == 0 ? root : root.resolve(String.join("/", java.util.Arrays.copyOf(parts, i)));
+                try { attributeReader.read(parent); }
+                catch (java.nio.file.NoSuchFileException disappeared) { throw new IOException("component disappeared after validation", disappeared); }
+                return null;
+            }
             if (Files.isSymbolicLink(current) || attributes.other() || (i < parts.length - 1 && !attributes.directory()) || (i == parts.length - 1 && !attributes.regular())) throw new IOException("unsafe component");
             components.add(ComponentAttributes.from(attributes));
         }
@@ -148,13 +213,19 @@ public final class ModDataRootRegistry {
             SecureDirectoryStream<Path> current = rootStream;
             for (int i = 0; i < parts.length - 1; i++) {
                 Path part = root.getFileSystem().getPath(parts[i]);
-                BasicFileAttributes attrs = current.getFileAttributeView(part, java.nio.file.attribute.BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS).readAttributes();
+                BasicFileAttributes attrs;
+                try { attrs = current.getFileAttributeView(part, java.nio.file.attribute.BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS).readAttributes(); }
+                catch (java.nio.file.NoSuchFileException missing) { return null; }
                 if (!attrs.isDirectory() || attrs.isOther()) throw new IOException("unsafe component");
-                current = current.newDirectoryStream(part, LinkOption.NOFOLLOW_LINKS);
+                beforeComponentOpenHook.beforeRead(root.resolve(String.join("/", java.util.Arrays.copyOf(parts, i + 1))));
+                try { current = current.newDirectoryStream(part, LinkOption.NOFOLLOW_LINKS); }
+                catch (java.nio.file.NoSuchFileException disappeared) { throw new IOException("component disappeared after validation", disappeared); }
                 handles.add(current);
             }
             Path file = root.getFileSystem().getPath(parts[parts.length - 1]);
-            BasicFileAttributes attrs = current.getFileAttributeView(file, java.nio.file.attribute.BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS).readAttributes();
+            BasicFileAttributes attrs;
+            try { attrs = current.getFileAttributeView(file, java.nio.file.attribute.BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS).readAttributes(); }
+            catch (java.nio.file.NoSuchFileException missing) { return null; }
             if (!attrs.isRegularFile() || attrs.isOther() || attrs.size() > MAX_BYTES) throw new IOException("unsafe final file");
             readHook.beforeRead(root.resolve(relative));
             try (SeekableByteChannel channel = openSecureFinal(current, file)) {
@@ -215,6 +286,18 @@ public final class ModDataRootRegistry {
 
         FileAttributes withoutFileKey() {
             return new FileAttributes(directory, regular, other, size, created, modified, null, hidden, system);
+        }
+
+        boolean sameAs(FileAttributes other) {
+            return directory == other.directory && regular == other.regular && this.other == other.other && size == other.size
+                    && created.equals(other.created) && modified.equals(other.modified)
+                    && (fileKey == null || other.fileKey == null || fileKey.equals(other.fileKey)) && hidden == other.hidden && system == other.system;
+        }
+
+        boolean sameAs(BasicFileAttributes other) {
+            return directory == other.isDirectory() && regular == other.isRegularFile() && this.other == other.isOther() && size == other.size()
+                    && created.equals(other.creationTime()) && modified.equals(other.lastModifiedTime())
+                    && (fileKey == null || other.fileKey() == null || fileKey.equals(other.fileKey()));
         }
     }
 

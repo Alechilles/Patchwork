@@ -155,6 +155,58 @@ final class PatchTargetResolverTest {
         assertTrue(result.target().isEmpty());
     }
 
+    @Test
+    void failsClosedWhenRegisteredRootIsReplacedByOutsideSymlinkAtOpenHandoff() throws Exception {
+        try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+            Path root = Files.createDirectories(fs.getPath("/pack"));
+            Path outside = Files.createDirectories(fs.getPath("/outside"));
+            Files.writeString(root.resolve("Target.json"), "inside", StandardCharsets.UTF_8);
+            Files.writeString(outside.resolve("Target.json"), "outside", StandardCharsets.UTF_8);
+            PatchTargetResolver resolver = new PatchTargetResolver(path -> { }, path -> {
+                Files.move(root, fs.getPath("/pack-old"));
+                Files.createSymbolicLink(root, outside);
+            });
+
+            PatchTargetResolver.Resolution result = resolver.resolveDetailed(
+                    List.of(PatchSource.directory("pack", 1, root)), "Target.json");
+
+            assertEquals(PatchTargetResolver.Status.FAILED, result.status());
+            assertTrue(result.target().isEmpty());
+        }
+    }
+
+    @Test
+    void failsRatherThanSelectingLowerPackWhenValidatedIntermediateDisappears() throws Exception {
+        Path higher = tempDir.resolve("higher-disappearing");
+        Path lower = tempDir.resolve("lower-winner");
+        write(higher, "Server/Target.json", "higher");
+        write(lower, "Server/Target.json", "lower");
+        PatchTargetResolver resolver = new PatchTargetResolver(path -> {
+            Path server = higher.resolve("Server");
+            Files.move(server, higher.resolve("Server-gone"));
+        });
+
+        PatchTargetResolver.Resolution result = resolver.resolveDetailed(List.of(
+                PatchSource.directory("lower", 1, lower), PatchSource.directory("higher", 2, higher)), "Server/Target.json");
+
+        assertEquals(PatchTargetResolver.Status.FAILED, result.status());
+        assertTrue(result.target().isEmpty());
+    }
+
+    @Test
+    void failsWhenSecureIntermediateDisappearsAfterAttributesBeforeDescriptorOpen() throws Exception {
+        try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+            Path root = Files.createDirectories(fs.getPath("/pack/Server"));
+            Files.writeString(root.resolve("Target.json"), "inside", StandardCharsets.UTF_8);
+            PatchTargetResolver resolver = new PatchTargetResolver(path -> { }, path -> { }, path -> Files.move(path, fs.getPath("/pack/Server-gone")));
+
+            PatchTargetResolver.Resolution result = resolver.resolveDetailed(
+                    List.of(PatchSource.directory("pack", 1, root.getParent())), "Server/Target.json");
+
+            assertEquals(PatchTargetResolver.Status.FAILED, result.status());
+        }
+    }
+
     private static void write(Path root, String path, String content) throws Exception {
         Path file = root.resolve(path);
         Files.createDirectories(file.getParent());

@@ -21,13 +21,25 @@ import java.util.zip.ZipFile;
 /** Resolves winning, non-generated target assets from filesystem-backed packs. */
 public final class PatchTargetResolver {
     private final ReadHook readHook;
+    private final ReadHook rootHandoffHook;
+    private final ReadHook beforeComponentOpenHook;
 
     public PatchTargetResolver() {
-        this(path -> { });
+        this(path -> { }, path -> { }, path -> { });
     }
 
     PatchTargetResolver(ReadHook readHook) {
+        this(readHook, path -> { }, path -> { });
+    }
+
+    PatchTargetResolver(ReadHook readHook, ReadHook rootHandoffHook) {
+        this(readHook, rootHandoffHook, path -> { });
+    }
+
+    PatchTargetResolver(ReadHook readHook, ReadHook rootHandoffHook, ReadHook beforeComponentOpenHook) {
         this.readHook = readHook;
+        this.rootHandoffHook = rootHandoffHook;
+        this.beforeComponentOpenHook = beforeComponentOpenHook;
     }
 
     /** Resolves a target to the highest-priority available source and copies its bytes before archive closure. */
@@ -58,10 +70,49 @@ public final class PatchTargetResolver {
         try { rootAttributes = SourceAttributes.read(root); }
         catch (NoSuchFileException missing) { return null; }
         if (!rootAttributes.safeDirectory()) throw new IOException("unsafe source root");
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(root)) {
-            if (stream instanceof SecureDirectoryStream<Path> secure) return secureRead(root, target, secure);
+        Path filesystemRoot = root.toAbsolutePath().normalize().getRoot();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(filesystemRoot)) {
+            if (stream instanceof SecureDirectoryStream<Path> secure) {
+                rootHandoffHook.beforeRead(root);
+                try (SecureDirectoryStream<Path> openedRoot = openSecureRoot(root, rootAttributes, secure)) {
+                    return secureRead(root, target, openedRoot);
+                }
+            }
+        }
+        rootHandoffHook.beforeRead(root);
+        try (DirectoryStream<Path> ignored = Files.newDirectoryStream(root)) {
+            SourceAttributes reopened;
+            try { reopened = SourceAttributes.read(root); }
+            catch (NoSuchFileException disappeared) { throw new IOException("source root disappeared after validation", disappeared); }
+            if (!rootAttributes.sameAs(reopened) || !reopened.safeDirectory()) throw new IOException("source root changed during open");
+        } catch (NoSuchFileException disappeared) {
+            throw new IOException("source root disappeared after validation", disappeared);
         }
         return fallbackRead(root, target);
+    }
+
+    /** Opens the registered root from the filesystem root so a path handoff cannot redirect child reads. */
+    private static SecureDirectoryStream<Path> openSecureRoot(Path root, SourceAttributes expected, SecureDirectoryStream<Path> filesystemRoot) throws IOException {
+        SecureDirectoryStream<Path> current = filesystemRoot;
+        boolean transferred = false;
+        try {
+            for (Path segment : root.toAbsolutePath().normalize().getRoot().relativize(root.toAbsolutePath().normalize())) {
+                BasicFileAttributes attributes;
+                try { attributes = current.getFileAttributeView(segment, java.nio.file.attribute.BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS).readAttributes(); }
+                catch (NoSuchFileException disappeared) { throw new IOException("source root disappeared after validation", disappeared); }
+                if (!attributes.isDirectory() || attributes.isOther()) throw new IOException("unsafe source root");
+                SecureDirectoryStream<Path> next;
+                try { next = current.newDirectoryStream(segment, LinkOption.NOFOLLOW_LINKS); }
+                catch (NoSuchFileException disappeared) { throw new IOException("source root disappeared after validation", disappeared); }
+                if (current != filesystemRoot) current.close();
+                current = next;
+            }
+            if (!expected.sameAs(current.getFileAttributeView(root.getFileSystem().getPath("."), java.nio.file.attribute.BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS).readAttributes())) throw new IOException("source root changed during open");
+            transferred = true;
+            return current;
+        } finally {
+            if (!transferred && current != filesystemRoot) current.close();
+        }
     }
 
     /** Uses full pre/post component snapshots because this provider cannot retain descriptor-relative directory handles. */
@@ -74,7 +125,14 @@ public final class PatchTargetResolver {
             current = current.resolve(parts[i]);
             SourceAttributes attributes;
             try { attributes = SourceAttributes.read(current); }
-            catch (NoSuchFileException missing) { return null; }
+            catch (NoSuchFileException missing) {
+                ComponentSnapshot parent = before.getLast();
+                SourceAttributes parentAfter;
+                try { parentAfter = SourceAttributes.read(parent.path()); }
+                catch (NoSuchFileException disappeared) { throw new IOException("asset component disappeared after validation", disappeared); }
+                if (!parent.attributes().sameAs(parentAfter)) throw new IOException("asset component changed during lookup");
+                return null;
+            }
             if (!attributes.safeComponent(i == parts.length - 1)) throw new IOException("unsafe asset component");
             before.add(new ComponentSnapshot(current, attributes));
         }
@@ -124,6 +182,7 @@ public final class PatchTargetResolver {
                 try { attributes = current.getFileAttributeView(part, java.nio.file.attribute.BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS).readAttributes(); }
                 catch (NoSuchFileException missing) { return null; }
                 if (!attributes.isDirectory() || attributes.isOther()) throw new IOException("unsafe asset component");
+                beforeComponentOpenHook.beforeRead(root.resolve(String.join("/", java.util.Arrays.copyOf(parts, i + 1))));
                 try { current = current.newDirectoryStream(part, LinkOption.NOFOLLOW_LINKS); }
                 catch (NoSuchFileException disappeared) { throw new IOException("asset disappeared after validation", disappeared); }
                 handles.add(current);
@@ -192,6 +251,12 @@ public final class PatchTargetResolver {
 
         boolean sameAs(SourceAttributes other) {
             return directory == other.directory && regular == other.regular && this.other == other.other && symbolicLink == other.symbolicLink && size == other.size && created.equals(other.created) && modified.equals(other.modified) && (fileKey == null || other.fileKey == null || fileKey.equals(other.fileKey)) && hidden == other.hidden && system == other.system;
+        }
+
+        boolean sameAs(BasicFileAttributes other) {
+            return directory == other.isDirectory() && regular == other.isRegularFile() && this.other == other.isOther()
+                    && size == other.size() && created.equals(other.creationTime()) && modified.equals(other.lastModifiedTime())
+                    && (fileKey == null || other.fileKey() == null || fileKey.equals(other.fileKey()));
         }
     }
 }
