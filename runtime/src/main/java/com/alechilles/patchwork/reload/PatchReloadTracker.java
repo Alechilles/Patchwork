@@ -44,6 +44,12 @@ public final class PatchReloadTracker {
         pending.remove(new Key(epoch, target, expectedHash));
     }
 
+    /** Fences all in-flight observers when a runtime owner is revoked. */
+    public synchronized void cancelAll(String reason) {
+        for (Pending pendingObservation : pending.values()) pendingObservation.future().completeExceptionally(new IllegalStateException(reason));
+        pending.clear();
+    }
+
     private record Key(long epoch, String target, String expectedHash) { }
     private record Pending(Outcome expectedOutcome, CompletableFuture<Outcome> future) { }
 }

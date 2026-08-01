@@ -10,6 +10,7 @@ public final class HytalePatchTargetAdapter {
     public record ReloadTarget(long epoch, String target, String expectedHash, boolean removal, PatchTargetClassifier.Family family) { }
     /** Adapter acceptance result; confirmation still requires an observer event. */
     public record AdapterReply(boolean accepted, boolean restartRequired, String diagnostic) {
+        public AdapterReply { if (accepted && restartRequired) throw new IllegalArgumentException("An adapter cannot confirm and require restart simultaneously."); diagnostic = diagnostic == null ? "" : diagnostic; }
         public static AdapterReply confirmed() { return new AdapterReply(true, false, ""); }
         public static AdapterReply restartRequired(String diagnostic) { return new AdapterReply(false, true, diagnostic); }
         public static AdapterReply rejected(String diagnostic) { return new AdapterReply(false, false, diagnostic); }
