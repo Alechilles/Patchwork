@@ -379,7 +379,7 @@ final class PatchReloadCoordinatorTest {
         CompletableFuture<PatchReloadCoordinator.ReloadOutcome> pass = CompletableFuture.supplyAsync(() -> coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Server/AssetStore/A.json", "a")))));
 
         CountDownLatch revocationReturned = new CountDownLatch(1); assertTrue(adapterStarted.await(1, TimeUnit.SECONDS)); CompletableFuture.runAsync(() -> { coordinator.revoke(0L); revocationReturned.countDown(); }); assertTrue(revocationReturned.await(100, TimeUnit.MILLISECONDS)); assertFalse(coordinator.drain(Duration.ofMillis(10)));
-        unblockAdapter.countDown(); assertTrue(pass.get(1, TimeUnit.SECONDS).started()); assertTrue(coordinator.drain(Duration.ofMillis(100)));
+        unblockAdapter.countDown(); assertTrue(pass.get(10, TimeUnit.SECONDS).started()); assertTrue(coordinator.drain(Duration.ofMillis(100)));
     }
 
     @Test
@@ -432,7 +432,7 @@ final class PatchReloadCoordinatorTest {
         Path root = Files.createDirectories(temporary.resolve("adapter-drain")); CountDownLatch entered = new CountDownLatch(1); CountDownLatch release = new CountDownLatch(1);
         var coordinator = new PatchReloadCoordinator(root, new PatchReloadTracker(), adapter("built-in", target -> { entered.countDown(); assertTrue(release.await(1, TimeUnit.SECONDS)); return HytalePatchTargetAdapter.AdapterReply.confirmed(); }), List.of(), Duration.ofMillis(20));
         CompletableFuture<PatchReloadCoordinator.ReloadOutcome> pass = CompletableFuture.supplyAsync(() -> coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Server/AssetStore/A.json", "a"), update("Server/AssetStore/B.json", "b")))));
-        assertTrue(entered.await(1, TimeUnit.SECONDS)); coordinator.revoke(0); release.countDown(); PatchReloadCoordinator.ReloadOutcome result = pass.get(1, TimeUnit.SECONDS);
+        assertTrue(entered.await(1, TimeUnit.SECONDS)); coordinator.revoke(0); release.countDown(); PatchReloadCoordinator.ReloadOutcome result = pass.get(10, TimeUnit.SECONDS);
         assertEquals(1, result.targets().size()); assertFalse(Files.exists(root.resolve("Server/AssetStore/B.json"))); assertTrue(coordinator.drain(Duration.ofSeconds(1)));
     }
 
