@@ -64,6 +64,8 @@ public final class PatchTargetResolver {
     }
 
     private byte[] readDirectory(Path root, String target) throws IOException {
+        try { root = root.toRealPath(); }
+        catch (NoSuchFileException missing) { return null; }
         Path file = root.resolve(target).normalize();
         if (!file.startsWith(root)) throw new IOException("unsafe target path");
         SourceAttributes rootAttributes;

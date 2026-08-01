@@ -106,6 +106,22 @@ final class PatchTargetResolverTest {
     }
 
     @Test
+    void resolvesTargetsFromRegisteredSymlinkRoot() throws Exception {
+        try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+            Path realRoot = Files.createDirectories(fs.getPath("/workspace/pack/Server"));
+            Files.writeString(realRoot.resolve("Target.json"), "linked", StandardCharsets.UTF_8);
+            Files.createDirectories(fs.getPath("/mods"));
+            Path registeredRoot = Files.createSymbolicLink(fs.getPath("/mods/linked-pack"), realRoot.getParent());
+
+            PatchTargetResolver.Resolution result = new PatchTargetResolver().resolveDetailed(
+                    List.of(PatchSource.directory("pack", 1, registeredRoot)), "Server/Target.json");
+
+            assertEquals(PatchTargetResolver.Status.FOUND, result.status());
+            assertArrayEquals("linked".getBytes(StandardCharsets.UTF_8), result.resolvedTarget().bytes());
+        }
+    }
+
+    @Test
     void treatsPostValidationDisappearanceAsFailedForSecureAndFallbackReads() throws Exception {
         try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
             Path root = Files.createDirectories(fs.getPath("/pack/Server"));

@@ -14,6 +14,10 @@
 - Added `/patchwork status`, `/patchwork reload`, and `/patchwork selftest` for `patchwork.admin` administrators.
 - Added an isolated self-test that exercises ordinary and mod-data-conditioned generation without changing production output and truthfully reports restart-required for its isolated result.
 
+### Fixed
+
+- Fixed target resolution for registered asset packs installed through symbolic links or Windows junctions.
+
 ### Removed
 
 - Retired the Tamework-specific `TameworkSetting` condition. Use `JsonPathEquals` with a `ModData` source instead.
