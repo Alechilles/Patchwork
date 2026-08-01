@@ -108,6 +108,18 @@ final class ModDataRootRegistryTest {
     }
 
     @Test
+    void treatsSecureFinalDisappearanceAfterValidationAsFailed() throws Exception {
+        try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+            Path root = Files.createDirectories(fs.getPath("/data"));
+            Path file = root.resolve("settings.json");
+            Files.writeString(file, "{}", StandardCharsets.UTF_8);
+            ModDataRootRegistry registry = new ModDataRootRegistry(Map.of("Example:Mod", root), Files::delete);
+
+            assertEquals(ModDataRootRegistry.ReadStatus.FAILED, registry.readJson("Example:Mod", "settings.json").status());
+        }
+    }
+
+    @Test
     void distinguishesInitialMissingFromPostValidationDisappearance() throws Exception {
         Path root = Files.createDirectories(temporaryDirectory.resolve("data"));
         ModDataRootRegistry initial = new ModDataRootRegistry(Map.of("Example:Mod", root));
@@ -130,6 +142,16 @@ final class ModDataRootRegistryTest {
         });
 
         assertEquals(ModDataRootRegistry.ReadStatus.FAILED, registry.readJson("Example:Mod", "config/settings.json").status());
+    }
+
+    @Test
+    void defensivelyCopiesResolvedModDataBytes() throws Exception {
+        Path root = Files.createDirectories(temporaryDirectory.resolve("copy-data"));
+        Files.writeString(root.resolve("settings.json"), "{}", StandardCharsets.UTF_8);
+        ModDataRootRegistry.ReadResult result = new ModDataRootRegistry(Map.of("Example:Mod", root)).readJson("Example:Mod", "settings.json");
+        byte[] bytes = result.bytes();
+        bytes[0] = 'X';
+        assertEquals('{', result.bytes()[0]);
     }
 
     private static void assertFalseContainsPath(String diagnostic, Path path) {

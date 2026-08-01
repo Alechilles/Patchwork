@@ -67,11 +67,16 @@ public final class ModDataRootRegistry {
             Path file = root.getFileSystem().getPath(parts[parts.length - 1]);
             BasicFileAttributes attrs = current.getFileAttributeView(file, java.nio.file.attribute.BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS).readAttributes();
             if (!attrs.isRegularFile() || attrs.isOther() || attrs.size() > MAX_BYTES) throw new IOException("unsafe final file");
-            try (SeekableByteChannel channel = current.newByteChannel(file, java.util.Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS))) {
+            readHook.beforeRead(root.resolve(relative));
+            try (SeekableByteChannel channel = openSecureFinal(current, file)) {
                 if (channel.size() > MAX_BYTES) throw new IOException("file too large");
                 try (InputStream input = java.nio.channels.Channels.newInputStream(channel)) { return bounded(input); }
             }
         } finally { for (int i = handles.size() - 1; i > 0; i--) handles.get(i).close(); }
+    }
+    private static SeekableByteChannel openSecureFinal(SecureDirectoryStream<Path> directory, Path file) throws IOException {
+        try { return directory.newByteChannel(file, java.util.Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)); }
+        catch (java.nio.file.NoSuchFileException disappeared) { throw new IOException("file disappeared after validation", disappeared); }
     }
     private static byte[] bounded(InputStream input) throws IOException { ByteArrayOutputStream output = new ByteArrayOutputStream(); byte[] buffer = new byte[8192]; for (int n; (n = input.read(buffer)) != -1;) { if (output.size() + n > MAX_BYTES) throw new IOException("file too large"); output.write(buffer, 0, n); } return output.toByteArray(); }
     private static String require(String value, String name) { if (value == null || value.trim().isEmpty()) throw new IllegalArgumentException(name + " must not be blank."); return value.trim(); }
@@ -88,5 +93,5 @@ public final class ModDataRootRegistry {
     private record ComponentAttributes(boolean directory, boolean regular, boolean other, long size, java.nio.file.attribute.FileTime created, java.nio.file.attribute.FileTime modified, Object key, boolean hidden, boolean system) {
         static ComponentAttributes read(Path path) throws IOException { BasicFileAttributes basic = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS); try { DosFileAttributes dos = Files.readAttributes(path, DosFileAttributes.class, LinkOption.NOFOLLOW_LINKS); return new ComponentAttributes(basic.isDirectory(), basic.isRegularFile(), basic.isOther(), basic.size(), basic.creationTime(), basic.lastModifiedTime(), basic.fileKey(), dos.isHidden(), dos.isSystem()); } catch (UnsupportedOperationException ignored) { return new ComponentAttributes(basic.isDirectory(), basic.isRegularFile(), basic.isOther(), basic.size(), basic.creationTime(), basic.lastModifiedTime(), basic.fileKey(), false, false); } }
         boolean sameAs(ComponentAttributes other) { return directory == other.directory && regular == other.regular && this.other == other.other && size == other.size && created.equals(other.created) && modified.equals(other.modified) && (key == null || other.key == null || key.equals(other.key)) && hidden == other.hidden && system == other.system; }
+        }
     }
-}

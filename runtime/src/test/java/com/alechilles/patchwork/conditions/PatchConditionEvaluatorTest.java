@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -120,5 +121,53 @@ final class PatchConditionEvaluatorTest {
         assertEquals(1, resolver.documentCache().snapshotCount());
         assertFalse(first.diagnostic().contains("not-json"));
         assertFalse(first.diagnostic().contains("expected-secret"));
+    }
+
+    @Test
+    void rejectsInvalidAssetAndModDataPathsBeforeCacheLookup() throws Exception {
+        Path assets = Files.createDirectories(temporaryDirectory.resolve("assets-invalid"));
+        Files.createDirectories(assets.resolve("Server"));
+        Files.writeString(assets.resolve("Server/A.json"), "{\"ok\":true}", StandardCharsets.UTF_8);
+        ConditionSourceResolver resolver = new ConditionSourceResolver(new PatchTargetResolver(), new ModDataRootRegistry(Map.of()), new ConditionDocumentCache());
+        PatchConditionEvaluator.EvaluationContext context = new PatchConditionEvaluator.EvaluationContext(
+                Set.of(), Map.of(), null, "Target.json", null, resolver, List.of(PatchSource.directory("source", 1, assets)));
+        PatchConditionEvaluator evaluator = new PatchConditionEvaluator();
+
+        assertEquals(PatchConditionEvaluator.Status.FAILED, evaluator.evaluate(new PatchCondition.JsonPathExists(new ConditionSource.Asset("Server//A.json"), "/ok"), context).status());
+        assertEquals(PatchConditionEvaluator.Status.FAILED, evaluator.evaluate(new PatchCondition.JsonPathExists(new ConditionSource.ModData("Example:Mod", "../secret.json"), "/ok"), context).status());
+        assertEquals(0, resolver.documentCache().snapshotCount());
+    }
+
+    @Test
+    void treatsUnsafeAndIoAssetExistenceAsFailedAndEvaluatesGameVersionAndMissingTarget() throws Exception {
+        Path broken = temporaryDirectory.resolve("broken.zip");
+        Files.writeString(broken, "not a zip", StandardCharsets.UTF_8);
+        ConditionSourceResolver resolver = new ConditionSourceResolver(new PatchTargetResolver(), new ModDataRootRegistry(Map.of()), new ConditionDocumentCache());
+        PatchConditionEvaluator.EvaluationContext context = new PatchConditionEvaluator.EvaluationContext(
+                Set.of(), Map.of(), "999999999999999999999.0", "Target.json", null, resolver,
+                List.of(PatchSource.archive("broken", 1, broken)));
+        PatchConditionEvaluator evaluator = new PatchConditionEvaluator();
+
+        assertEquals(PatchConditionEvaluator.Status.FAILED, evaluator.evaluate(new PatchCondition.AssetExists("../unsafe.json"), context).status());
+        assertEquals(PatchConditionEvaluator.Status.FAILED, evaluator.evaluate(new PatchCondition.AssetMissing("Asset.json"), context).status());
+        assertEquals(PatchConditionEvaluator.Status.NOT_MATCHED, evaluator.evaluate(new PatchCondition.TargetExists(), context).status());
+        PatchCondition game = new PatchConditionParser().parse(JsonParser.parseString("{\"GameVersion\":{\"AtLeast\":\"999999999999999999999.0\"}}").getAsJsonObject());
+        assertTrue(evaluator.evaluate(game, context).matched());
+    }
+
+    @Test
+    void defensivelyCopiesContextInputsAndCachedDocuments() {
+        byte[] target = "{\"value\":1}".getBytes(StandardCharsets.UTF_8);
+        java.util.ArrayList<PatchSource> sources = new java.util.ArrayList<>();
+        PatchConditionEvaluator.EvaluationContext context = new PatchConditionEvaluator.EvaluationContext(
+                Set.of("Example:Mod"), Map.of("Example:Mod", "1"), null, "Target.json", target,
+                new ConditionSourceResolver(new PatchTargetResolver(), new ModDataRootRegistry(Map.of()), new ConditionDocumentCache()), sources);
+        target[0] = 'X';
+        sources.add(PatchSource.directory("later", 1, temporaryDirectory));
+        assertEquals('{', context.targetBytes()[0]);
+        assertEquals(0, context.sources().size());
+        ConditionDocumentCache.Snapshot snapshot = new ConditionDocumentCache.Snapshot(ConditionDocumentCache.Status.FOUND, JsonParser.parseString("{\"x\":1}"), "");
+        snapshot.document().getAsJsonObject().addProperty("x", 2);
+        assertEquals(1, snapshot.document().getAsJsonObject().get("x").getAsInt());
     }
 }

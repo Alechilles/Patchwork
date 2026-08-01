@@ -1,6 +1,7 @@
 package com.alechilles.patchwork.conditions;
 
 import com.alechilles.patchwork.discovery.PatchSource;
+import com.alechilles.patchwork.discovery.PatchScanner;
 import com.alechilles.patchwork.discovery.PatchTargetResolver;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
@@ -17,7 +18,9 @@ public final class ConditionSourceResolver {
     public ConditionSourceResolver(PatchTargetResolver targetResolver, ModDataRootRegistry modDataRoots, ConditionDocumentCache cache) { this.targetResolver = Objects.requireNonNull(targetResolver); this.modDataRoots = Objects.requireNonNull(modDataRoots); this.cache = Objects.requireNonNull(cache); }
     /** Resolves target bytes, game assets, or ModData with first-snapshot cache semantics. */
     public Result resolve(ConditionSource source, String targetPath, byte[] targetBytes, List<PatchSource> sources) {
-        ConditionDocumentCache.SourceKey key = key(source, targetPath);
+        final ConditionDocumentCache.SourceKey key;
+        try { key = key(source, targetPath); }
+        catch (IllegalArgumentException invalid) { return new Result(ResultStatus.FAILED, null, "Unsafe condition source path."); }
         ConditionDocumentCache.Snapshot snapshot = cache.getOrResolve(key, () -> read(source, targetPath, targetBytes, sources));
         return new Result(ResultStatus.valueOf(snapshot.status().name()), snapshot.document(), snapshot.diagnostic());
     }
@@ -38,8 +41,7 @@ public final class ConditionSourceResolver {
     private static ConditionDocumentCache.Snapshot parse(byte[] bytes, String absent, String malformed) { if (bytes == null) return missing(absent); try { JsonElement element = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)); return new ConditionDocumentCache.Snapshot(ConditionDocumentCache.Status.FOUND, element, ""); } catch (Exception e) { return failed(malformed); } }
     private static ConditionDocumentCache.Snapshot missing(String diagnostic) { return new ConditionDocumentCache.Snapshot(ConditionDocumentCache.Status.MISSING, null, diagnostic); }
     private static ConditionDocumentCache.Snapshot failed(String diagnostic) { return new ConditionDocumentCache.Snapshot(ConditionDocumentCache.Status.FAILED, null, diagnostic); }
-    private ConditionDocumentCache.SourceKey key(ConditionSource source, String target) { if (source instanceof ConditionSource.Target) return new ConditionDocumentCache.SourceKey("Target", normalized(target), ""); if (source instanceof ConditionSource.Asset asset) return new ConditionDocumentCache.SourceKey("Asset", normalized(asset.path()), ""); ConditionSource.ModData mod = (ConditionSource.ModData) source; return new ConditionDocumentCache.SourceKey("ModData", mod.modId(), modDataRoots.validateRelativePath(mod.path())); }
-    private static String normalized(String path) { String value = path.replace('\\', '/'); while (value.contains("//")) value = value.replace("//", "/"); return value; }
+    private ConditionDocumentCache.SourceKey key(ConditionSource source, String target) { if (source instanceof ConditionSource.Target) return new ConditionDocumentCache.SourceKey("Target", PatchScanner.normalizeAssetPath(target), ""); if (source instanceof ConditionSource.Asset asset) return new ConditionDocumentCache.SourceKey("Asset", PatchScanner.normalizeAssetPath(asset.path()), ""); ConditionSource.ModData mod = (ConditionSource.ModData) source; return new ConditionDocumentCache.SourceKey("ModData", mod.modId(), modDataRoots.validateRelativePath(mod.path())); }
     /** Source result with status and a defensive document snapshot. */
     public record Result(ResultStatus status, JsonElement document, String diagnostic) { public Result { document = document == null ? null : document.deepCopy(); diagnostic = diagnostic == null ? "" : diagnostic; } @Override public JsonElement document() { return document == null ? null : document.deepCopy(); } }
     /** Resolution status. */

@@ -2,7 +2,10 @@ package com.alechilles.patchwork.discovery;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -35,10 +38,25 @@ public final class PatchTargetResolver {
 
     private static byte[] readDirectory(Path root, String target) throws IOException {
         Path file = root.resolve(target).normalize();
-        if (!file.startsWith(root) || !Files.isRegularFile(file)) return null;
-        Path realRoot = root.toRealPath();
-        Path realFile = file.toRealPath();
-        return realFile.startsWith(realRoot) ? Files.readAllBytes(realFile) : null;
+        if (!file.startsWith(root)) throw new IOException("unsafe target path");
+        try {
+            BasicFileAttributes rootAttributes = Files.readAttributes(root, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            if (!rootAttributes.isDirectory() || rootAttributes.isOther() || Files.isSymbolicLink(root)) throw new IOException("unsafe source root");
+            Path current = root;
+            for (Path part : root.relativize(file)) {
+                current = current.resolve(part);
+                BasicFileAttributes attributes = Files.readAttributes(current, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+                if (attributes.isOther() || Files.isSymbolicLink(current)) throw new IOException("unsafe asset component");
+            }
+            BasicFileAttributes finalAttributes = Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            if (!finalAttributes.isRegularFile() || finalAttributes.isOther()) throw new IOException("unsafe asset final file");
+            Path realRoot = root.toRealPath(LinkOption.NOFOLLOW_LINKS);
+            Path realFile = file.toRealPath(LinkOption.NOFOLLOW_LINKS);
+            if (!realFile.startsWith(realRoot)) throw new IOException("asset escaped source root");
+            return Files.readAllBytes(file);
+        } catch (NoSuchFileException missing) {
+            return null;
+        }
     }
 
     private static byte[] readArchive(Path archive, String target) throws IOException {

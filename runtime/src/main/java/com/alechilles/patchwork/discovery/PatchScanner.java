@@ -169,7 +169,7 @@ public final class PatchScanner {
         }
     }
 
-    static String normalizeAssetPath(String path) {
+    public static String normalizeAssetPath(String path) {
         if (path == null || path.isBlank()) throw new IllegalArgumentException("Asset path must not be blank.");
         String normalized = path.replace('\\', '/');
         if (normalized.startsWith("/") || normalized.matches("^[A-Za-z]:.*") || normalized.contains("//")) throw new IllegalArgumentException("Unsafe asset path: " + path);

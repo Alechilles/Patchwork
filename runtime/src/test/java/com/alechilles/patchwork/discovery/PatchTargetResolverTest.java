@@ -11,6 +11,9 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import java.nio.file.FileSystem;
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -87,6 +90,19 @@ final class PatchTargetResolverTest {
         Path brokenArchive = tempDir.resolve("broken.zip");
         Files.writeString(brokenArchive, "not a zip", StandardCharsets.UTF_8);
         assertEquals(PatchTargetResolver.Status.FAILED, resolver.resolveDetailed(List.of(PatchSource.archive("broken", 1, brokenArchive)), "Server/Target.json").status());
+    }
+
+    @Test
+    void classifiesDirectorySymlinkEscapeAsFailedRatherThanMissing() throws Exception {
+        try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+            Path root = Files.createDirectories(fs.getPath("/pack/Server"));
+            Path outside = fs.getPath("/outside.json");
+            Files.writeString(outside, "{}", StandardCharsets.UTF_8);
+            Files.createSymbolicLink(root.resolve("Target.json"), outside);
+
+            assertEquals(PatchTargetResolver.Status.FAILED, new PatchTargetResolver().resolveDetailed(
+                    List.of(PatchSource.directory("pack", 1, root.getParent())), "Server/Target.json").status());
+        }
     }
 
     private static void write(Path root, String path, String content) throws Exception {
