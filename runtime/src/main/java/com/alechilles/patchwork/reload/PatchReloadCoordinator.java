@@ -68,7 +68,50 @@ public final class PatchReloadCoordinator {
     private final Object lifecycleLock = new Object();
     private volatile boolean inProgress;
     private volatile String activePassToken;
+    private long activePassOwnershipEpoch = -1L;
     private final String coordinatorToken = java.util.UUID.randomUUID().toString();
+    @FunctionalInterface private interface PhaseAction<T> { T run() throws Exception; }
+    /**
+     * A pass-owned authorization issued under {@link #lifecycleLock}.  Issuance is the
+     * linearization point for a phase start: revocation cannot issue a later authorization,
+     * while work which already owns one is allowed to drain outside the lifecycle lock.
+     */
+    private final class PhaseAuthorization {
+        private final String phase;
+        private boolean executed;
+        private PhaseAuthorization(String phase) { this.phase = phase; }
+        private synchronized <T> T execute(PhaseAction<T> action) throws Exception {
+            if (executed) throw new IllegalStateException("Phase authorization was already consumed: " + phase);
+            executed = true;
+            return action.run();
+        }
+    }
+    private static final class ReloadRevokedException extends Exception { }
+    /**
+     * The transaction authorization issued with an exact observer expectation.  It owns one
+     * mutation and its compensating filesystem cleanup, so revoke cannot strand changed bytes.
+     */
+    private final class TargetTransactionScope {
+        private final java.util.concurrent.CompletableFuture<PatchReloadTracker.Outcome> observation;
+        private boolean mutationStarted;
+        private boolean cleanupStarted;
+
+        private TargetTransactionScope(java.util.concurrent.CompletableFuture<PatchReloadTracker.Outcome> observation) { this.observation = observation; }
+        private synchronized void apply(TargetPatchTransaction transaction, TargetUpdate update) throws Exception {
+            if (mutationStarted) throw new IllegalStateException("Target transaction mutation was already started.");
+            mutationStarted = true;
+            transaction.apply(update.target(), update.bytes());
+        }
+        private synchronized void restore(TargetPatchTransaction transaction, TargetJournalEntry journal) throws Exception {
+            if (!mutationStarted || cleanupStarted) throw new IllegalStateException("Target transaction cleanup is invalid.");
+            cleanupStarted = true;
+            transaction.rollback(journal);
+        }
+        private TargetOutcome rollbackFailure(String target, String adapterId, String diagnostic, TargetJournalEntry evidence) {
+            Path evidencePath = preserveEvidence(target, evidence);
+            return new TargetOutcome(target, TargetState.ROLLBACK_FAILED, adapterId, diagnostic + (evidencePath == null ? " Evidence persistence failed." : ""), evidence, evidencePath, true);
+        }
+    }
 
     public PatchReloadCoordinator(Path generatedRoot, PatchReloadTracker tracker, HytalePatchTargetAdapter builtInAdapter, List<HytalePatchTargetAdapter> hostAdapters, Duration timeout) {
         this(generatedRoot, tracker, builtInAdapter, hostAdapters, timeout, TargetPatchTransaction.fileMoves(), TargetPatchTransaction.fileMoves());
@@ -81,24 +124,29 @@ public final class PatchReloadCoordinator {
 
     /** Runs one authorized pass at a time; file and observer events cannot call this method successfully. */
     public synchronized ReloadOutcome reload(ReloadRequest request) {
-        if (inProgress || !accepting) return new ReloadOutcome(false, nextEpoch, ManifestState.NOT_ATTEMPTED, List.of(), IntegrityState.NOT_ATTEMPTED, "Reload is fenced or already in progress.");
         if (request.trigger() != Trigger.PATCHWORK_RELOAD_COMMAND || !"patchwork.admin".equals(request.permission())) {
             return new ReloadOutcome(false, nextEpoch, ManifestState.NOT_ATTEMPTED, List.of(), IntegrityState.NOT_ATTEMPTED, "Live reload requires authorized /patchwork reload.");
         }
-        long epoch = ++nextEpoch; String passToken = coordinatorToken + ":" + ownershipEpoch + ":" + epoch; activePassToken = passToken; tracker.activate(passToken); inProgress = true;
+        long epoch; String passToken;
+        synchronized (lifecycleLock) { if (inProgress || !accepting) return new ReloadOutcome(false, nextEpoch, ManifestState.NOT_ATTEMPTED, List.of(), IntegrityState.NOT_ATTEMPTED, "Reload is fenced or already in progress."); epoch = ++nextEpoch; passToken = coordinatorToken + ":" + ownershipEpoch + ":" + epoch; activePassToken = passToken; activePassOwnershipEpoch = ownershipEpoch; tracker.activate(passToken); inProgress = true; }
         try {
         ReloadPlan plan;
         try { plan = Objects.requireNonNull(request.generator().get(), "Reload generation returned no plan."); }
         catch (Exception failure) { return new ReloadOutcome(true, epoch, ManifestState.NOT_ATTEMPTED, List.of(), IntegrityState.NOT_ATTEMPTED, "Generation failed: " + failure.getMessage()); }
-        if (!startOperation(passToken)) return new ReloadOutcome(true, epoch, ManifestState.NOT_ATTEMPTED, List.of(), IntegrityState.NOT_ATTEMPTED, "Reload revoked during generation.");
-        ManifestResult manifest = writeManifest("manifest.json", plan.hytaleManifestBytes());
+        ManifestResult manifest;
+        try { manifest = executePhase(passToken, "initial-manifest", () -> writeManifest("manifest.json", plan.hytaleManifestBytes())); }
+        catch (ReloadRevokedException revoked) { return new ReloadOutcome(true, epoch, ManifestState.NOT_ATTEMPTED, List.of(), IntegrityState.NOT_ATTEMPTED, "Reload revoked during generation."); }
+        catch (Exception failure) { return new ReloadOutcome(true, epoch, ManifestState.UNCHANGED, List.of(), IntegrityState.NOT_ATTEMPTED, "Manifest commit failed: " + failure.getMessage()); }
         if (manifest.state() != ManifestState.COMMITTED) return new ReloadOutcome(true, epoch, manifest.state(), List.of(), IntegrityState.NOT_ATTEMPTED, manifest.diagnostic());
         List<TargetOutcome> outcomes = new ArrayList<>();
         TargetPatchTransaction transaction = new TargetPatchTransaction(root, targetMoves);
-        for (TargetUpdate update : plan.updates()) { if (!accepting) break; outcomes.add(reloadTarget(passToken, epoch, transaction, update)); }
+        for (TargetUpdate update : plan.updates()) {
+            if (!hasActivePass(passToken)) break;
+            outcomes.add(reloadTarget(passToken, epoch, transaction, update));
+        }
         IntegrityResult integrity = reconcileIntegrity(passToken);
-        return new ReloadOutcome(true, epoch, ManifestState.COMMITTED, outcomes, integrity.state(), (accepting ? "" : "Reload revoked. ") + integrity.diagnostic());
-        } finally { tracker.fence(passToken); activePassToken = null; synchronized (lifecycleLock) { inProgress = false; lifecycleLock.notifyAll(); } }
+        return new ReloadOutcome(true, epoch, ManifestState.COMMITTED, outcomes, integrity.state(), (isAccepting() ? "" : "Reload revoked. ") + integrity.diagnostic());
+        } finally { tracker.fence(passToken); synchronized (lifecycleLock) { activePassToken = null; activePassOwnershipEpoch = -1L; inProgress = false; lifecycleLock.notifyAll(); } }
     }
 
     /** Activates this coordinator for an ownership epoch. */
@@ -120,60 +168,67 @@ public final class PatchReloadCoordinator {
 
     private TargetOutcome reloadTarget(String token, long epoch, TargetPatchTransaction transaction, TargetUpdate update) {
         try {
-            TargetJournalEntry journal = transaction.journal(update.target());
+            TargetJournalEntry journal = executePhase(token, "target-journal", () -> transaction.journal(update.target()));
             String expectedHash = TargetJournalEntry.hash(update.bytes()); boolean removal = update.bytes() == null;
             PatchTargetClassifier.Family family = classifier.classify(update.target());
             HytalePatchTargetAdapter.ReloadTarget target = new HytalePatchTargetAdapter.ReloadTarget(token, epoch, update.target(), expectedHash, removal, family);
-            HytalePatchTargetAdapter adapter;
-            java.util.concurrent.CompletableFuture<PatchReloadTracker.Outcome> observation;
-            synchronized (lifecycleLock) {
-                if (!hasLease(token)) return outcome(update.target(), TargetState.FAILED, "", "Reload lease was revoked.", null, false);
-                adapter = select(target);
-                observation = tracker.expect(token, epoch, update.target(), expectedHash, removal);
-            }
-            try { transaction.apply(update.target(), update.bytes()); }
-            catch (Exception failure) { tracker.cancel(token, epoch, update.target(), expectedHash); return rollback(token, epoch, transaction, journal, adapter, family, update.target(), failure.getMessage()); }
-            if (adapter == null) { tracker.cancel(token, epoch, update.target(), expectedHash); return outcome(update.target(), TargetState.RESTART_REQUIRED, "", "No verified live reload route.", null, true); }
-            synchronized (lifecycleLock) {
-                if (!hasLease(token)) { tracker.cancel(token, epoch, update.target(), expectedHash); return rollback(token, epoch, transaction, journal, adapter, family, update.target(), "Reload revoked before adapter start."); }
-            }
+            HytalePatchTargetAdapter adapter = executePhase(token, "adapter-selection", () -> select(target));
+            TargetTransactionScope transactionScope = beginTargetTransaction(token, epoch, update, expectedHash, removal);
+            try { transactionScope.apply(transaction, update); }
+            catch (ReloadRevokedException revoked) { throw revoked; }
+            catch (Exception failure) { return rollback(token, epoch, transactionScope, transaction, journal, adapter, family, update.target(), failure.getMessage()); }
+            if (adapter == null) { tracker.cancel(token, epoch, update.target(), expectedHash); return outcome(update.target(), TargetState.RESTART_REQUIRED, "", "No verified live reload route.", true); }
             HytalePatchTargetAdapter.AdapterReply reply;
-            try { reply = adapter.reload(target); }
-            catch (Exception failure) { tracker.cancel(token, epoch, update.target(), expectedHash); return rollback(token, epoch, transaction, journal, adapter, family, update.target(), failure.getMessage()); }
-            if (reply == null) { tracker.cancel(token, epoch, update.target(), expectedHash); return rollback(token, epoch, transaction, journal, adapter, family, update.target(), "Adapter returned no result."); }
-            if (reply.restartRequired()) { tracker.cancel(token, epoch, update.target(), expectedHash); return outcome(update.target(), TargetState.RESTART_REQUIRED, adapter.adapterId(), reply.diagnostic(), null, true); }
-            if (!reply.accepted() || !await(observation)) {
+            try { reply = executePhase(token, "forward-adapter", () -> adapter.reload(target)); }
+            catch (Exception failure) { tracker.cancel(token, epoch, update.target(), expectedHash); return rollback(token, epoch, transactionScope, transaction, journal, adapter, family, update.target(), failure.getMessage()); }
+            if (reply == null) { tracker.cancel(token, epoch, update.target(), expectedHash); return rollback(token, epoch, transactionScope, transaction, journal, adapter, family, update.target(), "Adapter returned no result."); }
+            if (reply.restartRequired()) { tracker.cancel(token, epoch, update.target(), expectedHash); return outcome(update.target(), TargetState.RESTART_REQUIRED, adapter.adapterId(), reply.diagnostic(), true); }
+            if (!reply.accepted() || !await(transactionScope.observation)) {
                 tracker.cancel(token, epoch, update.target(), expectedHash);
-                return rollback(token, epoch, transaction, journal, adapter, family, update.target(), reply.diagnostic());
+                return rollback(token, epoch, transactionScope, transaction, journal, adapter, family, update.target(), reply.diagnostic());
             }
             TargetState state = removal ? TargetState.REMOVED : adapter == builtInAdapter ? TargetState.HOT_RELOADED : TargetState.ADAPTER_RELOADED;
-            return outcome(update.target(), state, adapter.adapterId(), "", null, false);
-        } catch (Exception failure) { return outcome(update.target(), TargetState.FAILED, "", failure.getMessage(), null, false); }
+            return outcome(update.target(), state, adapter.adapterId(), "", false);
+        } catch (ReloadRevokedException revoked) { return outcome(update.target(), TargetState.FAILED, "", "Reload lease was revoked.", false); }
+        catch (Exception failure) { return outcome(update.target(), TargetState.FAILED, "", failure.getMessage(), false); }
     }
-    private boolean hasLease(String token) { return accepting && token.equals(activePassToken); }
-    /** Atomically records that a pass-owned operation began before a revocation can fence it. */
-    private boolean startOperation(String token) { synchronized (lifecycleLock) { return hasLease(token); } }
+    private boolean hasLease(String token) { return accepting && ownershipEpoch == activePassOwnershipEpoch && token.equals(activePassToken); }
+    private boolean hasActivePass(String token) { synchronized (lifecycleLock) { return hasLease(token); } }
+    private boolean isAccepting() { synchronized (lifecycleLock) { return accepting; } }
+    private <T> T executePhase(String token, String phase, PhaseAction<T> action) throws Exception {
+        PhaseAuthorization authorization;
+        synchronized (lifecycleLock) {
+            if (!hasLease(token)) throw new ReloadRevokedException();
+            authorization = new PhaseAuthorization(phase);
+        }
+        return authorization.execute(action);
+    }
+    /** Registers the exact observation and issues the retained mutation/cleanup transaction scope atomically. */
+    private TargetTransactionScope beginTargetTransaction(String token, long epoch, TargetUpdate update, String expectedHash, boolean removal) throws ReloadRevokedException {
+        synchronized (lifecycleLock) {
+            if (!hasLease(token)) throw new ReloadRevokedException();
+            return new TargetTransactionScope(tracker.expect(token, epoch, update.target(), expectedHash, removal));
+        }
+    }
 
-    private TargetOutcome rollback(String token, long epoch, TargetPatchTransaction transaction, TargetJournalEntry journal, HytalePatchTargetAdapter adapter, PatchTargetClassifier.Family family, String target, String diagnostic) {
+    private TargetOutcome rollback(String token, long epoch, TargetTransactionScope transactionScope, TargetPatchTransaction transaction, TargetJournalEntry journal, HytalePatchTargetAdapter adapter, PatchTargetClassifier.Family family, String target, String diagnostic) {
         boolean expectationRegistered = false;
         try {
             boolean removal = journal.oldBytes() == null;
+            transactionScope.restore(transaction, journal);
+            if (adapter == null) return transactionScope.rollbackFailure(target, "", diagnostic, journal);
             java.util.concurrent.CompletableFuture<PatchReloadTracker.Outcome> expected;
-            boolean confirmationAvailable;
+            PhaseAuthorization authorization;
             synchronized (lifecycleLock) {
-                confirmationAvailable = hasLease(token);
-                if (confirmationAvailable) { expected = tracker.expect(token, epoch, target, journal.oldHash(), removal); expectationRegistered = true; }
-                else expected = null;
+                if (!hasLease(token)) return transactionScope.rollbackFailure(target, "", diagnostic + " Reload revoked before rollback confirmation.", journal);
+                expected = tracker.expect(token, epoch, target, journal.oldHash(), removal); expectationRegistered = true;
+                authorization = new PhaseAuthorization("rollback-confirmation-adapter");
             }
-            transaction.rollback(journal);
-            if (!confirmationAvailable) return outcome(target, TargetState.ROLLBACK_FAILED, "", diagnostic + " Reload revoked before rollback confirmation.", journal, true);
-            if (adapter == null) return outcome(target, TargetState.ROLLBACK_FAILED, "", diagnostic, journal, true);
-            synchronized (lifecycleLock) { if (!hasLease(token)) return outcome(target, TargetState.ROLLBACK_FAILED, "", diagnostic + " Reload revoked before rollback adapter start.", journal, true); }
-            HytalePatchTargetAdapter.AdapterReply reply = adapter.reload(new HytalePatchTargetAdapter.ReloadTarget(token, epoch, target, journal.oldHash(), removal, family));
-            if (reply != null && reply.accepted() && !reply.restartRequired() && await(expected)) return outcome(target, TargetState.STALE, adapter.adapterId(), diagnostic, null, false);
+            HytalePatchTargetAdapter.AdapterReply reply = authorization.execute(() -> adapter.reload(new HytalePatchTargetAdapter.ReloadTarget(token, epoch, target, journal.oldHash(), removal, family)));
+            if (reply != null && reply.accepted() && !reply.restartRequired() && await(expected)) return outcome(target, TargetState.STALE, adapter.adapterId(), diagnostic, false);
         } catch (Exception failure) { diagnostic = diagnostic + " Rollback failed: " + failure.getMessage(); }
         finally { if (expectationRegistered) tracker.cancel(token, epoch, target, journal.oldHash()); }
-        return outcome(target, TargetState.ROLLBACK_FAILED, adapter == null ? "" : adapter.adapterId(), diagnostic, journal, true);
+        return transactionScope.rollbackFailure(target, adapter == null ? "" : adapter.adapterId(), diagnostic, journal);
     }
 
     private HytalePatchTargetAdapter select(HytalePatchTargetAdapter.ReloadTarget target) {
@@ -185,14 +240,13 @@ public final class PatchReloadCoordinator {
         try { return expected.get(timeout.toMillis(), TimeUnit.MILLISECONDS) != PatchReloadTracker.Outcome.FAILED; }
         catch (Exception timeoutOrFailure) { return false; }
     }
-    private TargetOutcome outcome(String target, TargetState state, String adapterId, String diagnostic, TargetJournalEntry evidence, boolean restartRequired) {
-        Path evidencePath = evidence == null ? null : preserveEvidence(target, evidence);
-        return new TargetOutcome(target, state, adapterId, diagnostic + (evidence != null && evidencePath == null ? " Evidence persistence failed." : ""), evidence, evidencePath, restartRequired);
+    private TargetOutcome outcome(String target, TargetState state, String adapterId, String diagnostic, boolean restartRequired) {
+        return new TargetOutcome(target, state, adapterId, diagnostic, null, null, restartRequired);
     }
     private Path preserveEvidence(String target, TargetJournalEntry evidence) {
         try {
             Path diagnostics = root.getParent().resolve("Diagnostics").normalize(); TargetPatchTransaction.verifySafePath(root.getParent()); Files.createDirectories(diagnostics); TargetPatchTransaction.verifySafePath(diagnostics); var diagnosticsAncestry = TargetPatchTransaction.captureAncestry(diagnostics);
-            String safe = safePathToken(target); String hash = safePathToken(evidence.oldHash()); String name = "reload-" + nextEpoch + "-" + safe + "-" + hash.substring(0, Math.min(12, hash.length())) + "-" + java.util.UUID.randomUUID(); Path directory = Files.createDirectory(diagnostics.resolve(name)); TargetPatchTransaction.verifySafePath(directory);
+            String safe = safePathToken(target); if (safe.length() > 48) safe = safe.substring(0, 48); String targetFingerprint = TargetJournalEntry.hash(target.getBytes(java.nio.charset.StandardCharsets.UTF_8)).substring(0, 16); String hash = safePathToken(evidence.oldHash()); String name = "reload-" + nextEpoch + "-" + safe + "-" + targetFingerprint + "-" + hash.substring(0, Math.min(12, hash.length())) + "-" + java.util.UUID.randomUUID(); Path directory = Files.createDirectory(diagnostics.resolve(name)); TargetPatchTransaction.verifySafePath(directory);
             TargetPatchTransaction.requireSameAncestry(diagnostics, diagnosticsAncestry); writeEvidenceFile(directory, "metadata.txt", ("Epoch=" + nextEpoch + "\nTarget=" + target + "\nHash=" + evidence.oldHash() + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
             if (evidence.oldBytes() != null) { TargetPatchTransaction.requireSameAncestry(diagnostics, diagnosticsAncestry); writeEvidenceFile(directory, "old-bytes.bin", evidence.oldBytes()); }
             return directory;
@@ -223,9 +277,14 @@ public final class PatchReloadCoordinator {
     }
     private IntegrityResult reconcileIntegrity(String token) {
         try {
+            return executePhase(token, "integrity-reconciliation", () -> reconcileIntegrityPhase());
+        } catch (ReloadRevokedException revoked) { return new IntegrityResult(IntegrityState.UNCERTAIN, "Reload revoked before inventory reconciliation."); }
+        catch (Exception failure) { return new IntegrityResult(IntegrityState.FAILED, "Integrity reconciliation failed: " + failure.getMessage()); }
+    }
+    private IntegrityResult reconcileIntegrityPhase() {
+        try {
             List<GeneratedPackManifest.Entry> entries = scanInventoryEntries();
             byte[] manifestBytes = new GeneratedPackManifest(entries).bytes();
-            if (!startOperation(token)) return new IntegrityResult(IntegrityState.UNCERTAIN, "Reload revoked before inventory commit.");
             ManifestResult result = writeManifest(GeneratedPackManifest.FILE_NAME, manifestBytes);
             if (result.state() != ManifestState.COMMITTED) return new IntegrityResult(IntegrityState.UNCERTAIN, result.diagnostic());
             if (!sameInventory(entries, scanInventoryEntries())) return new IntegrityResult(IntegrityState.UNCERTAIN, "Generated inventory changed during reconciliation.");
