@@ -27,6 +27,15 @@ final class OwnedPathAccess {
         if (!before.equals(snapshot(path))) throw new IOException("Owned path changed before mutation.");
     }
     void afterCreation(Path path) throws IOException { hook.afterCreation(path); }
+    Identity captureIdentity(Path path) throws IOException {
+        layout.requireSafeExistingComponents(path);
+        BasicFileAttributes attributes = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        return new Identity(String.valueOf(attributes.fileKey()), attributes.isDirectory(), attributes.size(), attributes.creationTime().toMillis());
+    }
+    void requireSameIdentity(Path path, Identity identity) throws IOException {
+        layout.requireSafeExistingComponents(path);
+        if (!identity.equals(captureIdentity(path))) throw new IOException("Created owned directory was replaced before use.");
+    }
 
     private List<Component> snapshot(Path path) throws IOException {
         Path target = path.toAbsolutePath().normalize();
@@ -47,5 +56,6 @@ final class OwnedPathAccess {
     }
 
     private record Component(Path path, String fileKey, long size, boolean directory) { }
+    record Identity(String fileKey, boolean directory, long size, long created) { }
     @FunctionalInterface interface MutationHook { void beforeMutation(Path path) throws IOException; default void afterCreation(Path path) throws IOException { } }
 }

@@ -157,9 +157,29 @@ final class StartupPackPublisherTest {
     @Test
     void committedThrowingActivationIsNotRegisteredOrCurrent() {
         GeneratedPackLayout layout = new GeneratedPackLayout(temporary); AtomicBoolean registered = new AtomicBoolean();
-        var publication = new StartupPackPublisher(layout, id -> registered.set(true), throwAfterMove("GeneratedPatches"), (s, p) -> { }).publish(plan());
+        var publication = new StartupPackPublisher(layout, id -> registered.set(true), throwAfterMoveExact(layout.generatedRoot()), (s, p) -> { }).publish(plan());
         assertFalse(registered.get()); assertFalse(publication.published()); assertEquals(null, publication.activeRoot());
-        assertTrue(publication.recoveryEvidence().stream().anyMatch(path -> path.getFileName().toString().startsWith("GeneratedPatches-failed-new-")) || publication.residualEvidence().contains(layout.generatedRoot()));
+        assertEquals(1, publication.recoveryEvidence().size()); assertTrue(publication.recoveryEvidence().getFirst().getFileName().toString().startsWith("GeneratedPatches-failed-new-"));
+        assertTrue(Files.exists(publication.recoveryEvidence().getFirst())); assertTrue(publication.residualEvidence().isEmpty());
+    }
+
+    @Test
+    void preMutationActivationThrowThenRecoveryLeavesNoStaleResidual() {
+        GeneratedPackLayout layout = new GeneratedPackLayout(temporary);
+        AtomicBoolean first = new AtomicBoolean(true);
+        StartupPackPublisher.MoveStrategy moves = new StartupPackPublisher.MoveStrategy() { public void atomicMove(Path from, Path to) throws IOException { move(from, to); } public void nonAtomicMove(Path from, Path to) throws IOException { move(from, to); } private void move(Path from, Path to) throws IOException { if (to.equals(layout.generatedRoot()) && first.getAndSet(false)) throw new IOException("before mutation"); Files.move(from, to); } };
+        var publication = new StartupPackPublisher(layout, id -> { }, moves, (s, p) -> { }).publish(plan());
+        assertFalse(publication.published()); assertTrue(publication.residualEvidence().isEmpty()); assertEquals(1, publication.recoveryEvidence().size()); assertTrue(publication.recoveryEvidence().getFirst().getFileName().toString().startsWith("GeneratedPatches-failed-new-"));
+    }
+
+    @Test
+    void committedThrowingActivationWithPriorRetainsPriorAndFailedNewFinalEvidence() throws Exception {
+        GeneratedPackLayout layout = new GeneratedPackLayout(temporary); Files.createDirectories(layout.generatedRoot()); Files.writeString(layout.generatedRoot().resolve("old.json"), "old");
+        var publication = new StartupPackPublisher(layout, id -> { }, throwAfterMoveExact(layout.generatedRoot()), (s, p) -> { }).publish(plan());
+        Path prior = publication.recoveryEvidence().stream().filter(path -> path.getFileName().toString().startsWith("GeneratedPatches-prior-")).findFirst().orElseThrow();
+        Path failed = publication.recoveryEvidence().stream().filter(path -> path.getFileName().toString().startsWith("GeneratedPatches-failed-new-")).findFirst().orElseThrow();
+        assertEquals("old", Files.readString(prior.resolve("old.json"))); assertTrue(Files.exists(failed.resolve("Server/Test.json")));
+        assertTrue(publication.recoveryEvidence().stream().allMatch(Files::exists)); assertTrue(publication.residualEvidence().stream().allMatch(Files::exists));
     }
 
     @Test
@@ -266,6 +286,17 @@ final class StartupPackPublisherTest {
             var publication = new StartupPackPublisher(layout, id -> registered.set(true), new StartupPackPublisher.FileMoveStrategy(), (s, p) -> { }, Files::delete, access).publish(plan());
             assertFalse(publication.published()); assertFalse(registered.get()); assertEquals("untouched", Files.readString(outside.resolve("marker.txt"))); assertFalse(Files.exists(outside.resolve("Server/Test.json")));
         }
+    }
+
+    @Test
+    void postCreateOrdinaryDirectoryReplacementFailsBeforeStaleContentCanActivate() throws Exception {
+        GeneratedPackLayout layout = new GeneratedPackLayout(temporary); AtomicBoolean registered = new AtomicBoolean();
+        OwnedPathAccess access = new OwnedPathAccess(layout, new OwnedPathAccess.MutationHook() {
+            public void beforeMutation(Path path) { }
+            public void afterCreation(Path path) throws IOException { if (path.getFileName().toString().startsWith(".GeneratedPatches-staging-")) { Files.delete(path); Files.createDirectory(path); Files.writeString(path.resolve("stale.json"), "stale"); } }
+        });
+        var publication = new StartupPackPublisher(layout, id -> registered.set(true), new StartupPackPublisher.FileMoveStrategy(), (s, p) -> { }, Files::delete, access).publish(plan());
+        assertFalse(publication.published()); assertFalse(registered.get()); assertFalse(Files.exists(layout.generatedRoot().resolve("stale.json")));
     }
 
     @Test
@@ -393,6 +424,13 @@ final class StartupPackPublisherTest {
             @Override public void atomicMove(Path from, Path to) throws IOException { move(from, to); }
             @Override public void nonAtomicMove(Path from, Path to) throws IOException { move(from, to); }
             private void move(Path from, Path to) throws IOException { Files.move(from, to); if (to.getFileName().toString().startsWith(destinationPrefix)) throw new IOException("committed then threw"); }
+        };
+    }
+    private static StartupPackPublisher.MoveStrategy throwAfterMoveExact(Path expected) {
+        return new StartupPackPublisher.MoveStrategy() {
+            public void atomicMove(Path from, Path to) throws IOException { move(from, to); }
+            public void nonAtomicMove(Path from, Path to) throws IOException { move(from, to); }
+            private void move(Path from, Path to) throws IOException { Files.move(from, to); if (to.equals(expected)) throw new IOException("committed activation"); }
         };
     }
     private static StartupPackPublisher.PackRegistrar attemptRegistrar(ThrowingAction commit, ThrowingAction rollback) {

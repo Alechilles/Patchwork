@@ -85,12 +85,12 @@ public final class StartupPackPublisher {
             // A move may have committed before its provider reports failure; reconcile both named endpoints.
             if (Files.exists(prior, java.nio.file.LinkOption.NOFOLLOW_LINKS) && !evidence.contains(prior)) evidence.add(prior);
             if (!activationConfirmed && !Files.exists(staging, java.nio.file.LinkOption.NOFOLLOW_LINKS)
-                    && Files.exists(live, java.nio.file.LinkOption.NOFOLLOW_LINKS) && !Files.exists(prior, java.nio.file.LinkOption.NOFOLLOW_LINKS)) activationConfirmed = true;
+                    && Files.exists(live, java.nio.file.LinkOption.NOFOLLOW_LINKS)) activationConfirmed = true;
             List<Path> residual = reconcile(intents, evidence);
             residual.addAll(retainFailure(staging, live, evidence, priorPresent, activationConfirmed, intents));
             residual.addAll(reconcile(intents, evidence));
             if (failure instanceof OwnedCleanupFailure cleanupFailure) residual.add(cleanupFailure.root());
-            return new Publication(false, message(failure), null, ordered(evidence), ordered(residual), false);
+            return new Publication(false, message(failure), null, existing(ordered(evidence)), existing(ordered(residual)), false);
         }
     }
 
@@ -98,8 +98,9 @@ public final class StartupPackPublisher {
         access.guard(staging.getParent());
         if (!layout.isOwnedStagingChild(staging)) throw new IOException("Staging path is not an owned direct child.");
         Files.createDirectory(staging);
+        OwnedPathAccess.Identity createdIdentity = access.captureIdentity(staging);
         access.afterCreation(staging);
-        layout.requireSafeExistingComponents(staging);
+        access.requireSameIdentity(staging, createdIdentity);
     }
 
     private void writePlan(Path staging, PatchGenerationService.GenerationPlan plan) throws IOException {
@@ -240,6 +241,7 @@ public final class StartupPackPublisher {
     }
     private static String message(Exception failure) { return failure.getMessage() == null ? "Publication failed." : failure.getMessage(); }
     private static List<Path> ordered(List<Path> paths) { return paths.stream().distinct().sorted(Comparator.comparing(Path::toString)).toList(); }
+    private static List<Path> existing(List<Path> paths) { return paths.stream().filter(path -> Files.exists(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)).toList(); }
 
     @FunctionalInterface public interface PackRegistrar {
         void register(String packId) throws Exception;
