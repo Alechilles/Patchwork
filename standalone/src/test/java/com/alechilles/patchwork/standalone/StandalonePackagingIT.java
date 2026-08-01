@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * packaging boundary.
  */
 class StandalonePackagingIT {
+    private static final Path PARENT_POM = Path.of("..", "pom.xml");
     private static final Path RUNTIME_JAR = Path.of("..", "runtime", "target", "patchwork-runtime-1.0.0.jar");
     private static final Path RUNTIME_POM = Path.of("..", "runtime", "pom.xml");
     private static final Path STANDALONE_JAR = Path.of("target", "patchwork-standalone-1.0.0.jar");
@@ -41,6 +42,7 @@ class StandalonePackagingIT {
             }
         }
 
+        assertEquals(0, shadePluginCount(PARENT_POM), "The parent must not configure inherited shading.");
         assertEquals(0, shadePluginCount(RUNTIME_POM), "The runtime must not configure shading.");
         assertEquals(1, shadePluginCount(STANDALONE_POM), "Only the standalone module may configure shading.");
     }
