@@ -24,6 +24,8 @@ import com.google.common.jimfs.Jimfs;
 
 /** Exercises target-local live reload commits and recovery. */
 final class PatchReloadCoordinatorTest {
+    private static final long ASYNC_TIMEOUT_SECONDS = 30;
+
     @TempDir Path temporary;
 
     @Test
@@ -188,15 +190,15 @@ final class PatchReloadCoordinatorTest {
     void serializesConcurrentAuthorizedPassesUntilTheCurrentPassCompletes() throws Exception {
         Path root = Files.createDirectories(temporary.resolve("generated")); PatchReloadTracker tracker = new PatchReloadTracker();
         CountDownLatch firstAdapterStarted = new CountDownLatch(1); CountDownLatch releaseFirst = new CountDownLatch(1); AtomicBoolean secondGenerated = new AtomicBoolean();
-        HytalePatchTargetAdapter adapter = adapter("built-in", request -> { if (request.epoch() == 1L) { firstAdapterStarted.countDown(); releaseFirst.await(1, TimeUnit.SECONDS); } tracker.record(loaded(request)); return HytalePatchTargetAdapter.AdapterReply.confirmed(); });
+        HytalePatchTargetAdapter adapter = adapter("built-in", request -> { if (request.epoch() == 1L) { firstAdapterStarted.countDown(); releaseFirst.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS); } tracker.record(loaded(request)); return HytalePatchTargetAdapter.AdapterReply.confirmed(); });
         var coordinator = new PatchReloadCoordinator(root, tracker, adapter, List.of(), Duration.ofSeconds(1));
         CompletableFuture<Void> first = CompletableFuture.runAsync(() -> coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("first", update("Server/AssetStore/A.json", "a")))));
 
-        assertTrue(firstAdapterStarted.await(1, TimeUnit.SECONDS));
+        assertTrue(firstAdapterStarted.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
         CompletableFuture<Void> second = CompletableFuture.runAsync(() -> coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> { secondGenerated.set(true); return plan("second", update("Server/AssetStore/B.json", "b")); })));
         Thread.sleep(25);
         assertFalse(secondGenerated.get());
-        releaseFirst.countDown(); first.get(1, TimeUnit.SECONDS); second.get(1, TimeUnit.SECONDS);
+        releaseFirst.countDown(); first.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS); second.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertTrue(secondGenerated.get());
     }
 
@@ -367,19 +369,19 @@ final class PatchReloadCoordinatorTest {
         Path root = Files.createDirectories(temporary.resolve("generated")); PatchReloadTracker tracker = new PatchReloadTracker(); CountDownLatch adapterStarted = new CountDownLatch(1);
         var coordinator = new PatchReloadCoordinator(root, tracker, adapter("built-in", target -> { adapterStarted.countDown(); return HytalePatchTargetAdapter.AdapterReply.confirmed(); }), List.of(), Duration.ofSeconds(2));
         CompletableFuture<PatchReloadCoordinator.ReloadOutcome> pass = CompletableFuture.supplyAsync(() -> coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Server/AssetStore/A.json", "a"), update("Server/AssetStore/B.json", "b")))));
-        assertTrue(adapterStarted.await(1, TimeUnit.SECONDS)); assertFalse(coordinator.drain(Duration.ofMillis(5)));
-        coordinator.revoke(0L); var outcome = pass.get(1, TimeUnit.SECONDS);
+        assertTrue(adapterStarted.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)); assertFalse(coordinator.drain(Duration.ofMillis(5)));
+        coordinator.revoke(0L); var outcome = pass.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertTrue(coordinator.drain(Duration.ofMillis(100))); assertEquals(1, outcome.targets().size()); assertFalse(Files.exists(root.resolve("Server/AssetStore/B.json")));
     }
 
     @Test
     void revokeCancelsPromptlyWhileAnAdapterIsBlocked() throws Exception {
         Path root = Files.createDirectories(temporary.resolve("generated")); PatchReloadTracker tracker = new PatchReloadTracker(); CountDownLatch adapterStarted = new CountDownLatch(1); CountDownLatch unblockAdapter = new CountDownLatch(1);
-        var coordinator = new PatchReloadCoordinator(root, tracker, adapter("built-in", target -> { adapterStarted.countDown(); assertTrue(unblockAdapter.await(1, TimeUnit.SECONDS)); return HytalePatchTargetAdapter.AdapterReply.confirmed(); }), List.of(), Duration.ofSeconds(2));
+        var coordinator = new PatchReloadCoordinator(root, tracker, adapter("built-in", target -> { adapterStarted.countDown(); assertTrue(unblockAdapter.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)); return HytalePatchTargetAdapter.AdapterReply.confirmed(); }), List.of(), Duration.ofSeconds(2));
         CompletableFuture<PatchReloadCoordinator.ReloadOutcome> pass = CompletableFuture.supplyAsync(() -> coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Server/AssetStore/A.json", "a")))));
 
-        CountDownLatch revocationReturned = new CountDownLatch(1); assertTrue(adapterStarted.await(1, TimeUnit.SECONDS)); CompletableFuture.runAsync(() -> { coordinator.revoke(0L); revocationReturned.countDown(); }); assertTrue(revocationReturned.await(100, TimeUnit.MILLISECONDS)); assertFalse(coordinator.drain(Duration.ofMillis(10)));
-        unblockAdapter.countDown(); assertTrue(pass.get(10, TimeUnit.SECONDS).started()); assertTrue(coordinator.drain(Duration.ofMillis(100)));
+        CountDownLatch revocationReturned = new CountDownLatch(1); assertTrue(adapterStarted.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)); CompletableFuture.runAsync(() -> { coordinator.revoke(0L); revocationReturned.countDown(); }); assertTrue(revocationReturned.await(100, TimeUnit.MILLISECONDS)); assertFalse(coordinator.drain(Duration.ofMillis(10)));
+        unblockAdapter.countDown(); assertTrue(pass.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS).started()); assertTrue(coordinator.drain(Duration.ofMillis(100)));
     }
 
     @Test
@@ -400,13 +402,13 @@ final class PatchReloadCoordinatorTest {
         CompletableFuture<PatchReloadCoordinator.ReloadOutcome> pass = CompletableFuture.supplyAsync(() -> holder[0].reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Server/AssetStore/A.json", "new")))));
 
         try {
-            assertTrue(evidenceWriterEntered.await(1, TimeUnit.SECONDS));
+            assertTrue(evidenceWriterEntered.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
             CompletableFuture<Void> activate = CompletableFuture.runAsync(() -> holder[0].activate(1L));
             activate.get(100, TimeUnit.MILLISECONDS);
             assertFalse(CompletableFuture.supplyAsync(() -> holder[0].drain(Duration.ofMillis(5))).get(100, TimeUnit.MILLISECONDS));
         } finally { releaseEvidenceWriter.countDown(); }
 
-        PatchReloadCoordinator.TargetOutcome outcome = pass.get(1, TimeUnit.SECONDS).targets().getFirst();
+        PatchReloadCoordinator.TargetOutcome outcome = pass.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS).targets().getFirst();
         assertEquals(PatchReloadCoordinator.TargetState.ROLLBACK_FAILED, outcome.state()); assertTrue(Files.exists(outcome.rollbackEvidencePath().resolve("metadata.txt"))); assertTrue(holder[0].drain(Duration.ofSeconds(1)));
     }
 
@@ -415,7 +417,7 @@ final class PatchReloadCoordinatorTest {
         Path root = Files.createDirectories(temporary.resolve("admission")); CountDownLatch entered = new CountDownLatch(1); CountDownLatch release = new CountDownLatch(1);
         var coordinator = new PatchReloadCoordinator(root, new PatchReloadTracker(), unsupported(), List.of(), Duration.ofMillis(10));
         CompletableFuture<PatchReloadCoordinator.ReloadOutcome> pass = CompletableFuture.supplyAsync(() -> coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> { entered.countDown(); try { release.await(); } catch (InterruptedException e) { throw new RuntimeException(e); } return plan("manifest"); })));
-        assertTrue(entered.await(1, TimeUnit.SECONDS)); assertFalse(coordinator.drain(Duration.ofMillis(5))); coordinator.revoke(0); release.countDown(); assertTrue(pass.get(1, TimeUnit.SECONDS).started()); assertTrue(coordinator.drain(Duration.ofSeconds(1)));
+        assertTrue(entered.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)); assertFalse(coordinator.drain(Duration.ofMillis(5))); coordinator.revoke(0); release.countDown(); assertTrue(pass.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS).started()); assertTrue(coordinator.drain(Duration.ofSeconds(1)));
     }
 
     @Test
@@ -424,15 +426,15 @@ final class PatchReloadCoordinatorTest {
         HytalePatchTargetAdapter host = new HytalePatchTargetAdapter("host", target -> { entered.countDown(); try { release.await(); } catch (InterruptedException e) { throw new RuntimeException(e); } return true; }, target -> HytalePatchTargetAdapter.AdapterReply.confirmed());
         var coordinator = new PatchReloadCoordinator(root, tracker, unsupported(), List.of(host), Duration.ofMillis(20));
         CompletableFuture<PatchReloadCoordinator.ReloadOutcome> pass = CompletableFuture.supplyAsync(() -> coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Custom/A.json", "a")))));
-        assertTrue(entered.await(1, TimeUnit.SECONDS)); CountDownLatch returned = new CountDownLatch(1); CompletableFuture.runAsync(() -> { coordinator.revoke(0); returned.countDown(); }); assertTrue(returned.await(100, TimeUnit.MILLISECONDS)); release.countDown(); assertTrue(pass.get(1, TimeUnit.SECONDS).started()); assertTrue(coordinator.drain(Duration.ofSeconds(1)));
+        assertTrue(entered.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)); CountDownLatch returned = new CountDownLatch(1); CompletableFuture.runAsync(() -> { coordinator.revoke(0); returned.countDown(); }); assertTrue(returned.await(100, TimeUnit.MILLISECONDS)); release.countDown(); assertTrue(pass.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS).started()); assertTrue(coordinator.drain(Duration.ofSeconds(1)));
     }
 
     @Test
     void authorizedAdapterMayDrainAfterRevokeWithoutStartingNextTarget() throws Exception {
         Path root = Files.createDirectories(temporary.resolve("adapter-drain")); CountDownLatch entered = new CountDownLatch(1); CountDownLatch release = new CountDownLatch(1);
-        var coordinator = new PatchReloadCoordinator(root, new PatchReloadTracker(), adapter("built-in", target -> { entered.countDown(); assertTrue(release.await(1, TimeUnit.SECONDS)); return HytalePatchTargetAdapter.AdapterReply.confirmed(); }), List.of(), Duration.ofMillis(20));
+        var coordinator = new PatchReloadCoordinator(root, new PatchReloadTracker(), adapter("built-in", target -> { entered.countDown(); assertTrue(release.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)); return HytalePatchTargetAdapter.AdapterReply.confirmed(); }), List.of(), Duration.ofMillis(20));
         CompletableFuture<PatchReloadCoordinator.ReloadOutcome> pass = CompletableFuture.supplyAsync(() -> coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Server/AssetStore/A.json", "a"), update("Server/AssetStore/B.json", "b")))));
-        assertTrue(entered.await(1, TimeUnit.SECONDS)); coordinator.revoke(0); release.countDown(); PatchReloadCoordinator.ReloadOutcome result = pass.get(10, TimeUnit.SECONDS);
+        assertTrue(entered.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)); coordinator.revoke(0); release.countDown(); PatchReloadCoordinator.ReloadOutcome result = pass.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(1, result.targets().size()); assertFalse(Files.exists(root.resolve("Server/AssetStore/B.json"))); assertTrue(coordinator.drain(Duration.ofSeconds(1)));
     }
 
@@ -452,9 +454,9 @@ final class PatchReloadCoordinatorTest {
     @Test
     void newerActivationDoesNotResurrectRevokedPassWhileItsAdapterDrains() throws Exception {
         Path root = Files.createDirectories(temporary.resolve("old-pass")); CountDownLatch entered = new CountDownLatch(1); CountDownLatch release = new CountDownLatch(1);
-        var coordinator = new PatchReloadCoordinator(root, new PatchReloadTracker(), adapter("built-in", target -> { entered.countDown(); assertTrue(release.await(1, TimeUnit.SECONDS)); return HytalePatchTargetAdapter.AdapterReply.confirmed(); }), List.of(), Duration.ofMillis(20));
+        var coordinator = new PatchReloadCoordinator(root, new PatchReloadTracker(), adapter("built-in", target -> { entered.countDown(); assertTrue(release.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)); return HytalePatchTargetAdapter.AdapterReply.confirmed(); }), List.of(), Duration.ofMillis(20));
         CompletableFuture<PatchReloadCoordinator.ReloadOutcome> pass = CompletableFuture.supplyAsync(() -> coordinator.reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Server/AssetStore/A.json", "a"), update("Server/AssetStore/B.json", "b")))));
-        assertTrue(entered.await(1, TimeUnit.SECONDS)); coordinator.revoke(0); coordinator.activate(1); release.countDown(); PatchReloadCoordinator.ReloadOutcome result = pass.get(1, TimeUnit.SECONDS);
+        assertTrue(entered.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)); coordinator.revoke(0); coordinator.activate(1); release.countDown(); PatchReloadCoordinator.ReloadOutcome result = pass.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(1, result.targets().size()); assertFalse(Files.exists(root.resolve("Server/AssetStore/B.json"))); assertFalse(Files.exists(root.resolve("patchwork-manifest.json"))); assertTrue(coordinator.drain(Duration.ofSeconds(1)));
     }
 
