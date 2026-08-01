@@ -1,6 +1,8 @@
 package com.alechilles.patchwork.embedded;
 
 import com.alechilles.patchwork.coordinator.PatchworkCoordinatorBridge;
+import com.alechilles.patchwork.command.PatchworkCommandRoot;
+import com.alechilles.patchwork.command.PatchworkCommandActions;
 import com.alechilles.patchwork.engine.PatchMacroRegistry;
 import com.alechilles.patchwork.engine.PatchOperation;
 import com.alechilles.patchwork.reload.HytalePatchTargetAdapter;
@@ -35,12 +37,16 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
     private Map<String, ContributionBridge> contributions = Map.of();
     private Map<RouteKey, String> observationRoutes = Map.of();
     private boolean accepting;
+    /** True only while this host, not a fence, has temporarily paused its current lease for replay. */
+    private boolean replayPaused;
     private long epoch;
     private int inFlight;
     private long registeredEpoch = Long.MIN_VALUE;
     private Consumer<LoadAssetEvent> registeredEarlyLoad;
     private EarlyLoadRegistration earlyLoadRegistration;
+    private CommandRegistrationHandle commandRegistration;
     private PatchReloadCoordinator reloadCoordinator;
+    private PatchworkAdministrationService administration;
 
     /** Creates a host whose startup action is invoked only after election. */
     public PatchworkRuntimeHost(Path generatedRoot, Runnable startupAction) {
@@ -51,13 +57,14 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
     }
 
     /** Creates a host with its elected-only early-load registration collaborator. */
-    PatchworkRuntimeHost(Path generatedRoot, EarlyLoadRegistrar earlyLoadRegistrar) {
+    public PatchworkRuntimeHost(Path generatedRoot, EarlyLoadRegistrar earlyLoadRegistrar) {
         this.generatedRoot = Objects.requireNonNull(generatedRoot).toAbsolutePath().normalize();
         this.earlyLoadRegistrar = Objects.requireNonNull(earlyLoadRegistrar);
     }
 
     @Override public void activate(long value) {
-        synchronized (gate) { epoch = value; accepting = true; }
+        synchronized (gate) { epoch = value; accepting = true; replayPaused = false; }
+        administration().activate(value);
         PatchReloadCoordinator coordinator = reloadCoordinator;
         if (coordinator != null) coordinator.activate(value);
     }
@@ -66,10 +73,12 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
         synchronized (gate) {
             if (value >= epoch) {
                 accepting = false;
+                replayPaused = false;
                 tracker.cancelAll("Runtime fenced.");
                 observationRoutes = Map.of();
             }
         }
+        administration().fence(value);
         PatchReloadCoordinator coordinator = reloadCoordinator;
         if (coordinator != null) coordinator.revoke(value);
     }
@@ -81,12 +90,14 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
             throw new IllegalStateException("Timed out draining the fenced Patchwork reload coordinator.");
         }
         drain(DRAIN_TIMEOUT);
+        administration().drain(DRAIN_TIMEOUT);
         unregisterEarlyLoad();
     }
 
     @Override public void deactivate(long value) {
         fence(value);
         drain(DRAIN_TIMEOUT);
+        administration().drain(DRAIN_TIMEOUT);
         unregisterEarlyLoad();
     }
 
@@ -98,9 +109,20 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
             if (registeredEpoch == value) return;
             Consumer<LoadAssetEvent> callback = event -> runEarlyLoad(value, event);
             EarlyLoadRegistration registration = Objects.requireNonNull(earlyLoadRegistrar.register(value, callback), "Early-load registration handle is required.");
+            // Retain the sole unregister handle before any later activation work can fail.
             registeredEpoch = value;
             registeredEarlyLoad = callback;
             earlyLoadRegistration = registration;
+            try {
+                CommandRegistrationHandle command = earlyLoadRegistrar.registerCommands(administration());
+                if (command == null) {
+                    throw new IllegalStateException("Patchwork command registration was rejected.");
+                }
+                commandRegistration = command;
+            } catch (RuntimeException failure) {
+                try { unregisterEarlyLoad(); } catch (RuntimeException cleanup) { failure.addSuppressed(cleanup); }
+                throw failure;
+            }
         }
     }
 
@@ -126,27 +148,62 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
         }
     }
 
+    /** Package-local access for elected composition only; macro ownership remains with this host. */
+    PatchMacroRegistry macros() { return macros; }
+
+    /** Records a startup plan only after the early-load publisher has completed successfully. */
+    void seedPublishedInventory(com.alechilles.patchwork.generation.PatchGenerationService.GenerationPlan plan) {
+        administration().seedPublishedInventory(plan);
+    }
+
+    /** Records a startup plan only after its publication has completed at this ownership epoch. */
+    void seedStartup(long value, com.alechilles.patchwork.generation.PatchGenerationService.GenerationPlan plan) {
+        administration().seedStartup(value, plan);
+    }
+
+    private PatchworkAdministrationService administration() {
+        synchronized (gate) {
+            if (administration == null) administration = earlyLoadRegistrar.createAdministration(this);
+            return administration;
+        }
+    }
+
     @Override public void replayContributions(long value, List<Map<String, ?>> descriptors) {
         Map<String, ContributionBridge> proposed = parseSnapshot(descriptors);
-        synchronized (gate) {
-            requireLease(value);
-            accepting = false;
-        }
+        PatchworkAdministrationService administration = administration();
+        administration.pause(value);
         try {
-            drain(DRAIN_TIMEOUT);
             synchronized (gate) {
-                List<PatchMacroRegistry.MacroRegistration> proposedMacros = new ArrayList<>();
-                for (ContributionBridge bridge : proposed.values()) {
-                    for (String macroId : bridge.macroIds()) proposedMacros.add(new PatchMacroRegistry.MacroRegistration(bridge.host(), macroId, operation -> bridge.expand(macroId, operation)));
-                }
+                requireLease(value);
+                accepting = false;
+                replayPaused = true;
+            }
+            administration.drain(DRAIN_TIMEOUT);
+            drain(DRAIN_TIMEOUT);
+            List<PatchMacroRegistry.MacroRegistration> proposedMacros = new ArrayList<>();
+            for (ContributionBridge bridge : proposed.values()) {
+                for (String macroId : bridge.macroIds()) proposedMacros.add(new PatchMacroRegistry.MacroRegistration(bridge.host(), macroId, operation -> bridge.expand(macroId, operation)));
+            }
+            synchronized (gate) {
+                requireReplayLease(value);
                 macros.replace(proposedMacros);
                 contributions = Map.copyOf(proposed);
                 observationRoutes = Map.of();
                 accepting = true;
+                replayPaused = false;
             }
+            administration.resume(value);
         } catch (RuntimeException failure) {
             // The previous immutable macro/contribution snapshot remains installed; keep it usable.
-            synchronized (gate) { accepting = value == epoch; }
+            boolean resume = false;
+            synchronized (gate) {
+                if (replayPaused && epoch == value) {
+                    accepting = true;
+                    replayPaused = false;
+                    resume = true;
+                }
+            }
+            if (resume) administration.resume(value);
             throw failure;
         }
     }
@@ -235,6 +292,7 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
     }
 
     private void unregisterEarlyLoad() {
+        unregisterCommands();
         EarlyLoadRegistration registration;
         synchronized (gate) {
             registration = earlyLoadRegistration;
@@ -249,6 +307,14 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
         }
     }
 
+    private void unregisterCommands() {
+        CommandRegistrationHandle registration;
+        synchronized (gate) { registration = commandRegistration; }
+        if (registration == null) return;
+        registration.unregister();
+        synchronized (gate) { if (commandRegistration == registration) commandRegistration = null; }
+    }
+
     /** Test-only callback probe; production event registries own callback delivery. */
     void runRegisteredEarlyLoadForTest() {
         Consumer<LoadAssetEvent> callback;
@@ -258,6 +324,10 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
 
     private void requireLease(long value) {
         if (!accepting || value != epoch) throw new IllegalStateException("Runtime host is not active for this epoch.");
+    }
+
+    private void requireReplayLease(long value) {
+        if (!replayPaused || value != epoch) throw new IllegalStateException("Runtime host replay lease is no longer active.");
     }
 
     private Map<String, ContributionBridge> parseSnapshot(List<Map<String, ?>> descriptors) {
@@ -342,14 +412,34 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
     @FunctionalInterface private interface Invocation<T> { T call() throws ReflectiveOperationException; }
 
     /** Elected-only early-load callback registration seam. */
-    interface EarlyLoadRegistrar {
+    public interface EarlyLoadRegistrar {
         EarlyLoadRegistration register(long epoch, Consumer<LoadAssetEvent> callback);
+        default CommandRegistrationHandle registerCommands(PatchworkCommandActions actions) { return registerCommands(); }
+        /** Compatibility seam for existing non-Hytale host tests. */
+        default CommandRegistrationHandle registerCommands() { return () -> { }; }
+        default PatchworkAdministrationService createAdministration(PatchworkRuntimeHost host) {
+            return new PatchworkAdministrationService(
+                    () -> { throw new IllegalStateException("Patchwork generation composition is unavailable."); },
+                    () -> host.reloadCoordinator(Duration.ofSeconds(3))::reload,
+                    () -> selfTestExecutor(new com.alechilles.patchwork.selftest.PatchworkSelfTestRunner(
+                            new com.alechilles.patchwork.generation.GeneratedPackLayout(host.generatedRoot))),
+                    GeneratedInventorySnapshotter.from(host.generatedRoot));
+        }
+        private static SelfTestExecutor selfTestExecutor(com.alechilles.patchwork.selftest.PatchworkSelfTestRunner runner) {
+            return new SelfTestExecutor() {
+                @Override public com.alechilles.patchwork.selftest.PatchworkSelfTestResult run(com.alechilles.patchwork.selftest.PatchworkSelfTestPack pack) { return runner.run(pack); }
+                @Override public void cancel() { runner.cancel(); }
+            };
+        }
         default void execute(long epoch, PatchMacroRegistry macros, LoadAssetEvent event, EpochActionGate actionGate) { }
     }
 
     /** Narrow event-registry handle retained only for the active ownership epoch. */
-    @FunctionalInterface interface EarlyLoadRegistration { void unregister(); }
+    @FunctionalInterface public interface EarlyLoadRegistration { void unregister(); }
+
+    /** Local elected-owner handle; it prevents a Hytale registry type escaping host lifecycle tests. */
+    @FunctionalInterface public interface CommandRegistrationHandle { void unregister(); }
 
     /** Runs a publication atomically with the active-epoch check. */
-    @FunctionalInterface interface EpochActionGate { boolean execute(Runnable action); }
+    @FunctionalInterface public interface EpochActionGate { boolean execute(Runnable action); }
 }

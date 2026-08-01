@@ -25,6 +25,9 @@ public final class PatchworkRuntimeProviderHandle implements AutoCloseable {
     public synchronized void start() {
         if (closed.get()) throw new IllegalStateException("Patchwork runtime provider is closed.");
         if (token == null) token = PatchworkCoordinatorRegistry.register(descriptor);
+        if ("RECOVERY_REQUIRED".equals(PatchworkCoordinatorRegistry.registrationState(token))) {
+            throw new IllegalStateException("Patchwork runtime registration requires lifecycle cleanup; close this provider to retry it.");
+        }
         PatchworkCoordinatorRegistry.publish(token);
     }
     public boolean publish() { String current = token; return !closed.get() && current != null && PatchworkCoordinatorRegistry.publish(current); }

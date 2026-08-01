@@ -11,15 +11,47 @@ import com.alechilles.patchwork.reload.HytalePatchTargetAdapter;
 import com.alechilles.patchwork.coordinator.PatchworkCoordinatorRegistry;
 import com.alechilles.patchwork.reload.PatchReloadCoordinator;
 import com.alechilles.patchwork.reload.PatchTargetClassifier;
+import com.alechilles.patchwork.generation.GeneratedPackManifest;
+import com.alechilles.patchwork.generation.PatchGenerationService;
+import com.alechilles.patchwork.generation.PatchStatusSnapshot;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class PatchworkContributionForwardingTest {
+    @Test void commandRegistrationFailureRetainsTheEarlyLoadHandleThroughCoordinatorRecovery() {
+        // Catches losing the only early-load unregister handle when both startup compensation and
+        // the coordinator's first cleanup attempt fail.
+        Object original = System.getProperties().get(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
+        System.getProperties().remove(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
+        try {
+            var events = new java.util.ArrayList<String>();
+            FailingCommandAndEarlyCleanupRegistrar registrar = new FailingCommandAndEarlyCleanupRegistrar(events);
+            PatchworkRuntimeHost unsafe = new PatchworkRuntimeHost(Path.of("compensation"), registrar);
+            PatchworkRuntimeHost fallbackHost = new PatchworkRuntimeHost(Path.of("compensation-fallback"), () -> { });
+            String fallback = PatchworkCoordinatorRegistry.register(provider("fallback", "1.0.0", fallbackHost));
+
+            String recovery = PatchworkCoordinatorRegistry.register(provider("unsafe", "2.0.0", unsafe));
+
+            assertEquals("RECOVERY_REQUIRED", PatchworkCoordinatorRegistry.registrationState(recovery));
+            assertEquals(List.of("event-register", "command-register", "event-unregister:1", "event-unregister:2"), events);
+            assertThrows(IllegalStateException.class, () -> PatchworkCoordinatorRegistry.publish(recovery));
+            assertTrue(PatchworkCoordinatorRegistry.unregister(recovery));
+            assertEquals("fallback", PatchworkCoordinatorRegistry.activeProviderId());
+            assertTrue(PatchworkCoordinatorRegistry.publish(fallback));
+            assertEquals(3, registrar.earlyUnregistrations);
+            unsafe.runRegisteredEarlyLoadForTest();
+            assertEquals(0, registrar.executions);
+        } finally {
+            if (original == null) System.getProperties().remove(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
+            else System.getProperties().put(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY, original);
+        }
+    }
     @Test void passiveMacroConflictsUseTheCaseInsensitiveDispatchNamespace() {
         Object original = System.getProperties().get(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
         System.getProperties().remove(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
@@ -169,6 +201,41 @@ class PatchworkContributionForwardingTest {
         } finally { if (original == null) System.getProperties().remove(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY); else System.getProperties().put(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY, original); }
     }
 
+    @Test void hostReplayPausesAndDrainsAdmittedAdministrationWorkBeforeReplacingContributions() throws Exception {
+        CountDownLatch generating = new CountDownLatch(1); CountDownLatch release = new CountDownLatch(1); CountDownLatch replayed = new CountDownLatch(1);
+        AtomicInteger generations = new AtomicInteger();
+        PatchworkAdministrationService administration = new PatchworkAdministrationService(() -> {
+            generations.incrementAndGet(); generating.countDown();
+            try { release.await(2, TimeUnit.SECONDS); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            return plan();
+        }, () -> request -> { request.generator().get(); return outcome(); }, () -> { throw new AssertionError("self-test unavailable"); });
+        PatchworkRuntimeHost.EarlyLoadRegistrar registrar = new PatchworkRuntimeHost.EarlyLoadRegistrar() {
+            @Override public PatchworkRuntimeHost.EarlyLoadRegistration register(long epoch, java.util.function.Consumer<com.hypixel.hytale.server.core.asset.LoadAssetEvent> callback) { return () -> { }; }
+            @Override public PatchworkAdministrationService createAdministration(PatchworkRuntimeHost host) { return administration; }
+        };
+        PatchworkRuntimeHost host = new PatchworkRuntimeHost(Path.of("host-replay"), registrar); host.activate(5L);
+        Thread reload = Thread.ofVirtual().start(() -> administration.reload().toCompletableFuture().join());
+        assertTrue(generating.await(2, TimeUnit.SECONDS));
+        Thread replay = Thread.ofVirtual().start(() -> { host.replayContributions(5L, List.of()); replayed.countDown(); });
+        assertFalse(replayed.await(100, TimeUnit.MILLISECONDS), "replay must wait for the admitted reload to drain");
+        assertTrue(administration.reload().toCompletableFuture().join().getFirst().contains("not started"));
+        assertEquals(1, generations.get());
+        release.countDown(); reload.join(2_000); replay.join(2_000); assertEquals(0L, replayed.getCount());
+        assertFalse(administration.reload().toCompletableFuture().join().getFirst().contains("not started"));
+    }
+
+    @Test void invalidHostReplayRestoresAdministrationAdmission() {
+        PatchworkAdministrationService administration = new PatchworkAdministrationService(PatchworkContributionForwardingTest::plan,
+                () -> request -> { request.generator().get(); return outcome(); }, () -> { throw new AssertionError("self-test unavailable"); });
+        PatchworkRuntimeHost host = new PatchworkRuntimeHost(Path.of("invalid-replay"), new PatchworkRuntimeHost.EarlyLoadRegistrar() {
+            @Override public PatchworkRuntimeHost.EarlyLoadRegistration register(long epoch, java.util.function.Consumer<com.hypixel.hytale.server.core.asset.LoadAssetEvent> callback) { return () -> { }; }
+            @Override public PatchworkAdministrationService createAdministration(PatchworkRuntimeHost ignored) { return administration; }
+        });
+        host.activate(6L);
+        assertThrows(IllegalStateException.class, () -> host.replayContributions(5L, List.of()));
+        assertFalse(administration.reload().toCompletableFuture().join().getFirst().contains("not started"));
+    }
+
     @Test void realCoordinatorUsesTheHostTrackerAndRejectsWrongObservationCorrelation() throws Exception {
         Object original = System.getProperties().get(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY); System.getProperties().remove(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
         try {
@@ -201,5 +268,34 @@ class PatchworkContributionForwardingTest {
                 });
             }
         };
+    }
+    private static PatchGenerationService.GenerationPlan plan() {
+        List<GeneratedPackManifest.Entry> entries = List.of();
+        return new PatchGenerationService.GenerationPlan(entries, new PatchStatusSnapshot(List.of(), Map.of(), List.of()), new GeneratedPackManifest(entries), List.of());
+    }
+    private static PatchReloadCoordinator.ReloadOutcome outcome() {
+        return new PatchReloadCoordinator.ReloadOutcome(true, 5L, PatchReloadCoordinator.ManifestState.COMMITTED, List.of(), PatchReloadCoordinator.IntegrityState.RECONCILED, "");
+    }
+    private static Map<String, Object> provider(String id, String version, PatchworkRuntimeHost host) {
+        return Map.of("providerId", id, "origin", "EMBEDDED", "runtimeVersion", version, "coordinatorAbi", PatchworkCoordinatorRegistry.COORDINATOR_ABI,
+                "providerPluginId", id, "providerPluginVersion", "1", "sourceJarPath", Path.of(id + ".jar"), "providerDataRoot", Path.of(id), "bridge", host);
+    }
+    private static final class FailingCommandAndEarlyCleanupRegistrar implements PatchworkRuntimeHost.EarlyLoadRegistrar {
+        private final List<String> events; private int earlyUnregistrations; private int executions;
+        private FailingCommandAndEarlyCleanupRegistrar(List<String> events) { this.events = events; }
+        @Override public PatchworkRuntimeHost.EarlyLoadRegistration register(long epoch, java.util.function.Consumer<com.hypixel.hytale.server.core.asset.LoadAssetEvent> callback) {
+            events.add("event-register");
+            return () -> {
+                events.add("event-unregister:" + ++earlyUnregistrations);
+                if (earlyUnregistrations <= 2) throw new IllegalStateException("early cleanup");
+            };
+        }
+        @Override public PatchworkRuntimeHost.CommandRegistrationHandle registerCommands() {
+            events.add("command-register");
+            throw new IllegalStateException("command registration");
+        }
+        @Override public void execute(long epoch, com.alechilles.patchwork.engine.PatchMacroRegistry macros,
+                                      com.hypixel.hytale.server.core.asset.LoadAssetEvent event,
+                                      PatchworkRuntimeHost.EpochActionGate executor) { executions++; }
     }
 }

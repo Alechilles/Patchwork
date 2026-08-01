@@ -3,6 +3,7 @@ package com.alechilles.patchwork.coordinator;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.ArrayList;
@@ -21,6 +22,8 @@ public final class PatchworkCoordinatorRegistry {
     private boolean transitioning;
     private boolean publishing;
     private boolean failedClosed;
+    /** The sole public handle permitted to retry a retirement that could not be proven safe. */
+    private PatchworkRegistrationToken failedRetirementToken;
 
     private PatchworkCoordinatorRegistry() { }
 
@@ -52,19 +55,41 @@ public final class PatchworkCoordinatorRegistry {
             commitProviderReplacement(candidate.providerId(), token);
             return token;
         } catch (RuntimeException failure) {
+            if (failedClosed && failedRetirementToken == token) throw new RecoveryRequired(token, failure);
             discard(token);
             throw failure;
         }
     }
 
     synchronized void unregister(PatchworkRegistrationToken token) {
+        if (failedClosed) {
+            retryFailedRetirement(token);
+            return;
+        }
         checkAvailable();
         if (!candidates.containsKey(token)) return;
         if (token != activeToken) { candidates.remove(token); return; }
         handoff(token, selectWinnerExcluding(token), null);
     }
 
+    private void retryFailedRetirement(PatchworkRegistrationToken token) {
+        if (token == null || token != failedRetirementToken) throw failure("Coordinator is fail-closed after unsafe lifecycle cleanup");
+        transitioning = true;
+        try {
+            if (!retire(token)) throw failure("Coordinator remains fail-closed after unsafe lifecycle cleanup");
+            candidates.remove(token);
+            failedRetirementToken = null;
+            failedClosed = false;
+            activateNextEligible();
+        } finally {
+            transitioning = false;
+        }
+    }
+
     synchronized boolean publish(PatchworkRegistrationToken token) {
+        if (failedClosed && token != null && token == failedRetirementToken) {
+            throw failure("Coordinator is fail-closed; the retained registration must retry exact unregister");
+        }
         if (failedClosed || transitioning || publishing || token == null || token != activeToken) return false;
         PatchworkRuntimeCandidate active = activeCandidate();
         if (active == null) return false;
@@ -88,7 +113,7 @@ public final class PatchworkCoordinatorRegistry {
         try {
             if (oldToken != null && !retire(oldToken)) {
                 discard(stagedToken);
-                failClosed("Current owner could not be safely retired");
+                failClosed(oldToken, "Current owner could not be safely retired");
             }
             activeToken = null;
             if (newToken == null) {
@@ -101,11 +126,11 @@ public final class PatchworkCoordinatorRegistry {
                 return;
             }
             boolean cleaned = cleanupSucceeded(newToken);
+            if (!cleaned) failClosed(newToken, "Replacement cleanup failed");
             discard(newToken);
-            if (!cleaned) failClosed("Replacement cleanup failed");
             if (oldToken != null && candidates.containsKey(oldToken)) {
                 if (activate(oldToken)) throw failure("Replacement activation failed");
-                if (!cleanupSucceeded(oldToken)) failClosed("Prior recovery cleanup failed");
+                if (!cleanupSucceeded(oldToken)) failClosed(oldToken, "Prior recovery cleanup failed");
             }
             if (oldToken != null) candidates.remove(oldToken);
             activateNextEligible();
@@ -160,7 +185,7 @@ public final class PatchworkCoordinatorRegistry {
         PatchworkRegistrationToken next;
         while ((next = selectWinner()) != null) {
             if (activate(next)) return;
-            if (!cleanupSucceeded(next)) failClosed("Recovery cleanup failed");
+            if (!cleanupSucceeded(next)) failClosed(next, "Recovery cleanup failed");
             candidates.remove(next);
         }
     }
@@ -205,18 +230,51 @@ public final class PatchworkCoordinatorRegistry {
         if (transitioning || publishing) throw failure("Coordinator lifecycle callback cannot reenter election");
     }
 
-    private void failClosed(String message) {
+    private void failClosed(String message) { failClosed(activeToken, message); }
+    private void failClosed(PatchworkRegistrationToken retained, String message) {
         activeToken = null;
+        failedRetirementToken = retained;
         failedClosed = true;
         throw failure(message);
     }
 
     private static IllegalStateException failure(String message) { return new IllegalStateException(message); }
 
-    /** JDK-only foreign registration. Failures are reported as {@link IllegalStateException}. */
+    /** Internal signal that preserves the sole cleanup handle across the public class-loader boundary. */
+    private static final class RecoveryRequired extends IllegalStateException {
+        private final PatchworkRegistrationToken token;
+        private RecoveryRequired(PatchworkRegistrationToken token, RuntimeException cause) { super(cause.getMessage(), cause); this.token = token; }
+        private PatchworkRegistrationToken token() { return token; }
+    }
+
+    /**
+     * JDK-only foreign registration.
+     *
+     * <p>Ordinary failures throw {@link IllegalStateException}. If activation and its compensating
+     * cleanup both fail, this method returns the retained token in {@code RECOVERY_REQUIRED} state
+     * so the registering provider can perform the sole permitted operation: exact unregister retry.</p>
+     */
     public static String register(Map<String, ?> descriptor) { return withRegistry("register", descriptor); }
     public static boolean unregister(String token) { return Boolean.parseBoolean(withRegistry("unregister", token)); }
+    /**
+     * Publishes through the active registration. Stale and passive tokens return {@code false}; the
+     * exact {@code RECOVERY_REQUIRED} token throws so ABI-1 handles fail their start visibly while
+     * retaining that token for their later exact {@link #unregister(String)} retry.
+     */
     public static boolean publish(String token) { return Boolean.parseBoolean(withRegistry("publish", token)); }
+    /** Returns a registration lifecycle state, or {@code null} when an older foreign registry lacks this optional API. */
+    public static String registrationState(String token) {
+        Object state = installedRegistry();
+        if (state instanceof PatchworkCoordinatorRegistry registry) return registry.registrationStateExternal(token);
+        try {
+            Object result = state.getClass().getMethod("registrationState", String.class).invoke(null, token);
+            return result == null ? null : String.valueOf(result);
+        } catch (NoSuchMethodException ignored) {
+            return null;
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Incompatible coordinator registry", exception);
+        }
+    }
     public static String activeProviderId() { return withRegistry("activeProviderId", null); }
     /** Registers a JDK-map contribution descriptor that is replayed to every elected runtime. */
     public static String registerContribution(Map<String, ?> descriptor) { return withRegistry("registerContribution", descriptor); }
@@ -225,6 +283,22 @@ public final class PatchworkCoordinatorRegistry {
     public static boolean recordObservation(Map<String, ?> observation) { return Boolean.parseBoolean(withRegistry("recordObservation", observation)); }
     /** Expands one UTF-8/JSON operation through the elected runtime. */
     public static String expandOperationJson(String operationJson) { return withRegistry("expandOperationJson", operationJson); }
+
+    /**
+     * Returns a loader-neutral administration view.  Its recursive contents are limited to JDK
+     * maps, lists, strings, numbers, booleans, and paths so either runtime copy can render it.
+     */
+    public static Map<String, ?> adminSnapshot() {
+        Object state = installedRegistry();
+        if (state instanceof PatchworkCoordinatorRegistry registry) return registry.adminSnapshotLocal();
+        try {
+            Object result = state.getClass().getMethod("adminSnapshot").invoke(null);
+            if (result instanceof Map<?, ?> map) return immutableJdkMap(map);
+        } catch (ReflectiveOperationException ignored) {
+            // An older elected runtime remains usable; its optional status surface is unavailable.
+        }
+        return Map.of("active", false, "epoch", 0L, "candidates", List.of(), "contributions", List.of(), "reason", "status-unavailable");
+    }
 
     private static String withRegistry(String operation, Object value) {
         Object state = installedRegistry();
@@ -255,6 +329,13 @@ public final class PatchworkCoordinatorRegistry {
         if (token == null) return false;
         unregister(token);
         return true;
+    }
+
+    private synchronized String registrationStateExternal(String text) {
+        PatchworkRegistrationToken token = findToken(this, text);
+        if (token == null) return "MISSING";
+        if (token == activeToken) return "ACTIVE";
+        return failedClosed && token == failedRetirementToken ? "RECOVERY_REQUIRED" : "PASSIVE";
     }
 
     private synchronized boolean publishExternal(String text) { return publish(findToken(this, text)); }
@@ -295,6 +376,79 @@ public final class PatchworkCoordinatorRegistry {
         if (operationJson == null || operationJson.isBlank()) throw new IllegalArgumentException("Operation JSON is required.");
         PatchworkRuntimeCandidate active = activeCandidate(); if (active == null) throw new IllegalStateException("No active Patchwork runtime is available.");
         return active.bridge().expandOperationJson(operationJson);
+    }
+
+    private synchronized Map<String, ?> adminSnapshotLocal() {
+        List<Map<String, ?>> candidateRows = new ArrayList<>();
+        candidates.entrySet().stream().sorted((left, right) -> {
+            if (left.getKey() == activeToken) return -1;
+            if (right.getKey() == activeToken) return 1;
+            return left.getValue().compareTo(right.getValue());
+        }).limit(32).forEach(entry -> {
+            PatchworkRuntimeCandidate candidate = entry.getValue();
+            boolean active = entry.getKey() == activeToken;
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("providerId", candidate.providerId());
+            row.put("origin", candidate.origin().name());
+            row.put("runtimeVersion", candidate.runtimeVersion());
+            row.put("providerPluginId", candidate.providerPluginId());
+            row.put("providerPluginVersion", candidate.providerPluginVersion());
+            row.put("coordinatorAbi", candidate.coordinatorAbi());
+            row.put("sourceJarPath", candidate.sourceJarPath());
+            row.put("active", active);
+            row.put("reason", active ? "elected" : electionReason(candidate));
+            candidateRows.add(Map.copyOf(row));
+        });
+        List<Map<String, ?>> contributionRows = new ArrayList<>();
+        Map<String, Integer> contributionOrdinals = new LinkedHashMap<>();
+        contributions.entrySet().stream().sorted(java.util.Comparator.comparing((Map.Entry<String, Map<String, ?>> entry) -> (String) entry.getValue().get("hostPluginIdentifier"))
+                .thenComparing(entry -> (String) entry.getValue().get("contributionVersion")).thenComparing(Map.Entry::getKey)).limit(32).forEach(entry -> {
+            Map<String, ?> contribution = entry.getValue();
+            String baseId = contribution.get("hostPluginIdentifier") + "@" + contribution.get("contributionVersion");
+            int ordinal = contributionOrdinals.merge(baseId, 1, Integer::sum);
+            contributionRows.add(Map.of(
+                    "contributionId", ordinal == 1 ? baseId : baseId + "#" + ordinal,
+                    "hostPluginIdentifier", contribution.get("hostPluginIdentifier"),
+                    "macroIds", limitedTexts((List<String>) contribution.get("macroIds")),
+                    "adapterIds", limitedTexts((List<String>) contribution.get("adapterIds"))));
+        });
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("active", activeToken != null);
+        result.put("epoch", epoch);
+        result.put("coordinatorAbi", COORDINATOR_ABI);
+        result.put("candidates", List.copyOf(candidateRows));
+        result.put("contributions", List.copyOf(contributionRows));
+        result.put("candidateOverflow", Math.max(0, candidates.size() - candidateRows.size()));
+        result.put("contributionOverflow", Math.max(0, contributions.size() - contributionRows.size()));
+        return Map.copyOf(result);
+    }
+
+    private static List<String> limitedTexts(List<String> values) { return values.stream().sorted().limit(8).toList(); }
+
+    private String electionReason(PatchworkRuntimeCandidate candidate) {
+        if (!candidate.compatibleWith(COORDINATOR_ABI)) return "incompatible-coordinator-abi";
+        PatchworkRuntimeCandidate active = activeCandidate();
+        if (active == null) return "awaiting-election";
+        return active.compareTo(candidate) <= 0 ? "lower-election-priority" : "activation-failed";
+    }
+
+    private static Map<String, ?> immutableJdkMap(Map<?, ?> source) {
+        Map<String, Object> copy = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            if (!(entry.getKey() instanceof String key)) throw new IllegalStateException("Invalid foreign administration snapshot key");
+            copy.put(key, immutableJdkValue(entry.getValue()));
+        }
+        return Map.copyOf(copy);
+    }
+
+    private static Object immutableJdkValue(Object value) {
+        if (value instanceof Map<?, ?> map) return immutableJdkMap(map);
+        if (value instanceof List<?> list) return list.stream().map(PatchworkCoordinatorRegistry::immutableJdkValue).toList();
+        if (value == null || value instanceof String || value instanceof Boolean || value instanceof Path) return value;
+        if (value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long) return ((Number) value).longValue();
+        if (value instanceof Float || value instanceof Double) return ((Number) value).doubleValue();
+        if ((value instanceof BigInteger || value instanceof BigDecimal) && value.getClass().getClassLoader() == null) return value.toString();
+        throw new IllegalStateException("Foreign administration snapshot contains a non-JDK value");
     }
 
     private void replayActiveContributions() { applyContributionSnapshot(contributions); }
@@ -349,7 +503,11 @@ public final class PatchworkCoordinatorRegistry {
     private synchronized String registerExternal(Map<String, ?> descriptor) {
         PatchworkRuntimeCandidate candidate = fromDescriptor(descriptor);
         PatchworkRegistrationToken replacement = replacementToken(descriptor);
-        return registerCandidate(candidate, replacement).toString();
+        try {
+            return registerCandidate(candidate, replacement).toString();
+        } catch (RecoveryRequired failure) {
+            return failure.token().toString();
+        }
     }
 
     private static PatchworkRegistrationToken findToken(PatchworkCoordinatorRegistry registry, String text) {

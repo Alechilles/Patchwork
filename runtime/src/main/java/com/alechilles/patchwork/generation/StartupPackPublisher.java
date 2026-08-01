@@ -221,7 +221,8 @@ public final class StartupPackPublisher {
         catch (RuntimeException bad) { throw new IOException("Manifest is malformed.", bad); }
     }
 
-    static byte[] hytaleManifest(List<String> sourcePackIds) {
+    /** Builds the exact generated-pack manifest bytes shared by startup publication and reload. */
+    public static byte[] hytaleManifest(List<String> sourcePackIds) {
         JsonObject root = new JsonObject(); root.addProperty("Group", "Alechilles"); root.addProperty("Name", "Patchwork_GeneratedPatches");
         root.addProperty("Version", "1.0.0"); root.addProperty("Description", "Generated Patchwork asset pack.");
         root.add("Authors", new JsonArray()); root.addProperty("ServerVersion", "*");

@@ -1,10 +1,5 @@
 package com.alechilles.patchwork.embedded;
 
-import com.alechilles.patchwork.conditions.ConditionDocumentCache;
-import com.alechilles.patchwork.conditions.ConditionSourceResolver;
-import com.alechilles.patchwork.conditions.ModDataRootRegistry;
-import com.alechilles.patchwork.discovery.PatchSource;
-import com.alechilles.patchwork.discovery.PatchTargetResolver;
 import com.alechilles.patchwork.engine.PatchMacroRegistry;
 import com.alechilles.patchwork.generation.GeneratedPackLayout;
 import com.alechilles.patchwork.generation.PatchGenerationService;
@@ -15,22 +10,12 @@ import com.hypixel.hytale.common.plugin.PluginIdentifier;
 import com.hypixel.hytale.common.plugin.PluginManifest;
 import com.hypixel.hytale.common.semver.Semver;
 import com.hypixel.hytale.common.semver.SemverRange;
-import com.hypixel.hytale.common.util.java.ManifestUtil;
 import com.hypixel.hytale.server.core.asset.AssetModule;
 import com.hypixel.hytale.server.core.asset.LoadAssetEvent;
+import com.alechilles.patchwork.command.PatchworkCommandRoot;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
-import com.hypixel.hytale.server.core.plugin.PluginBase;
-import com.hypixel.hytale.server.core.plugin.PluginManager;
-import java.nio.file.FileSystems;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.function.Consumer;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -39,6 +24,8 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
     private static final System.Logger LOG = System.getLogger(HytaleEarlyLoadComposition.class.getName());
     private final JavaPlugin plugin;
     private final GeneratedPackLayout layout;
+    private final HytaleRuntimeInputsSnapshotter inputs = new HytaleRuntimeInputsSnapshotter();
+    private volatile PatchworkAdministrationService administration;
 
     HytaleEarlyLoadComposition(JavaPlugin plugin, GeneratedPackLayout layout) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
@@ -49,21 +36,45 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
         return plugin.getEventRegistry().register(PatchworkEarlyLoadHook.PRIORITY, LoadAssetEvent.class, callback)::unregister;
     }
 
+    @Override public PatchworkRuntimeHost.CommandRegistrationHandle registerCommands(com.alechilles.patchwork.command.PatchworkCommandActions actions) {
+        // Hytale exposes no lifecycle-thread executor for command mutation. This mirrors its
+        // MacroCommandPlugin rebuild path (unregister then register); Patchwork additionally fences
+        // and drains its own command actions before ownership releases this registration.
+        var registration = plugin.getCommandRegistry().registerCommand(new PatchworkCommandRoot(PatchworkCommandRoot.ADMIN_PERMISSION, PatchworkCommandRoot.DEFAULT_GROUP, actions));
+        return registration == null ? null : registration::unregister;
+    }
+
+    @Override public PatchworkAdministrationService createAdministration(PatchworkRuntimeHost host) {
+        PatchworkAdministrationService created = new PatchworkAdministrationService(
+                () -> planFor(host.macros()).createPlan(),
+                () -> host.reloadCoordinator(java.time.Duration.ofSeconds(3))::reload,
+                () -> selfTestExecutor(new com.alechilles.patchwork.selftest.PatchworkSelfTestRunner(layout)),
+                GeneratedInventorySnapshotter.from(layout.generatedRoot()));
+        administration = created;
+        return created;
+    }
+
+    private static SelfTestExecutor selfTestExecutor(com.alechilles.patchwork.selftest.PatchworkSelfTestRunner runner) {
+        return new SelfTestExecutor() {
+            @Override public com.alechilles.patchwork.selftest.PatchworkSelfTestResult run(com.alechilles.patchwork.selftest.PatchworkSelfTestPack pack) { return runner.run(pack); }
+            @Override public void cancel() { runner.cancel(); }
+        };
+    }
+
     @Override public void execute(long epoch, PatchMacroRegistry macros, LoadAssetEvent event, PatchworkRuntimeHost.EpochActionGate actionGate) {
         try {
-            Inputs inputs = snapshotInputs();
-            ConditionSourceResolver resolver = new ConditionSourceResolver(new PatchTargetResolver(), inputs.modDataRoots(), new ConditionDocumentCache());
-            String serverVersion = ManifestUtil.getVersion();
-            if (serverVersion == null || serverVersion.isBlank()) throw new IllegalStateException("Hytale server version is unavailable from ManifestUtil.getVersion().");
-            PatchGenerationService.GenerationPlan plan = new PatchGenerationService(macros).generate(
-                    new PatchGenerationService.GenerationRequest(inputs.sources(), inputs.installedIds(), inputs.versions(), serverVersion, resolver));
-            StartupPackPublisher publisher = new StartupPackPublisher(layout, new RuntimePackRegistrar(inputs.sourcePackIds()));
+            com.alechilles.patchwork.generation.PatchGenerationService.GenerationPlan plan = planFor(macros).createPlan();
+            StartupPackPublisher publisher = new StartupPackPublisher(layout, new RuntimePackRegistrar(plan.sourcePackIds()));
             AtomicReference<StartupPackPublisher.Publication> publicationResult = new AtomicReference<>();
             if (!actionGate.execute(() -> publicationResult.set(publisher.publish(plan)))) return;
             StartupPackPublisher.Publication publication = publicationResult.get();
             if (!publication.published()) fail(event, "Patchwork startup generation failed: " + publication.diagnostic());
-            else if (!plan.status().scanFailures().isEmpty() || !plan.status().rejectedTargets().isEmpty()) {
-                fail(event, "Patchwork generated valid targets with recoverable diagnostics: " + plan.status().scanFailures().size() + " scan failure(s), " + plan.status().rejectedTargets().size() + " rejected target(s).");
+            else {
+                PatchworkAdministrationService currentAdministration = administration;
+                if (currentAdministration != null) currentAdministration.seedStartup(epoch, plan);
+                if (!plan.status().scanFailures().isEmpty() || !plan.status().rejectedTargets().isEmpty()) {
+                    fail(event, "Patchwork generated valid targets with recoverable diagnostics: " + plan.status().scanFailures().size() + " scan failure(s), " + plan.status().rejectedTargets().size() + " rejected target(s).");
+                }
             }
         } catch (Exception failure) {
             String message = "Patchwork startup generation failed: " + detail(failure);
@@ -72,32 +83,16 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
         }
     }
 
-    private Inputs snapshotInputs() {
-        List<PatchSource> sources = new ArrayList<>();
-        List<String> sourceIds = new ArrayList<>();
-        Set<String> ids = new LinkedHashSet<>();
-        Map<String, String> versions = new LinkedHashMap<>();
-        int order = 0;
-        for (AssetPack pack : AssetModule.get().getAssetPacks()) {
-            String id = pack.getName();
-            sourceIds.add(id);
-            ids.add(id);
-            if (pack.getManifest() != null && pack.getManifest().getVersion() != null) versions.put(id, pack.getManifest().getVersion().toString());
-            boolean directory = pack.getFileSystem() == null || pack.getFileSystem().equals(FileSystems.getDefault());
-            Path root = directory ? pack.getRoot() : pack.getPackLocation();
-            if (!directory && (root == null || !Files.isRegularFile(root))) {
-                throw new IllegalStateException("Asset pack " + id + " has no readable archive pack location.");
-            }
-            sources.add(directory ? PatchSource.directory(id, order++, root) : PatchSource.archive(id, order++, root));
-        }
-        PluginManager manager = PluginManager.get();
-        for (PluginBase loaded : manager.getPlugins()) {
-            String id = loaded.getIdentifier().toString();
-            ids.add(id);
-            versions.put(id, loaded.getManifest().getVersion().toString());
-        }
-        return new Inputs(List.copyOf(sources), Set.copyOf(ids), Map.copyOf(versions), ModDataRootRegistry.fromPluginManager(manager), List.copyOf(sourceIds));
+    private GenerationPlanFactory planFor(PatchMacroRegistry macros) {
+        return new GenerationPlanFactory(macros, inputs::snapshot, com.hypixel.hytale.common.util.java.ManifestUtil::getVersion,
+                com.alechilles.patchwork.conditions.ConditionDocumentCache::new,
+                (roots, cache) -> new com.alechilles.patchwork.conditions.ConditionSourceResolver(new com.alechilles.patchwork.discovery.PatchTargetResolver(), roots, cache),
+                metadata -> {
+                    PatchworkAdministrationService current = administration;
+                    if (current != null) current.configureRoots(metadata.neutralRoot(), metadata.legacyRoots());
+                });
     }
+
 
     private void fail(LoadAssetEvent event, String message) {
         if (event != null) event.failed(false, message);
@@ -148,6 +143,4 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
         return manifest;
     }
 
-    private record Inputs(List<PatchSource> sources, Set<String> installedIds, Map<String, String> versions,
-                          ModDataRootRegistry modDataRoots, List<String> sourcePackIds) { }
 }

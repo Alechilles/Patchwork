@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.alechilles.patchwork.embedded.PatchworkRuntimeHost;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,6 +30,47 @@ final class PatchworkCoordinatorRegistryTest {
         assertNotEquals(oldToken, newToken); assertEquals("new", registry.activeProviderId());
         assertEquals(List.of("old:activate:1", "old:start:1", "old:fence:1", "old:drain:1", "old:deactivate:1", "new:activate:2", "new:start:2"), events);
         assertFalse(registry.publish(oldToken)); assertTrue(registry.publish(newToken));
+    }
+
+    @Test
+    void electedHostsHandOffOneCommandAcrossUpgradeRemovalAndRecoveryWithoutAccumulation() {
+        // Catches passive candidates registering commands, or a handoff registering before the old command retires.
+        var events = new ArrayList<String>(); var registry = PatchworkCoordinatorRegistry.current();
+        CommandRegistrar aRegistrar = new CommandRegistrar("a", events);
+        CommandRegistrar bRegistrar = new CommandRegistrar("b", events);
+        PatchworkRuntimeHost a = host("a", aRegistrar);
+        PatchworkRuntimeHost b = host("b", bRegistrar);
+        var aToken = registry.registerCandidate(hostCandidate("a", "2.0.0", a));
+        var bToken = registry.registerCandidate(hostCandidate("b", "1.0.0", b));
+        assertEquals(1, aRegistrar.registrations); assertEquals(0, bRegistrar.registrations);
+
+        var upgradedB = registry.registerCandidate(hostCandidate("b", "3.0.0", b), bToken);
+        assertEquals(1, aRegistrar.unregistrations); assertEquals(1, bRegistrar.registrations);
+        assertTrue(events.indexOf("a:command-unregister") < events.indexOf("b:command-register"));
+        assertEquals(1, aRegistrar.active + bRegistrar.active);
+
+        registry.unregister(upgradedB);
+        assertEquals(2, aRegistrar.registrations); assertEquals(1, bRegistrar.unregistrations);
+        assertEquals(1, aRegistrar.active + bRegistrar.active);
+        assertEquals(2, aRegistrar.maximumActive + bRegistrar.maximumActive);
+        assertTrue(registry.publish(aToken));
+    }
+
+    @Test
+    void exactPublicUnregisterRetriesFailedActiveCommandRetirementAndElectsThePassiveFallback() {
+        var events = new ArrayList<String>(); var registry = PatchworkCoordinatorRegistry.current();
+        ThrowingCommandRegistrar aRegistrar = new ThrowingCommandRegistrar("a", events);
+        CommandRegistrar bRegistrar = new CommandRegistrar("b", events);
+        PatchworkRuntimeHost a = host("a", aRegistrar); PatchworkRuntimeHost b = host("b", bRegistrar);
+        var aToken = registry.registerCandidate(hostCandidate("a", "2.0.0", a));
+        var bToken = registry.registerCandidate(hostCandidate("b", "1.0.0", b));
+        assertThrows(IllegalStateException.class, () -> registry.registerCandidate(hostCandidate("b", "3.0.0", b), bToken));
+        assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("other", "1.0.0", events, false)));
+
+        assertTrue(PatchworkCoordinatorRegistry.unregister(aToken.toString()));
+        assertEquals("b", registry.activeProviderId());
+        assertEquals(1, aRegistrar.active + bRegistrar.active);
+        assertTrue(System.getProperties().get(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY) instanceof PatchworkCoordinatorRegistry);
     }
 
     @Test
@@ -55,6 +97,57 @@ final class PatchworkCoordinatorRegistryTest {
     }
 
     @Test
+    void administrationSnapshotIsDeterministicAndContainsOnlyLoaderNeutralMetadata() {
+        var registry = PatchworkCoordinatorRegistry.current();
+        registry.registerCandidate(candidate("older", "1.0.0", new ArrayList<>(), false));
+        registry.registerCandidate(candidate("winner", "2.0.0", new ArrayList<>(), false));
+
+        Map<String, ?> snapshot = PatchworkCoordinatorRegistry.adminSnapshot();
+        assertEquals(2L, snapshot.get("epoch"));
+        assertEquals(true, snapshot.get("active"));
+        List<?> candidates = (List<?>) snapshot.get("candidates");
+        assertEquals(2, candidates.size());
+        Map<?, ?> active = (Map<?, ?>) candidates.get(0);
+        assertEquals("winner", active.get("providerId"));
+        assertEquals("elected", active.get("reason"));
+        Map<?, ?> passive = (Map<?, ?>) candidates.get(1);
+        assertEquals("lower-election-priority", passive.get("reason"));
+        assertTrue(active.get("sourceJarPath") instanceof Path);
+        assertThrows(UnsupportedOperationException.class, () -> ((Map<String, Object>) snapshot).put("secret", "value"));
+    }
+
+    @Test
+    void administrationSnapshotRedactsContributionCapabilityAndBoundsCandidateRows() {
+        PatchworkCoordinatorRegistry.register(descriptor("owner", "1.0.0", new PublicStableBridge()));
+        String markerToken = PatchworkCoordinatorRegistry.registerContribution(Map.of("hostPluginIdentifier", "Example:Host", "contributionVersion", "1.0.0",
+                "macroIds", List.of("safe-macro"), "adapterIds", List.of("safe-adapter"), "bridge", new Object()));
+        for (int index = 0; index < 40; index++) PatchworkCoordinatorRegistry.current().registerCandidate(candidate("candidate-" + index, "0.0." + index, new ArrayList<>(), false));
+
+        Map<String, ?> snapshot = PatchworkCoordinatorRegistry.adminSnapshot();
+        assertFalse(snapshot.toString().contains(markerToken));
+        Map<?, ?> contribution = (Map<?, ?>) ((List<?>) snapshot.get("contributions")).getFirst();
+        assertTrue(contribution.get("contributionId").toString().startsWith("Example:Host@1.0.0"));
+        assertEquals(List.of("safe-macro"), contribution.get("macroIds"));
+        assertEquals(32, ((List<?>) snapshot.get("candidates")).size());
+        assertEquals(9, snapshot.get("candidateOverflow"));
+        assertEquals(true, ((Map<?, ?>) ((List<?>) snapshot.get("candidates")).getFirst()).get("active"));
+    }
+
+    @Test
+    void administrationSnapshotFallsBackWithoutReplacingALegacyRegistryThatLacksTheOptionalMethod() {
+        Object legacy = new LegacyRegistry();
+        System.getProperties().put(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY, legacy);
+
+        Map<String, ?> snapshot = PatchworkCoordinatorRegistry.adminSnapshot();
+
+        assertSame(legacy, System.getProperties().get(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY));
+        assertEquals("status-unavailable", snapshot.get("reason"));
+        assertEquals(false, snapshot.get("active"));
+        assertTrue(snapshot.getClass().getName().startsWith("java.util."));
+        assertTrue(snapshot.values().stream().allMatch(value -> value == null || value.getClass().getClassLoader() == null));
+    }
+
+    @Test
     void activeUnregisterDrainsAndDeactivatesBeforeNextOwnerStarts() {
         // Catches removal of the active record before its retiring lifecycle is executed.
         var events = new ArrayList<String>(); var registry = PatchworkCoordinatorRegistry.current();
@@ -70,7 +163,7 @@ final class PatchworkCoordinatorRegistryTest {
         var events = new ArrayList<String>(); var registry = PatchworkCoordinatorRegistry.current();
         var old = registry.registerCandidate(candidate("old", "1.0.0", events, false, true));
         assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("next", "2.0.0", events, false, false)));
-        assertFalse(registry.publish(old)); assertEquals(null, registry.localActiveProviderId());
+        assertThrows(IllegalStateException.class, () -> registry.publish(old)); assertEquals(null, registry.localActiveProviderId());
         assertFalse(events.stream().anyMatch(event -> event.startsWith("next:activate")));
     }
 
@@ -123,7 +216,7 @@ final class PatchworkCoordinatorRegistryTest {
         var old = registry.registerCandidate(new PatchworkRuntimeCandidate("prior", PatchworkRuntimeOrigin.STANDALONE, "3.0.0", 1, "prior", "1", Path.of("mods/prior"), Path.of("mods/prior"), prior));
         var next = registry.registerCandidate(candidate("next", "1.0.0", events, false));
         assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("failed", "4.0.0", events, true)));
-        assertEquals(null, registry.activeProviderId()); assertFalse(registry.publish(old)); assertFalse(registry.publish(next));
+        assertEquals(null, registry.activeProviderId()); assertThrows(IllegalStateException.class, () -> registry.publish(old)); assertFalse(registry.publish(next));
         assertFalse(events.stream().anyMatch(event -> event.startsWith("next:activate")));
         assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("later", "5.0.0", events, false)));
     }
@@ -144,7 +237,7 @@ final class PatchworkCoordinatorRegistryTest {
         var registry = PatchworkCoordinatorRegistry.current(); var events = new ArrayList<String>();
         var old = registry.registerCandidate(candidate("same", "1.0.0", events, false, true));
         assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("same", "2.0.0", events, false), old));
-        assertEquals(null, registry.activeToken()); assertFalse(registry.publish(old)); assertEquals(1, registry.candidateCount());
+        assertEquals(null, registry.activeToken()); assertThrows(IllegalStateException.class, () -> registry.publish(old)); assertEquals(1, registry.candidateCount());
         assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("next", "3.0.0", events, false)));
         assertEquals(null, registry.activeToken()); assertEquals(1, registry.candidateCount());
     }
@@ -172,6 +265,20 @@ final class PatchworkCoordinatorRegistryTest {
         assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate));
         assertEquals(null, registry.localActiveProviderId()); assertFalse(registry.publish(old));
         assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("next", "3.0.0", events, false)));
+    }
+
+    @Test
+    void publicRegistrationReturnsTheExactRecoveryTokenWhenFailedActivationCannotBeCleaned() {
+        String fallback = PatchworkCoordinatorRegistry.register(descriptor("fallback", "1.0.0", new PublicStableBridge()));
+        String recovery = PatchworkCoordinatorRegistry.register(descriptor("unsafe", "2.0.0", new PublicActivationAndCleanupFailureBridge()));
+
+        assertEquals("RECOVERY_REQUIRED", PatchworkCoordinatorRegistry.registrationState(recovery));
+        assertThrows(IllegalStateException.class, () -> PatchworkCoordinatorRegistry.register(descriptor("other", "3.0.0", new PublicStableBridge())));
+        assertThrows(IllegalStateException.class, () -> PatchworkCoordinatorRegistry.publish(recovery));
+        assertFalse(PatchworkCoordinatorRegistry.publish(fallback));
+        assertTrue(PatchworkCoordinatorRegistry.unregister(recovery));
+        assertEquals("MISSING", PatchworkCoordinatorRegistry.registrationState(recovery));
+        assertEquals("fallback", PatchworkCoordinatorRegistry.activeProviderId());
     }
 
     @Test
@@ -256,6 +363,22 @@ final class PatchworkCoordinatorRegistryTest {
     }
 
     @Test
+    void foreignAdministrationSnapshotRejectsApplicationNumberButKeepsJdkNumbersJdkOwned() {
+        Object original = System.getProperties().get(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
+        try {
+            System.getProperties().put(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY, new ForeignSnapshotRegistry(new ApplicationNumber()));
+            assertThrows(IllegalStateException.class, PatchworkCoordinatorRegistry::adminSnapshot);
+            System.getProperties().put(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY, new ForeignSnapshotRegistry(7));
+            assertEquals(Long.class, PatchworkCoordinatorRegistry.adminSnapshot().get("number").getClass());
+            System.getProperties().put(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY, new ForeignSnapshotRegistry(8L));
+            assertEquals(Long.class, PatchworkCoordinatorRegistry.adminSnapshot().get("number").getClass());
+        } finally {
+            if (original == null) System.getProperties().remove(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
+            else System.getProperties().put(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY, original);
+        }
+    }
+
+    @Test
     void rejectsMissingStaleAndWrongProviderReplacementTokensBeforeLifecycleEvents() {
         // Catches unauthorized same-provider bridge replacement reaching fence/drain/start lifecycle work.
         var registry = PatchworkCoordinatorRegistry.current(); var events = new ArrayList<String>();
@@ -319,6 +442,37 @@ final class PatchworkCoordinatorRegistryTest {
     private static PatchworkRuntimeCandidate candidate(String id, String version, List<String> events, boolean failStart) {
         return candidate(id, version, events, failStart, false);
     }
+
+    private static PatchworkRuntimeCandidate hostCandidate(String id, String version, PatchworkRuntimeHost host) {
+        return new PatchworkRuntimeCandidate(id, PatchworkRuntimeOrigin.STANDALONE, version, PatchworkCoordinatorRegistry.COORDINATOR_ABI,
+                id + ".plugin", "1", Path.of("mods", id + ".jar"), Path.of("mods", id), host);
+    }
+
+    private static PatchworkRuntimeHost host(String id, CommandRegistrar registrar) {
+        return new PatchworkRuntimeHost(Path.of("build", "election-" + id), registrar);
+    }
+
+    private static class CommandRegistrar implements PatchworkRuntimeHost.EarlyLoadRegistrar {
+        private final String id; private final List<String> events;
+        private int registrations; private int unregistrations; protected int active; private int maximumActive;
+        private CommandRegistrar(String id, List<String> events) { this.id = id; this.events = events; }
+        @Override public PatchworkRuntimeHost.EarlyLoadRegistration register(long epoch, java.util.function.Consumer<com.hypixel.hytale.server.core.asset.LoadAssetEvent> callback) {
+            events.add(id + ":event-register");
+            return () -> events.add(id + ":event-unregister");
+        }
+        @Override public PatchworkRuntimeHost.CommandRegistrationHandle registerCommands() {
+            registrations++; active++; maximumActive = Math.max(maximumActive, active); events.add(id + ":command-register");
+            return () -> { unregistrations++; active--; events.add(id + ":command-unregister"); };
+        }
+    }
+    private static final class ThrowingCommandRegistrar extends CommandRegistrar {
+        private boolean throwOnce = true;
+        private ThrowingCommandRegistrar(String id, List<String> events) { super(id, events); }
+        @Override public PatchworkRuntimeHost.CommandRegistrationHandle registerCommands() {
+            PatchworkRuntimeHost.CommandRegistrationHandle delegate = super.registerCommands();
+            return () -> { if (throwOnce) { throwOnce = false; throw new IllegalStateException("command unregister"); } delegate.unregister(); };
+        }
+    }
     private static PatchworkRuntimeCandidate candidate(String id, String version, List<String> events, boolean failStart, boolean failDrain) {
         return new PatchworkRuntimeCandidate(id, PatchworkRuntimeOrigin.STANDALONE, version, PatchworkCoordinatorRegistry.COORDINATOR_ABI,
                 id + ".plugin", "1", Path.of("mods", id + ".jar"), Path.of("mods", id), new RecordingBridge(id, events, failStart, failDrain));
@@ -352,6 +506,29 @@ final class PatchworkCoordinatorRegistryTest {
     public static final class PublicFailingBridge extends PublicStableBridge {
         @Override public void start(long epoch) { throw new IllegalStateException("start"); }
     }
+
+    public static final class PublicActivationAndCleanupFailureBridge extends PublicStableBridge {
+        private boolean cleanupFails = true;
+        @Override public void activate(long epoch) { throw new IllegalStateException("activation"); }
+        @Override public void deactivate(long epoch) {
+            if (cleanupFails) { cleanupFails = false; throw new IllegalStateException("cleanup"); }
+        }
+    }
+
+    public static final class ForeignSnapshotRegistry {
+        private static Number number;
+        public ForeignSnapshotRegistry(Number value) { number = value; }
+        public static Map<String, ?> adminSnapshot() { return Map.of("number", number); }
+    }
+
+    private static final class ApplicationNumber extends Number {
+        @Override public int intValue() { return 1; }
+        @Override public long longValue() { return 1; }
+        @Override public float floatValue() { return 1; }
+        @Override public double doubleValue() { return 1; }
+    }
+
+    private static final class LegacyRegistry { }
 
     public static final class PublicRecordingBridge extends PublicStableBridge {
         private final String id; private final List<String> events;
