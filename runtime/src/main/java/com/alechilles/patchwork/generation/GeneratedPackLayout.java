@@ -63,7 +63,7 @@ public final class GeneratedPackLayout {
         Path normalized = path.toAbsolutePath().normalize();
         Path name = normalized.getFileName();
         if (!dataRoot.equals(normalized.getParent()) || name == null || !name.toString().startsWith(prefix)) return false;
-        try { UUID.fromString(name.toString().substring(prefix.length())); return true; }
+        try { String token = name.toString().substring(prefix.length()); return UUID.fromString(token).toString().equals(token); }
         catch (IllegalArgumentException invalid) { return false; }
     }
 
