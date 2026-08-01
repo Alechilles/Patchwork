@@ -1,0 +1,46 @@
+package com.alechilles.patchwork.conditions;
+
+import com.alechilles.patchwork.discovery.PatchSource;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+
+/** Evaluates immutable patch conditions against one target and a per-generation source resolver. */
+public final class PatchConditionEvaluator {
+    /** Evaluates one condition, retaining a safe diagnostic for non-matches and failures. */
+    public Evaluation evaluate(PatchCondition condition, EvaluationContext context) { return evaluateNode(condition, context); }
+    private Evaluation evaluateNode(PatchCondition c, EvaluationContext x) {
+        if (c instanceof PatchCondition.Always) return matched();
+        if (c instanceof PatchCondition.ModInstalled v) return v.modId().equals("") ? no("Invalid mod ID.") : x.installedIds().contains(v.modId()) ? matched() : no("Required mod is not installed: " + v.modId());
+        if (c instanceof PatchCondition.AssetExists v) return x.resolver().resolve(new ConditionSource.Asset(v.path()), x.targetPath(), x.targetBytes(), x.sources()).status() == ConditionSourceResolver.ResultStatus.FOUND ? matched() : no("Required asset is missing: " + v.path());
+        if (c instanceof PatchCondition.AssetMissing v) return x.resolver().resolve(new ConditionSource.Asset(v.path()), x.targetPath(), x.targetBytes(), x.sources()).status() == ConditionSourceResolver.ResultStatus.MISSING ? matched() : no("Asset is present: " + v.path());
+        if (c instanceof PatchCondition.TargetExists) return x.targetBytes() != null ? matched() : no("Target is missing: " + x.targetPath());
+        if (c instanceof PatchCondition.ModVersion v) return version(x.versions().get(v.modId()), v.matcher()) ? matched() : no("Installed mod version does not match: " + v.modId());
+        if (c instanceof PatchCondition.ServerVersion v) return version(x.serverVersion(), v.matcher()) ? matched() : no("Server version does not match.");
+        if (c instanceof PatchCondition.JsonPathExists v) return json(v.source(), v.path(), null, false, x);
+        if (c instanceof PatchCondition.JsonPathEquals v) return json(v.source(), v.path(), v.expected(), true, x);
+        if (c instanceof PatchCondition.All v) { for (PatchCondition child : v.children()) { Evaluation e = evaluateNode(child, x); if (e.status() != Status.MATCHED) return e; } return matched(); }
+        if (c instanceof PatchCondition.Any v) { Evaluation last = no("No Any condition matched."); for (PatchCondition child : v.children()) { Evaluation e = evaluateNode(child, x); if (e.status() == Status.MATCHED) return e; if (e.status() == Status.FAILED) return e; last = e; } return last; }
+        return invert(evaluateNode(((PatchCondition.Not) c).child(), x));
+    }
+    private Evaluation json(ConditionSource source, String pointer, JsonElement expected, boolean equals, EvaluationContext x) { ConditionSourceResolver.Result result = x.resolver().resolve(source, x.targetPath(), x.targetBytes(), x.sources()); if (result.status() == ConditionSourceResolver.ResultStatus.FAILED) return failed(result.diagnostic()); if (result.status() == ConditionSourceResolver.ResultStatus.MISSING) return no(result.diagnostic()); JsonElement actual = pointer(result.document(), pointer); if (actual == null) return no("JSON pointer did not resolve: " + pointer); return !equals || actual.equals(expected) ? matched() : no("JSON value did not match at: " + pointer); }
+    private static JsonElement pointer(JsonElement doc, String path) { if (path.isEmpty()) return doc; if (!path.startsWith("/")) return null; JsonElement value = doc; for (String raw : path.substring(1).split("/", -1)) { String part = raw.replace("~1", "/").replace("~0", "~"); if (value instanceof JsonObject object) value = object.get(part); else if (value instanceof JsonArray array && part.matches("0|[1-9]\\d*")) { int i; try { i = Integer.parseInt(part); } catch (NumberFormatException e) { return null; } value = i < array.size() ? array.get(i) : null; } else return null; if (value == null || value.isJsonNull()) return null; } return value; }
+    private static boolean version(String actual, PatchCondition.VersionMatcher m) { if (actual == null || !actual.matches("\\d+(\\.\\d+)*")) return false; return check(actual, m.equals(), 0) && check(actual, m.atLeast(), 1) && check(actual, m.atMost(), -1) && check(actual, m.above(), 2) && check(actual, m.below(), -2); }
+    private static boolean check(String actual, String expected, int mode) { if (expected == null) return true; int c = compare(actual, expected); return mode == 0 ? c == 0 : mode == 1 ? c >= 0 : mode == -1 ? c <= 0 : mode == 2 ? c > 0 : c < 0; }
+    private static int compare(String a, String b) { String[] x = a.split("\\."), y = b.split("\\."); for (int i = 0; i < Math.max(x.length, y.length); i++) { int c = Integer.compare(i < x.length ? Integer.parseInt(x[i]) : 0, i < y.length ? Integer.parseInt(y[i]) : 0); if (c != 0) return c; } return 0; }
+    private static Evaluation matched() { return new Evaluation(Status.MATCHED, ""); } private static Evaluation no(String d) { return new Evaluation(Status.NOT_MATCHED, d); } private static Evaluation failed(String d) { return new Evaluation(Status.FAILED, d); } private static Evaluation invert(Evaluation e) { return e.status() == Status.FAILED ? e : e.status() == Status.MATCHED ? no("Not condition matched its child.") : matched(); }
+    /** Immutable evaluation inputs; target bytes are defensively copied. */
+    public record EvaluationContext(Set<String> installedIds, Map<String, String> versions, String serverVersion, String targetPath, byte[] targetBytes, ConditionSourceResolver resolver, List<PatchSource> sources) {
+        public EvaluationContext(List<String> installed, Map<String, String> versions, String serverVersion, String targetPath, byte[] targetBytes, ConditionSourceResolver resolver) { this(Set.copyOf(installed), Map.copyOf(versions), serverVersion, targetPath, targetBytes, resolver, List.of()); }
+        public EvaluationContext { installedIds = Set.copyOf(installedIds); versions = Map.copyOf(versions); targetPath = Objects.requireNonNull(targetPath); targetBytes = targetBytes == null ? null : targetBytes.clone(); resolver = Objects.requireNonNull(resolver); sources = List.copyOf(sources); }
+        @Override public byte[] targetBytes() { return targetBytes == null ? null : targetBytes.clone(); }
+    }
+    /** Immutable condition outcome and safe diagnostic. */
+    public record Evaluation(Status status, String diagnostic) { public Evaluation { status = Objects.requireNonNull(status); diagnostic = diagnostic == null ? "" : diagnostic; } public boolean matched() { return status == Status.MATCHED; } }
+    /** Evaluation outcome status. */
+    public enum Status { MATCHED, NOT_MATCHED, FAILED }
+}
