@@ -34,7 +34,7 @@ final class ForeignClassLoaderElectionIT {
             Object firstBridge = first.loadClass(BridgeOne.class.getName()).getConstructor().newInstance();
             Object secondBridge = second.loadClass(BridgeTwo.class.getName()).getConstructor().newInstance();
             String oldToken = (String) register.invoke(null, descriptor("first", "1.0.0", firstBridge));
-            String newToken = (String) secondRegistry.getMethod("register", Map.class).invoke(null, descriptor("first", "2.0.0", secondBridge));
+            String newToken = (String) secondRegistry.getMethod("register", Map.class).invoke(null, descriptor("first", "2.0.0", secondBridge, oldToken));
             assertEquals("first", firstRegistry.getMethod("activeProviderId").invoke(null));
             assertFalse((Boolean) secondRegistry.getMethod("unregister", String.class).invoke(null, oldToken));
             assertFalse((Boolean) firstRegistry.getMethod("publish", String.class).invoke(null, oldToken));
@@ -76,10 +76,40 @@ final class ForeignClassLoaderElectionIT {
         }
     }
 
+    @Test
+    void foreignInactiveLookupReturnsJavaNull() throws Exception {
+        // Catches reflective foreign invocation stringifying a missing owner as the literal "null".
+        Path jar = Path.of(PatchworkCoordinatorRegistry.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+        Path copy = Files.copy(jar, temporary.resolve("inactive-runtime.jar")); Object original = System.getProperties().get(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
+        System.getProperties().remove(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
+        try (URLClassLoader loader = isolated(copy)) {
+            Class<?> registry = loader.loadClass("com.alechilles.patchwork.coordinator.PatchworkCoordinatorRegistry");
+            assertEquals(null, registry.getMethod("activeProviderId").invoke(null));
+        } finally { if (original == null) System.getProperties().remove(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY); else System.getProperties().put(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY, original); }
+    }
+
+    @Test
+    void foreignPublishExceptionReturnsFalseAndReleasesTheGuard() throws Exception {
+        // Catches reflective publish leaking bridge exceptions or permanently retaining the publication guard.
+        Path jar = Path.of(PatchworkCoordinatorRegistry.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+        Path copy = Files.copy(jar, temporary.resolve("publish-runtime.jar")); Object original = System.getProperties().get(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
+        System.getProperties().remove(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
+        try (URLClassLoader loader = isolated(copy)) {
+            Class<?> registry = loader.loadClass("com.alechilles.patchwork.coordinator.PatchworkCoordinatorRegistry");
+            Object bridge = loader.loadClass(ThrowingPublishBridge.class.getName()).getConstructor().newInstance();
+            String token = (String) registry.getMethod("register", Map.class).invoke(null, descriptor("publish", "1.0.0", bridge));
+            assertFalse((Boolean) registry.getMethod("publish", String.class).invoke(null, token));
+            assertTrue((Boolean) registry.getMethod("publish", String.class).invoke(null, token));
+        } finally { if (original == null) System.getProperties().remove(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY); else System.getProperties().put(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY, original); }
+    }
+
     private static Map<String, Object> descriptor(String provider, String version, Object bridge) {
         return Map.of("providerId", provider, "origin", "STANDALONE", "runtimeVersion", version, "coordinatorAbi", 1,
                 "providerPluginId", provider + ".plugin", "providerPluginVersion", "1", "sourceJarPath", Path.of("mods", provider + ".jar"),
                 "providerDataRoot", Path.of("mods", provider), "bridge", bridge);
+    }
+    private static Map<String, Object> descriptor(String provider, String version, Object bridge, String replacementToken) {
+        var values = new java.util.HashMap<>(descriptor(provider, version, bridge)); values.put("replacementToken", replacementToken); return values;
     }
 
     private static URLClassLoader isolated(Path jar) throws Exception { return new URLClassLoader(new java.net.URL[]{jar.toUri().toURL(), testClasses().toUri().toURL()}, ClassLoader.getPlatformClassLoader()); }
@@ -92,5 +122,6 @@ final class ForeignClassLoaderElectionIT {
     private static Path testClasses() { try { return Path.of(ForeignClassLoaderElectionIT.class.getProtectionDomain().getCodeSource().getLocation().toURI()); } catch (Exception exception) { throw new IllegalStateException(exception); } }
     public static final class BridgeOne { public static void fence(long epoch) { event("one:fence", epoch); } public static void stopAcceptingAndDrain(long epoch) { event("one:drain", epoch); } public static void deactivate(long epoch) { event("one:deactivate", epoch); } public static void activate(long epoch) { event("one:activate", epoch); } public static void start(long epoch) { event("one:start", epoch); } public static boolean publish(long epoch) { event("one:publish", epoch); return true; } }
     public static final class BridgeTwo { public static void fence(long epoch) { event("two:fence", epoch); } public static void stopAcceptingAndDrain(long epoch) { event("two:drain", epoch); } public static void deactivate(long epoch) { event("two:deactivate", epoch); } public static void activate(long epoch) { event("two:activate", epoch); } public static void start(long epoch) { event("two:start", epoch); } public static boolean publish(long epoch) { event("two:publish", epoch); return true; } }
+    public static final class ThrowingPublishBridge { private static int calls; public static void fence(long epoch) { } public static void stopAcceptingAndDrain(long epoch) { } public static void deactivate(long epoch) { } public static void activate(long epoch) { } public static void start(long epoch) { } public static boolean publish(long epoch) { if (calls++ == 0) throw new IllegalStateException("publish"); return true; } }
     private static void event(String event, long epoch) { System.setProperty("patchwork.it.events", System.getProperty("patchwork.it.events") + event + ':' + epoch + ','); }
 }

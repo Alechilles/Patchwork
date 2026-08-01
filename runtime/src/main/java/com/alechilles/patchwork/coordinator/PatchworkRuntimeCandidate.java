@@ -9,6 +9,7 @@ final class PatchworkRuntimeCandidate implements Comparable<PatchworkRuntimeCand
     private final String providerId;
     private final PatchworkRuntimeOrigin origin;
     private final String runtimeVersion;
+    private final SemVer semanticVersion;
     private final int coordinatorAbi;
     private final String providerPluginId;
     private final String providerPluginVersion;
@@ -20,7 +21,7 @@ final class PatchworkRuntimeCandidate implements Comparable<PatchworkRuntimeCand
                                      String providerPluginId, String providerPluginVersion, Path sourceJarPath, Path providerDataRoot,
                                      PatchworkCoordinatorBridge bridge) {
         this.providerId = require(providerId); this.origin = Objects.requireNonNull(origin); this.runtimeVersion = require(runtimeVersion);
-        this.coordinatorAbi = coordinatorAbi; this.providerPluginId = require(providerPluginId); this.providerPluginVersion = require(providerPluginVersion);
+        this.semanticVersion = SemVer.parse(this.runtimeVersion); this.coordinatorAbi = coordinatorAbi; this.providerPluginId = require(providerPluginId); this.providerPluginVersion = require(providerPluginVersion);
         this.sourceJarPath = Objects.requireNonNull(sourceJarPath).toAbsolutePath().normalize();
         this.sharedDataRoot = canonicalSharedRoot(Objects.requireNonNull(providerDataRoot)); this.bridge = Objects.requireNonNull(bridge);
     }
@@ -40,7 +41,7 @@ final class PatchworkRuntimeCandidate implements Comparable<PatchworkRuntimeCand
     }
 
     @Override public int compareTo(PatchworkRuntimeCandidate other) {
-        int comparison = compareVersions(other.runtimeVersion, runtimeVersion);
+        int comparison = other.semanticVersion.compareTo(semanticVersion);
         if (comparison != 0) return comparison;
         comparison = origin.compareTo(other.origin);
         if (comparison != 0) return comparison;
@@ -48,8 +49,6 @@ final class PatchworkRuntimeCandidate implements Comparable<PatchworkRuntimeCand
         if (comparison != 0) return comparison;
         return sourceJarPath.toString().compareTo(other.sourceJarPath.toString());
     }
-
-    private static int compareVersions(String left, String right) { return SemVer.parse(left).compareTo(SemVer.parse(right)); }
 
     private record SemVer(BigInteger major, BigInteger minor, BigInteger patch, String[] prerelease) implements Comparable<SemVer> {
         static SemVer parse(String text) {

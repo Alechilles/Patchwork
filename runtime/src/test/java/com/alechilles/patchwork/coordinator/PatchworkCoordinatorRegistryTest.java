@@ -36,7 +36,7 @@ final class PatchworkCoordinatorRegistryTest {
         // Catches a mutation that permits an old handle to remove its replacement or leaves no owner after a failed handoff.
         var events = new ArrayList<String>(); var registry = PatchworkCoordinatorRegistry.current();
         var oldToken = registry.registerCandidate(candidate("same", "1.0.0", events, false));
-        assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("same", "2.0.0", events, true)));
+        assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("same", "2.0.0", events, true), oldToken));
 
         assertEquals("same", registry.activeProviderId());
         assertTrue(events.contains("same:fence:2")); assertTrue(events.contains("same:drain:2")); assertTrue(events.contains("same:deactivate:2"));
@@ -87,11 +87,53 @@ final class PatchworkCoordinatorRegistryTest {
     }
 
     @Test
+    void failedPriorRecoveryStartIsCleanedBeforeNextEligibleOwnerActivates() {
+        // Catches activating a fallback while a prior owner that restarted at its recovery epoch remains unfenced.
+        var events = new ArrayList<String>(); var registry = PatchworkCoordinatorRegistry.current();
+        var starts = new java.util.concurrent.atomic.AtomicInteger();
+        PatchworkCoordinatorBridge prior = new PatchworkCoordinatorBridge() {
+            @Override public void fence(long epoch) { events.add("prior:fence:" + epoch); }
+            @Override public void stopAcceptingAndDrain(long epoch) { events.add("prior:drain:" + epoch); }
+            @Override public void deactivate(long epoch) { events.add("prior:deactivate:" + epoch); }
+            @Override public void activate(long epoch) { events.add("prior:activate:" + epoch); }
+            @Override public void start(long epoch) { events.add("prior:start:" + epoch); if (starts.incrementAndGet() == 2) throw new IllegalStateException("recovery start"); }
+        };
+        registry.registerCandidate(new PatchworkRuntimeCandidate("prior", PatchworkRuntimeOrigin.STANDALONE, "3.0.0", 1, "prior", "1", Path.of("mods/prior"), Path.of("mods/prior"), prior));
+        registry.registerCandidate(candidate("next", "1.0.0", events, false));
+        assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("failed", "4.0.0", events, true)));
+        assertEquals(List.of("prior:activate:1", "prior:start:1", "prior:fence:1", "prior:drain:1", "prior:deactivate:1",
+                "failed:activate:2", "failed:start:2", "failed:fence:2", "failed:drain:2", "failed:deactivate:2",
+                "prior:activate:3", "prior:start:3", "prior:fence:3", "prior:drain:3", "prior:deactivate:3",
+                "next:activate:4", "next:start:4"), events);
+        assertEquals("next", registry.activeProviderId());
+    }
+
+    @Test
+    void failedPriorRecoveryCleanupFailsClosedBeforeAnyFallbackCanActivate() {
+        // Catches advancing to a fallback after recovery left the former owner partially active.
+        var events = new ArrayList<String>(); var registry = PatchworkCoordinatorRegistry.current();
+        var starts = new java.util.concurrent.atomic.AtomicInteger();
+        PatchworkCoordinatorBridge prior = new PatchworkCoordinatorBridge() {
+            @Override public void fence(long epoch) { events.add("prior:fence:" + epoch); }
+            @Override public void stopAcceptingAndDrain(long epoch) { events.add("prior:drain:" + epoch); }
+            @Override public void deactivate(long epoch) { events.add("prior:deactivate:" + epoch); if (epoch == 3) throw new IllegalStateException("recovery cleanup"); }
+            @Override public void activate(long epoch) { events.add("prior:activate:" + epoch); }
+            @Override public void start(long epoch) { events.add("prior:start:" + epoch); if (starts.incrementAndGet() == 2) throw new IllegalStateException("recovery start"); }
+        };
+        var old = registry.registerCandidate(new PatchworkRuntimeCandidate("prior", PatchworkRuntimeOrigin.STANDALONE, "3.0.0", 1, "prior", "1", Path.of("mods/prior"), Path.of("mods/prior"), prior));
+        var next = registry.registerCandidate(candidate("next", "1.0.0", events, false));
+        assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("failed", "4.0.0", events, true)));
+        assertEquals(null, registry.activeProviderId()); assertFalse(registry.publish(old)); assertFalse(registry.publish(next));
+        assertFalse(events.stream().anyMatch(event -> event.startsWith("next:activate")));
+        assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("later", "5.0.0", events, false)));
+    }
+
+    @Test
     void sameProviderReplacementRejectsStaleTokenWithoutRemovingNewRegistration() {
         // Catches retaining duplicate same-provider registrations or allowing an old handle to affect its replacement.
         var registry = PatchworkCoordinatorRegistry.current(); var events = new ArrayList<String>();
         var oldToken = registry.registerCandidate(candidate("same", "1.0.0", events, false));
-        var newToken = registry.registerCandidate(candidate("same", "2.0.0", events, false));
+        var newToken = registry.registerCandidate(candidate("same", "2.0.0", events, false), oldToken);
         registry.unregister(oldToken);
         assertEquals("same", registry.activeProviderId()); assertFalse(registry.publish(oldToken)); assertTrue(registry.publish(newToken));
     }
@@ -101,7 +143,7 @@ final class PatchworkCoordinatorRegistryTest {
         // Catches keeping an old same-provider lease publishable after its lifecycle retirement fails.
         var registry = PatchworkCoordinatorRegistry.current(); var events = new ArrayList<String>();
         var old = registry.registerCandidate(candidate("same", "1.0.0", events, false, true));
-        assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("same", "2.0.0", events, false)));
+        assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("same", "2.0.0", events, false), old));
         assertEquals(null, registry.activeToken()); assertFalse(registry.publish(old)); assertEquals(1, registry.candidateCount());
         assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("next", "3.0.0", events, false)));
         assertEquals(null, registry.activeToken()); assertEquals(1, registry.candidateCount());
@@ -113,7 +155,7 @@ final class PatchworkCoordinatorRegistryTest {
         var registry = PatchworkCoordinatorRegistry.current(); var events = new ArrayList<String>();
         var old = registry.registerCandidate(candidate("same", "1.0.0", events, false));
         long before = registry.ownershipEpoch();
-        assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("same", "2.0.0", events, true)));
+        assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("same", "2.0.0", events, true), old));
         assertSame(old, registry.activeToken()); assertTrue(registry.publish(old)); assertEquals(1, registry.candidateCount());
         assertTrue(registry.ownershipEpoch() > before);
     }
@@ -160,7 +202,7 @@ final class PatchworkCoordinatorRegistryTest {
         // Catches election retaining a higher-version old descriptor when its provider re-registers a lower version.
         var registry = PatchworkCoordinatorRegistry.current(); var events = new ArrayList<String>();
         var old = registry.registerCandidate(candidate("same", "2.0.0", events, false));
-        var replacement = registry.registerCandidate(candidate("same", "1.0.0", events, false));
+        var replacement = registry.registerCandidate(candidate("same", "1.0.0", events, false), old);
         assertSame(replacement, registry.activeToken()); assertFalse(registry.publish(old)); assertTrue(registry.publish(replacement));
         assertEquals(1, registry.candidateCount());
     }
@@ -170,7 +212,7 @@ final class PatchworkCoordinatorRegistryTest {
         // Catches a source-path tie-break retaining an earlier same-provider bridge rather than its latest registration.
         var registry = PatchworkCoordinatorRegistry.current(); var events = new ArrayList<String>();
         var old = registry.registerCandidate(candidate("same", "1.0.0", events, false));
-        var replacement = registry.registerCandidate(candidate("same", "1.0.0", events, false));
+        var replacement = registry.registerCandidate(candidate("same", "1.0.0", events, false), old);
         assertSame(replacement, registry.activeToken()); assertFalse(registry.publish(old)); assertTrue(registry.publish(replacement));
         assertEquals(1, registry.candidateCount());
     }
@@ -195,6 +237,67 @@ final class PatchworkCoordinatorRegistryTest {
         assertThrows(IllegalArgumentException.class, () -> PatchworkCoordinatorRegistry.register(descriptorWithAbi(new BigInteger("4294967297"))));
     }
 
+    @Test
+    void rejectsMissingStaleAndWrongProviderReplacementTokensBeforeLifecycleEvents() {
+        // Catches unauthorized same-provider bridge replacement reaching fence/drain/start lifecycle work.
+        var registry = PatchworkCoordinatorRegistry.current(); var events = new ArrayList<String>();
+        var owner = registry.registerCandidate(candidate("same", "1.0.0", events, false));
+        var other = registry.registerCandidate(candidate("other", "1.0.0", events, false));
+        assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("same", "2.0.0", events, false)));
+        assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("same", "2.0.0", events, false), other));
+        var fresh = registry.registerCandidate(candidate("same", "2.0.0", events, false), owner);
+        assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("same", "3.0.0", events, false), owner));
+        assertTrue(registry.publish(fresh));
+    }
+
+    @Test
+    void rejectsAnotherProvidersTokenForBrandNewLocalProviderBeforeLifecycleEvents() {
+        // Catches treating an extraneous replacement handle as harmless when the incoming provider has no incumbent.
+        var registry = PatchworkCoordinatorRegistry.current(); var events = new ArrayList<String>();
+        var other = registry.registerCandidate(candidate("other", "1.0.0", events, false));
+        var before = List.copyOf(events);
+        assertThrows(IllegalStateException.class, () -> registry.registerCandidate(candidate("new", "2.0.0", events, false), other));
+        assertEquals(before, events); assertEquals(1, registry.candidateCount()); assertTrue(registry.publish(other));
+    }
+
+    @Test
+    void publicReplacementRejectsUnknownAndWrongProviderTokensBeforeLifecycleEvents() {
+        // Catches public descriptor parsing turning stale handles into an implicit missing replacement authorization.
+        var events = new ArrayList<String>();
+        String same = PatchworkCoordinatorRegistry.register(descriptor("same", "1.0.0", new PublicRecordingBridge("same", events)));
+        String other = PatchworkCoordinatorRegistry.register(descriptor("other", "1.0.0", new PublicRecordingBridge("other", events)));
+        var before = List.copyOf(events);
+        assertThrows(IllegalStateException.class, () -> PatchworkCoordinatorRegistry.register(descriptor("same", "2.0.0", new PublicRecordingBridge("bad", events), "stale-token")));
+        assertThrows(IllegalStateException.class, () -> PatchworkCoordinatorRegistry.register(descriptor("same", "2.0.0", new PublicRecordingBridge("bad", events), other)));
+        assertEquals(before, events); assertFalse(events.stream().anyMatch(event -> event.startsWith("bad:")));
+    }
+
+    @Test
+    void publicReplacementRejectsAnotherProvidersTokenForBrandNewProviderBeforeLifecycleEvents() {
+        // Catches descriptor registration accepting a valid but unrelated provider token before election begins.
+        var events = new ArrayList<String>();
+        String other = PatchworkCoordinatorRegistry.register(descriptor("other", "1.0.0", new PublicRecordingBridge("other", events)));
+        var before = List.copyOf(events);
+        assertThrows(IllegalStateException.class, () -> PatchworkCoordinatorRegistry.register(descriptor("new", "2.0.0", new PublicRecordingBridge("new", events), other)));
+        assertEquals(before, events); assertEquals("other", PatchworkCoordinatorRegistry.activeProviderId()); assertTrue(PatchworkCoordinatorRegistry.publish(other));
+    }
+
+    @Test
+    void rejectsMalformedSemVerBeforeInitialLocalOrPublicRegistration() {
+        // Catches malformed initial descriptors becoming active before comparator parsing occurs.
+        assertThrows(IllegalArgumentException.class, () -> candidate("bad", "1.0", new ArrayList<>(), false));
+        assertThrows(IllegalArgumentException.class, () -> PatchworkCoordinatorRegistry.register(descriptor("bad", "1.0", new PublicStableBridge())));
+    }
+
+    @Test
+    void bridgePublishExceptionReturnsFalseAndReleasesPublicationGuard() {
+        // Catches a bridge exception leaking from publish or leaving the publication guard locked.
+        var registry = PatchworkCoordinatorRegistry.current();
+        PatchworkCoordinatorBridge bridge = new PatchworkCoordinatorBridge() { int calls; @Override public boolean publish(long epoch) { if (calls++ == 0) throw new IllegalStateException("publish"); return true; } };
+        var token = registry.registerCandidate(new PatchworkRuntimeCandidate("publish", PatchworkRuntimeOrigin.STANDALONE, "1.0.0", 1, "publish", "1", Path.of("mods/publish"), Path.of("mods/publish"), bridge));
+        assertFalse(registry.publish(token)); assertTrue(registry.publish(token)); assertSame(token, registry.activeToken());
+    }
+
     private static PatchworkRuntimeCandidate candidate(String id, String version, List<String> events, boolean failStart) {
         return candidate(id, version, events, failStart, false);
     }
@@ -207,6 +310,10 @@ final class PatchworkCoordinatorRegistryTest {
         return Map.of("providerId", id, "origin", "STANDALONE", "runtimeVersion", version, "coordinatorAbi", 1,
                 "providerPluginId", id, "providerPluginVersion", "1", "sourceJarPath", Path.of("mods", id + ".jar"),
                 "providerDataRoot", Path.of("mods", id), "bridge", bridge);
+    }
+
+    private static Map<String, Object> descriptor(String id, String version, Object bridge, String replacementToken) {
+        var values = new java.util.HashMap<>(descriptor(id, version, bridge)); values.put("replacementToken", replacementToken); return values;
     }
 
     private static Map<String, Object> descriptorWithAbi(Number abi) {
@@ -226,6 +333,17 @@ final class PatchworkCoordinatorRegistryTest {
 
     public static final class PublicFailingBridge extends PublicStableBridge {
         @Override public void start(long epoch) { throw new IllegalStateException("start"); }
+    }
+
+    public static final class PublicRecordingBridge extends PublicStableBridge {
+        private final String id; private final List<String> events;
+        PublicRecordingBridge(String id, List<String> events) { this.id = id; this.events = events; }
+        @Override public void fence(long epoch) { events.add(id + ":fence:" + epoch); }
+        @Override public void stopAcceptingAndDrain(long epoch) { events.add(id + ":drain:" + epoch); }
+        @Override public void deactivate(long epoch) { events.add(id + ":deactivate:" + epoch); }
+        @Override public void activate(long epoch) { events.add(id + ":activate:" + epoch); }
+        @Override public void start(long epoch) { events.add(id + ":start:" + epoch); }
+        @Override public boolean publish(long epoch) { events.add(id + ":publish:" + epoch); return true; }
     }
 
     private static class RecordingBridge implements PatchworkCoordinatorBridge {

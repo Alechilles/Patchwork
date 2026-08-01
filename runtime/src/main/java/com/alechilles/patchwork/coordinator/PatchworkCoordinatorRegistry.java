@@ -36,8 +36,11 @@ public final class PatchworkCoordinatorRegistry {
         synchronized (System.getProperties()) { System.getProperties().remove(REGISTRY_PROPERTY); }
     }
 
-    synchronized PatchworkRegistrationToken registerCandidate(PatchworkRuntimeCandidate candidate) {
+    synchronized PatchworkRegistrationToken registerCandidate(PatchworkRuntimeCandidate candidate) { return registerCandidate(candidate, null); }
+    synchronized PatchworkRegistrationToken registerCandidate(PatchworkRuntimeCandidate candidate, PatchworkRegistrationToken replacementToken) {
         checkAvailable();
+        PatchworkRegistrationToken incumbent = providerToken(candidate.providerId());
+        if (incumbent != replacementToken) throw failure("Replacement token must exactly match the provider incumbent");
         PatchworkRegistrationToken token = new PatchworkRegistrationToken();
         candidates.put(token, candidate);
         try {
@@ -63,7 +66,7 @@ public final class PatchworkCoordinatorRegistry {
         PatchworkRuntimeCandidate active = activeCandidate();
         if (active == null) return false;
         publishing = true;
-        try { return active.bridge().publish(epoch); }
+        try { return active.bridge().publish(epoch); } catch (RuntimeException failure) { return false; }
         finally { publishing = false; }
     }
 
@@ -97,8 +100,9 @@ public final class PatchworkCoordinatorRegistry {
             boolean cleaned = cleanupSucceeded(newToken);
             discard(newToken);
             if (!cleaned) failClosed("Replacement cleanup failed");
-            if (oldToken != null && candidates.containsKey(oldToken) && activate(oldToken)) {
-                throw failure("Replacement activation failed");
+            if (oldToken != null && candidates.containsKey(oldToken)) {
+                if (activate(oldToken)) throw failure("Replacement activation failed");
+                if (!cleanupSucceeded(oldToken)) failClosed("Prior recovery cleanup failed");
             }
             if (oldToken != null) candidates.remove(oldToken);
             activateNextEligible();
@@ -170,6 +174,10 @@ public final class PatchworkCoordinatorRegistry {
         if (token != null && token != activeToken) candidates.remove(token);
     }
 
+    private PatchworkRegistrationToken providerToken(String providerId) {
+        return candidates.entrySet().stream().filter(entry -> entry.getValue().providerId().equals(providerId)).map(Map.Entry::getKey).findFirst().orElse(null);
+    }
+
     private PatchworkRegistrationToken selectWinner() { return selectWinnerExcluding(null); }
 
     private PatchworkRegistrationToken selectWinnerForReplacement(String providerId, PatchworkRegistrationToken replacement) {
@@ -210,7 +218,7 @@ public final class PatchworkCoordinatorRegistry {
         Object state = installedRegistry();
         if (!(state instanceof PatchworkCoordinatorRegistry registry)) return invokeForeign(state, operation, value);
         return switch (operation) {
-            case "register" -> registry.registerCandidate(fromDescriptor((Map<String, ?>) value)).toString();
+            case "register" -> registry.registerExternal((Map<String, ?>) value);
             case "unregister" -> Boolean.toString(registry.unregisterExternal((String) value));
             case "publish" -> Boolean.toString(registry.publishExternal((String) value));
             default -> registry.localActiveProviderId();
@@ -234,6 +242,13 @@ public final class PatchworkCoordinatorRegistry {
 
     private synchronized boolean publishExternal(String text) { return publish(findToken(this, text)); }
 
+    /** Resolves and validates a public replacement handle while holding the election monitor. */
+    private synchronized String registerExternal(Map<String, ?> descriptor) {
+        PatchworkRuntimeCandidate candidate = fromDescriptor(descriptor);
+        PatchworkRegistrationToken replacement = replacementToken(descriptor);
+        return registerCandidate(candidate, replacement).toString();
+    }
+
     private static PatchworkRegistrationToken findToken(PatchworkCoordinatorRegistry registry, String text) {
         return registry.candidates.keySet().stream().filter(token -> token.toString().equals(text)).findFirst().orElse(null);
     }
@@ -243,7 +258,7 @@ public final class PatchworkCoordinatorRegistry {
             Method method = value == null ? state.getClass().getMethod(op)
                     : state.getClass().getMethod(op, value instanceof Map ? Map.class : String.class);
             Object result = value == null ? method.invoke(null) : method.invoke(null, value);
-            return String.valueOf(result);
+            return result == null ? null : String.valueOf(result);
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("Incompatible coordinator registry", exception);
         }
@@ -255,6 +270,15 @@ public final class PatchworkCoordinatorRegistry {
         Object bridge = require(map, "bridge", Object.class);
         return new PatchworkRuntimeCandidate((String) map.get("providerId"), PatchworkRuntimeOrigin.valueOf((String) map.get("origin")), (String) map.get("runtimeVersion"), exactCoordinatorAbi(map),
                 (String) map.get("providerPluginId"), (String) map.get("providerPluginVersion"), (Path) map.get("sourceJarPath"), (Path) map.get("providerDataRoot"), new ReflectiveBridge(bridge));
+    }
+
+    private PatchworkRegistrationToken replacementToken(Map<String, ?> descriptor) {
+        Object value = descriptor.get("replacementToken");
+        if (value == null) return null;
+        if (!(value instanceof String text) || text.isBlank()) throw new IllegalArgumentException("Invalid coordinator descriptor field: replacementToken");
+        PatchworkRegistrationToken token = findToken(this, text);
+        if (token == null) throw new IllegalStateException("Unknown replacement registration token");
+        return token;
     }
 
     private static <T> T require(Map<String, ?> map, String key, Class<T> type) {
