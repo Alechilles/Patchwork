@@ -383,6 +383,34 @@ final class PatchReloadCoordinatorTest {
     }
 
     @Test
+    void evidencePersistenceDoesNotHoldLifecycleLockAfterRollbackRevocation() throws Exception {
+        Path root = Files.createDirectories(temporary.resolve("evidence-lock")); Path target = root.resolve("Server/AssetStore/A.json"); Files.createDirectories(target.getParent()); Files.writeString(target, "old");
+        CountDownLatch evidenceWriterEntered = new CountDownLatch(1); CountDownLatch releaseEvidenceWriter = new CountDownLatch(1);
+        PatchReloadCoordinator[] holder = new PatchReloadCoordinator[1]; AtomicInteger mutations = new AtomicInteger();
+        TargetPatchTransaction.MoveStrategy moves = new TargetPatchTransaction.MoveStrategy() {
+            @Override public void beforeMutation(Path ignored) { if (mutations.incrementAndGet() == 2) holder[0].revoke(0L); }
+            @Override public void atomicMove(Path from, Path to) throws java.io.IOException { Files.move(from, to, StandardCopyOption.REPLACE_EXISTING); }
+            @Override public void nonAtomicMove(Path from, Path to) throws java.io.IOException { Files.move(from, to, StandardCopyOption.REPLACE_EXISTING); }
+        };
+        holder[0] = new PatchReloadCoordinator(root, new PatchReloadTracker(), adapter("built-in", ignored -> HytalePatchTargetAdapter.AdapterReply.rejected("no")), List.of(), Duration.ofMillis(10), moves, defaultManifestMoves(), () -> {
+            evidenceWriterEntered.countDown();
+            try { releaseEvidenceWriter.await(); }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new AssertionError(interrupted); }
+        });
+        CompletableFuture<PatchReloadCoordinator.ReloadOutcome> pass = CompletableFuture.supplyAsync(() -> holder[0].reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> plan("manifest", update("Server/AssetStore/A.json", "new")))));
+
+        try {
+            assertTrue(evidenceWriterEntered.await(1, TimeUnit.SECONDS));
+            CompletableFuture<Void> activate = CompletableFuture.runAsync(() -> holder[0].activate(1L));
+            activate.get(100, TimeUnit.MILLISECONDS);
+            assertFalse(CompletableFuture.supplyAsync(() -> holder[0].drain(Duration.ofMillis(5))).get(100, TimeUnit.MILLISECONDS));
+        } finally { releaseEvidenceWriter.countDown(); }
+
+        PatchReloadCoordinator.TargetOutcome outcome = pass.get(1, TimeUnit.SECONDS).targets().getFirst();
+        assertEquals(PatchReloadCoordinator.TargetState.ROLLBACK_FAILED, outcome.state()); assertTrue(Files.exists(outcome.rollbackEvidencePath().resolve("metadata.txt"))); assertTrue(holder[0].drain(Duration.ofSeconds(1)));
+    }
+
+    @Test
     void admissionIsVisibleToDrainBeforeGeneratorWork() throws Exception {
         Path root = Files.createDirectories(temporary.resolve("admission")); CountDownLatch entered = new CountDownLatch(1); CountDownLatch release = new CountDownLatch(1);
         var coordinator = new PatchReloadCoordinator(root, new PatchReloadTracker(), unsupported(), List.of(), Duration.ofMillis(10));

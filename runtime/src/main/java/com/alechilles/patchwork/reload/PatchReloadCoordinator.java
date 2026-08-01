@@ -87,6 +87,10 @@ public final class PatchReloadCoordinator {
         }
     }
     private static final class ReloadRevokedException extends Exception { }
+    /** Package-private test seam invoked immediately before rollback evidence filesystem work. */
+    @FunctionalInterface interface EvidencePersistenceHook {
+        void beforeFilesystemWork();
+    }
     /**
      * The transaction authorization issued with an exact observer expectation.  It owns one
      * mutation and its compensating filesystem cleanup, so revoke cannot strand changed bytes.
@@ -113,13 +117,19 @@ public final class PatchReloadCoordinator {
         }
     }
 
+    private static final EvidencePersistenceHook NO_EVIDENCE_PERSISTENCE_HOOK = () -> { };
+    private final EvidencePersistenceHook evidencePersistenceHook;
+
     public PatchReloadCoordinator(Path generatedRoot, PatchReloadTracker tracker, HytalePatchTargetAdapter builtInAdapter, List<HytalePatchTargetAdapter> hostAdapters, Duration timeout) {
-        this(generatedRoot, tracker, builtInAdapter, hostAdapters, timeout, TargetPatchTransaction.fileMoves(), TargetPatchTransaction.fileMoves());
+        this(generatedRoot, tracker, builtInAdapter, hostAdapters, timeout, TargetPatchTransaction.fileMoves(), TargetPatchTransaction.fileMoves(), NO_EVIDENCE_PERSISTENCE_HOOK);
     }
     PatchReloadCoordinator(Path generatedRoot, PatchReloadTracker tracker, HytalePatchTargetAdapter builtInAdapter, List<HytalePatchTargetAdapter> hostAdapters, Duration timeout, TargetPatchTransaction.MoveStrategy targetMoves, TargetPatchTransaction.MoveStrategy manifestMoves) {
+        this(generatedRoot, tracker, builtInAdapter, hostAdapters, timeout, targetMoves, manifestMoves, NO_EVIDENCE_PERSISTENCE_HOOK);
+    }
+    PatchReloadCoordinator(Path generatedRoot, PatchReloadTracker tracker, HytalePatchTargetAdapter builtInAdapter, List<HytalePatchTargetAdapter> hostAdapters, Duration timeout, TargetPatchTransaction.MoveStrategy targetMoves, TargetPatchTransaction.MoveStrategy manifestMoves, EvidencePersistenceHook evidencePersistenceHook) {
         root = Objects.requireNonNull(generatedRoot).toAbsolutePath().normalize(); this.tracker = Objects.requireNonNull(tracker);
         this.builtInAdapter = Objects.requireNonNull(builtInAdapter); this.hostAdapters = List.copyOf(hostAdapters); this.timeout = Objects.requireNonNull(timeout);
-        this.targetMoves = Objects.requireNonNull(targetMoves); this.manifestMoves = Objects.requireNonNull(manifestMoves);
+        this.targetMoves = Objects.requireNonNull(targetMoves); this.manifestMoves = Objects.requireNonNull(manifestMoves); this.evidencePersistenceHook = Objects.requireNonNull(evidencePersistenceHook);
     }
 
     /** Runs one authorized pass at a time; file and observer events cannot call this method successfully. */
@@ -219,11 +229,18 @@ public final class PatchReloadCoordinator {
             if (adapter == null) return transactionScope.rollbackFailure(target, "", diagnostic, journal);
             java.util.concurrent.CompletableFuture<PatchReloadTracker.Outcome> expected;
             PhaseAuthorization authorization;
+            boolean rollbackConfirmationAuthorized;
             synchronized (lifecycleLock) {
-                if (!hasLease(token)) return transactionScope.rollbackFailure(target, "", diagnostic + " Reload revoked before rollback confirmation.", journal);
-                expected = tracker.expect(token, epoch, target, journal.oldHash(), removal); expectationRegistered = true;
-                authorization = new PhaseAuthorization("rollback-confirmation-adapter");
+                rollbackConfirmationAuthorized = hasLease(token);
+                if (rollbackConfirmationAuthorized) {
+                    expected = tracker.expect(token, epoch, target, journal.oldHash(), removal); expectationRegistered = true;
+                    authorization = new PhaseAuthorization("rollback-confirmation-adapter");
+                } else {
+                    expected = null;
+                    authorization = null;
+                }
             }
+            if (!rollbackConfirmationAuthorized) return transactionScope.rollbackFailure(target, "", diagnostic + " Reload revoked before rollback confirmation.", journal);
             HytalePatchTargetAdapter.AdapterReply reply = authorization.execute(() -> adapter.reload(new HytalePatchTargetAdapter.ReloadTarget(token, epoch, target, journal.oldHash(), removal, family)));
             if (reply != null && reply.accepted() && !reply.restartRequired() && await(expected)) return outcome(target, TargetState.STALE, adapter.adapterId(), diagnostic, false);
         } catch (Exception failure) { diagnostic = diagnostic + " Rollback failed: " + failure.getMessage(); }
@@ -245,6 +262,7 @@ public final class PatchReloadCoordinator {
     }
     private Path preserveEvidence(String target, TargetJournalEntry evidence) {
         try {
+            evidencePersistenceHook.beforeFilesystemWork();
             Path diagnostics = root.getParent().resolve("Diagnostics").normalize(); TargetPatchTransaction.verifySafePath(root.getParent()); Files.createDirectories(diagnostics); TargetPatchTransaction.verifySafePath(diagnostics); var diagnosticsAncestry = TargetPatchTransaction.captureAncestry(diagnostics);
             String safe = safePathToken(target); if (safe.length() > 48) safe = safe.substring(0, 48); String targetFingerprint = TargetJournalEntry.hash(target.getBytes(java.nio.charset.StandardCharsets.UTF_8)).substring(0, 16); String hash = safePathToken(evidence.oldHash()); String name = "reload-" + nextEpoch + "-" + safe + "-" + targetFingerprint + "-" + hash.substring(0, Math.min(12, hash.length())) + "-" + java.util.UUID.randomUUID(); Path directory = Files.createDirectory(diagnostics.resolve(name)); TargetPatchTransaction.verifySafePath(directory);
             TargetPatchTransaction.requireSameAncestry(diagnostics, diagnosticsAncestry); writeEvidenceFile(directory, "metadata.txt", ("Epoch=" + nextEpoch + "\nTarget=" + target + "\nHash=" + evidence.oldHash() + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
