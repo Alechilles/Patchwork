@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -62,5 +63,62 @@ final class PatchConditionEvaluatorTest {
         assertEquals(PatchConditionEvaluator.Status.FAILED, malformed.status());
         assertFalse(malformed.diagnostic().contains("not json"));
         assertFalse(malformed.diagnostic().contains("secret"));
+    }
+
+    @Test
+    void preservesJsonNullAndComparesUnboundedVersions() {
+        ConditionSourceResolver resolver = new ConditionSourceResolver(new PatchTargetResolver(), new ModDataRootRegistry(Map.of()), new ConditionDocumentCache());
+        PatchConditionEvaluator.EvaluationContext context = new PatchConditionEvaluator.EvaluationContext(
+                List.of("Example:Mod"), Map.of("Example:Mod", "999999999999999999999.0"), "999999999999999999999.0",
+                "Server/Target.json", "{\"flag\":null}".getBytes(StandardCharsets.UTF_8), resolver);
+        PatchConditionEvaluator evaluator = new PatchConditionEvaluator();
+        assertEquals(PatchConditionEvaluator.Status.MATCHED, evaluator.evaluate(
+                new PatchCondition.JsonPathExists(new ConditionSource.Target(), "/flag"), context).status());
+        assertEquals(PatchConditionEvaluator.Status.MATCHED, evaluator.evaluate(
+                new PatchCondition.JsonPathEquals(new ConditionSource.Target(), "/flag", JsonParser.parseString("null")), context).status());
+        assertEquals(PatchConditionEvaluator.Status.MATCHED, evaluator.evaluate(
+                new PatchCondition.ModVersion("Example:Mod", new PatchCondition.VersionMatcher(null, "999999999999999999999", null, null, null)), context).status());
+    }
+
+    @Test
+    void evaluatesInstalledAssetsTargetsVersionsAndCompositeOutcomes() throws Exception {
+        Path assets = Files.createDirectories(temporaryDirectory.resolve("assets"));
+        Files.writeString(assets.resolve("present.bin"), "not-json", StandardCharsets.UTF_8);
+        PatchSource source = PatchSource.directory("source", 1, assets);
+        ConditionSourceResolver resolver = new ConditionSourceResolver(
+                new PatchTargetResolver(), new ModDataRootRegistry(Map.of()), new ConditionDocumentCache());
+        PatchConditionEvaluator.EvaluationContext context = new PatchConditionEvaluator.EvaluationContext(
+                Set.of("Example:Mod"), Map.of("Example:Mod", "1.2.999999999999999999999"),
+                "1.2.999999999999999999999", "Target.json", "{}".getBytes(StandardCharsets.UTF_8), resolver, List.of(source));
+        PatchConditionEvaluator evaluator = new PatchConditionEvaluator();
+
+        assertTrue(evaluator.evaluate(new PatchCondition.ModInstalled("Example:Mod"), context).matched());
+        assertEquals(PatchConditionEvaluator.Status.NOT_MATCHED, evaluator.evaluate(new PatchCondition.ModInstalled("Missing:Mod"), context).status());
+        assertTrue(evaluator.evaluate(new PatchCondition.AssetExists("present.bin"), context).matched());
+        assertTrue(evaluator.evaluate(new PatchCondition.AssetMissing("missing.bin"), context).matched());
+        assertTrue(evaluator.evaluate(new PatchCondition.TargetExists(), context).matched());
+        assertTrue(evaluator.evaluate(new PatchCondition.ServerVersion(new PatchCondition.VersionMatcher(null, "1.2.999999999999999999999", null, null, null)), context).matched());
+        assertTrue(evaluator.evaluate(new PatchCondition.All(List.of(new PatchCondition.ModInstalled("Example:Mod"), new PatchCondition.AssetExists("present.bin"))), context).matched());
+        assertTrue(evaluator.evaluate(new PatchCondition.Any(List.of(new PatchCondition.ModInstalled("Missing:Mod"), new PatchCondition.AssetExists("present.bin"))), context).matched());
+        assertTrue(evaluator.evaluate(new PatchCondition.Not(new PatchCondition.ModInstalled("Missing:Mod")), context).matched());
+    }
+
+    @Test
+    void snapshotsFailuresAndNormalizesAssetSpellingsWithoutLeakingSecrets() throws Exception {
+        Path assets = Files.createDirectories(temporaryDirectory.resolve("assets-cache"));
+        Files.createDirectories(assets.resolve("Server"));
+        Files.writeString(assets.resolve("Server/secret.json"), "{not-json", StandardCharsets.UTF_8);
+        ConditionSourceResolver resolver = new ConditionSourceResolver(new PatchTargetResolver(), new ModDataRootRegistry(Map.of()), new ConditionDocumentCache());
+        PatchConditionEvaluator.EvaluationContext context = new PatchConditionEvaluator.EvaluationContext(
+                Set.of(), Map.of(), null, "Target.json", null, resolver, List.of(PatchSource.directory("source", 1, assets)));
+        PatchConditionEvaluator evaluator = new PatchConditionEvaluator();
+        PatchConditionEvaluator.Evaluation first = evaluator.evaluate(new PatchCondition.JsonPathEquals(new ConditionSource.Asset("Server/secret.json"), "/x", JsonParser.parseString("\"expected-secret\"")), context);
+        PatchConditionEvaluator.Evaluation second = evaluator.evaluate(new PatchCondition.JsonPathExists(new ConditionSource.Asset("Server\\secret.json"), "/x"), context);
+
+        assertEquals(PatchConditionEvaluator.Status.FAILED, first.status());
+        assertEquals(PatchConditionEvaluator.Status.FAILED, second.status());
+        assertEquals(1, resolver.documentCache().snapshotCount());
+        assertFalse(first.diagnostic().contains("not-json"));
+        assertFalse(first.diagnostic().contains("expected-secret"));
     }
 }

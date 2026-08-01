@@ -50,6 +50,20 @@ final class PatchConditionParserTest {
     }
 
     @Test
+    void retainsGameAndServerVersionAndImplicitTargetSource() {
+        assertInstanceOf(PatchCondition.ServerVersion.class, parser.parse(JsonParser.parseString(
+                "{\"GameVersion\":{\"AtLeast\":\"999999999999999999999.0\"}}"
+        ).getAsJsonObject()));
+        assertInstanceOf(PatchCondition.ServerVersion.class, parser.parse(JsonParser.parseString(
+                "{\"ServerVersion\":{\"Below\":\"2.0\"}}"
+        ).getAsJsonObject()));
+        PatchCondition.JsonPathExists implicit = assertInstanceOf(PatchCondition.JsonPathExists.class, parser.parse(JsonParser.parseString(
+                "{\"JsonPathExists\":{\"Path\":\"/enabled\"}}"
+        ).getAsJsonObject()));
+        assertEquals(new ConditionSource.Target(), implicit.source());
+    }
+
+    @Test
     void rejectsRetiredAndAmbiguousSourceForms() {
         IllegalArgumentException retired = assertThrows(IllegalArgumentException.class, () -> parser.parse(JsonParser.parseString(
                 "{\"TameworkSetting\":{\"Path\":\"enabled\",\"Value\":true}}"

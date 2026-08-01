@@ -9,6 +9,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.DirectoryStream;
+import java.nio.file.SecureDirectoryStream;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.DosFileAttributes;
@@ -39,15 +41,37 @@ public final class ModDataRootRegistry {
     }
     private byte[] read(Path root, String relative) throws IOException {
         if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(root)) throw new IOException("unsafe root");
-        Path realRoot = root.toRealPath(LinkOption.NOFOLLOW_LINKS); Path current = root;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(root)) {
+            if (stream instanceof SecureDirectoryStream<Path> secure) return secureRead(root, relative, secure);
+        }
+        Path realRoot = root.toRealPath(LinkOption.NOFOLLOW_LINKS); Path current = root; java.util.List<ComponentAttributes> components = new java.util.ArrayList<>(); components.add(ComponentAttributes.read(root));
         String[] parts = relative.split("/");
-        for (int i = 0; i < parts.length; i++) { current = current.resolve(parts[i]); BasicFileAttributes attrs = Files.readAttributes(current, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS); if (Files.isSymbolicLink(current) || attrs.isOther() || (i < parts.length - 1 && !attrs.isDirectory()) || (i == parts.length - 1 && !attrs.isRegularFile())) throw new IOException("unsafe component"); }
+        for (int i = 0; i < parts.length; i++) { current = current.resolve(parts[i]); BasicFileAttributes attrs = Files.readAttributes(current, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS); if (Files.isSymbolicLink(current) || attrs.isOther() || (i < parts.length - 1 && !attrs.isDirectory()) || (i == parts.length - 1 && !attrs.isRegularFile())) throw new IOException("unsafe component"); components.add(ComponentAttributes.read(current)); }
         Path realFile = current.toRealPath(LinkOption.NOFOLLOW_LINKS); if (!realFile.startsWith(realRoot)) throw new IOException("escaped root");
         Attributes before = Attributes.read(current); if (before.size() > MAX_BYTES) throw new IOException("file too large");
         readHook.beforeRead(current);
-        byte[] bytes; try (SeekableByteChannel channel = Files.newByteChannel(current, java.util.Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS))) { if (channel.size() > MAX_BYTES) throw new IOException("file too large"); try (InputStream input = java.nio.channels.Channels.newInputStream(channel)) { bytes = bounded(input); } }
-        Attributes after = Attributes.read(current); Path afterReal = current.toRealPath(LinkOption.NOFOLLOW_LINKS); if (!before.sameAs(after) || !afterReal.startsWith(realRoot) || !afterReal.equals(realFile)) throw new IOException("file changed during read");
+        byte[] bytes; try (SeekableByteChannel channel = Files.newByteChannel(current, java.util.Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS))) { if (channel.size() > MAX_BYTES) throw new IOException("file too large"); try (InputStream input = java.nio.channels.Channels.newInputStream(channel)) { bytes = bounded(input); } } catch (java.nio.file.NoSuchFileException disappeared) { throw new IOException("file disappeared after validation", disappeared); }
+        Attributes after = Attributes.read(current); Path afterReal = current.toRealPath(LinkOption.NOFOLLOW_LINKS); for (int i = 0; i < components.size(); i++) { Path component = i == 0 ? root : root.resolve(String.join("/", java.util.Arrays.copyOf(parts, i))); if (!components.get(i).sameAs(ComponentAttributes.read(component))) throw new IOException("component changed during read"); } if (!before.sameAs(after) || !afterReal.startsWith(realRoot) || !afterReal.equals(realFile)) throw new IOException("file changed during read");
         return bytes;
+    }
+    private byte[] secureRead(Path root, String relative, SecureDirectoryStream<Path> rootStream) throws IOException {
+        String[] parts = relative.split("/"); java.util.List<SecureDirectoryStream<Path>> handles = new java.util.ArrayList<>(); handles.add(rootStream);
+        try {
+            SecureDirectoryStream<Path> current = rootStream;
+            for (int i = 0; i < parts.length - 1; i++) {
+                Path part = root.getFileSystem().getPath(parts[i]);
+                BasicFileAttributes attrs = current.getFileAttributeView(part, java.nio.file.attribute.BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS).readAttributes();
+                if (!attrs.isDirectory() || attrs.isOther()) throw new IOException("unsafe component");
+                current = current.newDirectoryStream(part, LinkOption.NOFOLLOW_LINKS); handles.add(current);
+            }
+            Path file = root.getFileSystem().getPath(parts[parts.length - 1]);
+            BasicFileAttributes attrs = current.getFileAttributeView(file, java.nio.file.attribute.BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS).readAttributes();
+            if (!attrs.isRegularFile() || attrs.isOther() || attrs.size() > MAX_BYTES) throw new IOException("unsafe final file");
+            try (SeekableByteChannel channel = current.newByteChannel(file, java.util.Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS))) {
+                if (channel.size() > MAX_BYTES) throw new IOException("file too large");
+                try (InputStream input = java.nio.channels.Channels.newInputStream(channel)) { return bounded(input); }
+            }
+        } finally { for (int i = handles.size() - 1; i > 0; i--) handles.get(i).close(); }
     }
     private static byte[] bounded(InputStream input) throws IOException { ByteArrayOutputStream output = new ByteArrayOutputStream(); byte[] buffer = new byte[8192]; for (int n; (n = input.read(buffer)) != -1;) { if (output.size() + n > MAX_BYTES) throw new IOException("file too large"); output.write(buffer, 0, n); } return output.toByteArray(); }
     private static String require(String value, String name) { if (value == null || value.trim().isEmpty()) throw new IllegalArgumentException(name + " must not be blank."); return value.trim(); }
@@ -60,5 +84,9 @@ public final class ModDataRootRegistry {
     private record Attributes(boolean regular, boolean other, long size, java.nio.file.attribute.FileTime created, java.nio.file.attribute.FileTime modified, Object key, boolean hidden, boolean system) {
         static Attributes read(Path path) throws IOException { BasicFileAttributes basic = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS); if (!basic.isRegularFile() || basic.isOther()) throw new IOException("unsafe final file"); try { DosFileAttributes dos = Files.readAttributes(path, DosFileAttributes.class, LinkOption.NOFOLLOW_LINKS); return new Attributes(basic.isRegularFile(), basic.isOther(), basic.size(), basic.creationTime(), basic.lastModifiedTime(), basic.fileKey(), dos.isHidden(), dos.isSystem()); } catch (UnsupportedOperationException ignored) { return new Attributes(basic.isRegularFile(), basic.isOther(), basic.size(), basic.creationTime(), basic.lastModifiedTime(), basic.fileKey(), false, false); } }
         boolean sameAs(Attributes other) { return regular == other.regular && this.other == other.other && size == other.size && created.equals(other.created) && modified.equals(other.modified) && (key == null || other.key == null || key.equals(other.key)) && hidden == other.hidden && system == other.system; }
+    }
+    private record ComponentAttributes(boolean directory, boolean regular, boolean other, long size, java.nio.file.attribute.FileTime created, java.nio.file.attribute.FileTime modified, Object key, boolean hidden, boolean system) {
+        static ComponentAttributes read(Path path) throws IOException { BasicFileAttributes basic = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS); try { DosFileAttributes dos = Files.readAttributes(path, DosFileAttributes.class, LinkOption.NOFOLLOW_LINKS); return new ComponentAttributes(basic.isDirectory(), basic.isRegularFile(), basic.isOther(), basic.size(), basic.creationTime(), basic.lastModifiedTime(), basic.fileKey(), dos.isHidden(), dos.isSystem()); } catch (UnsupportedOperationException ignored) { return new ComponentAttributes(basic.isDirectory(), basic.isRegularFile(), basic.isOther(), basic.size(), basic.creationTime(), basic.lastModifiedTime(), basic.fileKey(), false, false); } }
+        boolean sameAs(ComponentAttributes other) { return directory == other.directory && regular == other.regular && this.other == other.other && size == other.size && created.equals(other.created) && modified.equals(other.modified) && (key == null || other.key == null || key.equals(other.key)) && hidden == other.hidden && system == other.system; }
     }
 }

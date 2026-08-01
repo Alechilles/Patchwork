@@ -13,11 +13,17 @@ import java.util.zip.ZipFile;
 public final class PatchTargetResolver {
     /** Resolves a target to the highest-priority available source and copies its bytes before archive closure. */
     public Optional<ResolvedTarget> resolve(List<PatchSource> sources, String target) {
+        return resolveDetailed(sources, target).target();
+    }
+    /** Resolves with missing-vs-failure status for callers that must not hide unsafe reads. */
+    public Resolution resolveDetailed(List<PatchSource> sources, String target) {
         final String normalized;
-        try { normalized = PatchScanner.normalizeAssetPath(target); } catch (IllegalArgumentException exception) { return Optional.empty(); }
-        return sources.stream().filter(source -> !PatchScanner.GENERATED_PACK_ID.equals(source.sourcePackId()))
-                .sorted(Comparator.comparingInt(PatchSource::sourcePackLoadOrder).thenComparing(PatchSource::sourcePackId).reversed())
-                .map(source -> read(source, normalized)).flatMap(Optional::stream).findFirst();
+        try { normalized = PatchScanner.normalizeAssetPath(target); } catch (IllegalArgumentException exception) { return new Resolution(Status.FAILED, null, "Unsafe asset path."); }
+        for (PatchSource source : sources.stream().filter(s -> !PatchScanner.GENERATED_PACK_ID.equals(s.sourcePackId())).sorted(Comparator.comparingInt(PatchSource::sourcePackLoadOrder).thenComparing(PatchSource::sourcePackId).reversed()).toList()) {
+            try { byte[] bytes = source.kind() == PatchSource.Kind.DIRECTORY ? readDirectory(source.backingPath(), normalized) : readArchive(source.backingPath(), normalized); if (bytes != null) return new Resolution(Status.FOUND, new ResolvedTarget(source.sourcePackId(), source.sourcePackLoadOrder(), normalized, bytes), ""); }
+            catch (IOException exception) { return new Resolution(Status.FAILED, null, "Unable to read asset source."); }
+        }
+        return new Resolution(Status.MISSING, null, "Asset source is missing.");
     }
 
     private static Optional<ResolvedTarget> read(PatchSource source, String target) {
@@ -50,4 +56,8 @@ public final class PatchTargetResolver {
         public ResolvedTarget { bytes = bytes.clone(); }
         @Override public byte[] bytes() { return bytes.clone(); }
     }
+    /** Detailed resolution status without sensitive filesystem details. */
+    public record Resolution(Status status, ResolvedTarget resolvedTarget, String diagnostic) { public Optional<ResolvedTarget> target() { return Optional.ofNullable(resolvedTarget); } }
+    /** Detailed resolution outcome. */
+    public enum Status { FOUND, MISSING, FAILED }
 }

@@ -72,6 +72,23 @@ final class PatchTargetResolverTest {
         assertTrue(new PatchTargetResolver().resolve(List.of(PatchSource.directory(PatchScanner.GENERATED_PACK_ID, 99, generated)), "Server/Target.json").isEmpty());
     }
 
+    @Test
+    void reportsDetailedFoundMissingUnsafeAndIoOutcomesWhileKeepingOptionalCompatibility() throws Exception {
+        Path root = tempDir.resolve("detailed");
+        write(root, "Server/Target.json", "target");
+        PatchTargetResolver resolver = new PatchTargetResolver();
+        List<PatchSource> source = List.of(PatchSource.directory("pack", 1, root));
+
+        assertEquals(PatchTargetResolver.Status.FOUND, resolver.resolveDetailed(source, "Server/Target.json").status());
+        assertEquals(PatchTargetResolver.Status.MISSING, resolver.resolveDetailed(source, "Server/Missing.json").status());
+        assertEquals(PatchTargetResolver.Status.FAILED, resolver.resolveDetailed(source, "../unsafe.json").status());
+        assertTrue(resolver.resolve(source, "Server/Target.json").isPresent());
+        assertTrue(resolver.resolve(source, "../unsafe.json").isEmpty());
+        Path brokenArchive = tempDir.resolve("broken.zip");
+        Files.writeString(brokenArchive, "not a zip", StandardCharsets.UTF_8);
+        assertEquals(PatchTargetResolver.Status.FAILED, resolver.resolveDetailed(List.of(PatchSource.archive("broken", 1, brokenArchive)), "Server/Target.json").status());
+    }
+
     private static void write(Path root, String path, String content) throws Exception {
         Path file = root.resolve(path);
         Files.createDirectories(file.getParent());
