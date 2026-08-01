@@ -325,14 +325,15 @@ public final class PatchworkCoordinatorRegistry {
         String host = (String) descriptor.get("hostPluginIdentifier"); String version = (String) descriptor.get("contributionVersion");
         List<?> newMacros = (List<?>) descriptor.get("macroIds"); List<?> newAdapters = (List<?>) descriptor.get("adapterIds");
         for (Map<String, ?> existing : contributions.values()) {
+            List<?> oldMacros = (List<?>) existing.get("macroIds");
             List<?> oldAdapters = (List<?>) existing.get("adapterIds");
             for (Object adapter : newAdapters) if (oldAdapters.contains(adapter)) throw new IllegalArgumentException("Duplicate Patchwork target adapter ID: " + adapter);
-            if (host.equals(existing.get("hostPluginIdentifier")) && version.equals(existing.get("contributionVersion"))) {
-                List<?> oldMacros = (List<?>) existing.get("macroIds");
-                for (Object macro : newMacros) if (oldMacros.contains(macro)) throw new IllegalArgumentException("Duplicate Patchwork macro tuple: " + host + ":" + version + ":" + macro);
+            for (Object macro : newMacros) for (Object oldMacro : oldMacros) if (((String) macro).equalsIgnoreCase((String) oldMacro)) {
+                if (host.equals(existing.get("hostPluginIdentifier")) && version.equals(existing.get("contributionVersion"))) throw new IllegalArgumentException("Duplicate Patchwork macro tuple: " + host + ":" + version + ":" + macro);
+                throw new IllegalArgumentException("Duplicate Patchwork macro ID: " + macro);
             }
         }
-        if (newMacros.stream().distinct().count() != newMacros.size() || newAdapters.stream().distinct().count() != newAdapters.size()) throw new IllegalArgumentException("Contribution contains duplicate macro or adapter identifiers.");
+        if (newMacros.stream().map(value -> ((String) value).toLowerCase(java.util.Locale.ROOT)).distinct().count() != newMacros.size() || newAdapters.stream().distinct().count() != newAdapters.size()) throw new IllegalArgumentException("Contribution contains duplicate macro or adapter identifiers.");
     }
     private static List<String> copyTextList(Object value, String field) {
         if (!(value instanceof List<?> source)) throw new IllegalArgumentException("Invalid contribution field: " + field);

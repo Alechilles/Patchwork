@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Registers and executes the elected runtime's single early asset-load generation pass. */
 final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoadRegistrar {
@@ -44,11 +45,11 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
         this.layout = Objects.requireNonNull(layout, "layout");
     }
 
-    @Override public void register(long epoch, Consumer<LoadAssetEvent> callback) {
-        plugin.getEventRegistry().register(PatchworkEarlyLoadHook.PRIORITY, LoadAssetEvent.class, callback);
+    @Override public PatchworkRuntimeHost.EarlyLoadRegistration register(long epoch, Consumer<LoadAssetEvent> callback) {
+        return plugin.getEventRegistry().register(PatchworkEarlyLoadHook.PRIORITY, LoadAssetEvent.class, callback)::unregister;
     }
 
-    @Override public void execute(long epoch, PatchMacroRegistry macros, LoadAssetEvent event) {
+    @Override public void execute(long epoch, PatchMacroRegistry macros, LoadAssetEvent event, PatchworkRuntimeHost.EpochActionGate actionGate) {
         try {
             Inputs inputs = snapshotInputs();
             ConditionSourceResolver resolver = new ConditionSourceResolver(new PatchTargetResolver(), inputs.modDataRoots(), new ConditionDocumentCache());
@@ -57,7 +58,9 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
             PatchGenerationService.GenerationPlan plan = new PatchGenerationService(macros).generate(
                     new PatchGenerationService.GenerationRequest(inputs.sources(), inputs.installedIds(), inputs.versions(), serverVersion, resolver));
             StartupPackPublisher publisher = new StartupPackPublisher(layout, new RuntimePackRegistrar(inputs.sourcePackIds()));
-            StartupPackPublisher.Publication publication = publisher.publish(plan);
+            AtomicReference<StartupPackPublisher.Publication> publicationResult = new AtomicReference<>();
+            if (!actionGate.execute(() -> publicationResult.set(publisher.publish(plan)))) return;
+            StartupPackPublisher.Publication publication = publicationResult.get();
             if (!publication.published()) fail(event, "Patchwork startup generation failed: " + publication.diagnostic());
             else if (!plan.status().scanFailures().isEmpty() || !plan.status().rejectedTargets().isEmpty()) {
                 fail(event, "Patchwork generated valid targets with recoverable diagnostics: " + plan.status().scanFailures().size() + " scan failure(s), " + plan.status().rejectedTargets().size() + " rejected target(s).");

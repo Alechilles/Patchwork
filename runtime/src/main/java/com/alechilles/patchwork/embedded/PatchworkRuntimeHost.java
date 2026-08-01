@@ -39,13 +39,14 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
     private int inFlight;
     private long registeredEpoch = Long.MIN_VALUE;
     private Consumer<LoadAssetEvent> registeredEarlyLoad;
+    private EarlyLoadRegistration earlyLoadRegistration;
     private PatchReloadCoordinator reloadCoordinator;
 
     /** Creates a host whose startup action is invoked only after election. */
     public PatchworkRuntimeHost(Path generatedRoot, Runnable startupAction) {
         this(generatedRoot, new EarlyLoadRegistrar() {
-            @Override public void register(long epoch, Consumer<LoadAssetEvent> callback) { }
-            @Override public void execute(long epoch, PatchMacroRegistry macros, LoadAssetEvent event) { startupAction.run(); }
+            @Override public EarlyLoadRegistration register(long epoch, Consumer<LoadAssetEvent> callback) { return () -> { }; }
+            @Override public void execute(long epoch, PatchMacroRegistry macros, LoadAssetEvent event, EpochActionGate actionGate) { actionGate.execute(startupAction); }
         });
     }
 
@@ -80,25 +81,26 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
             throw new IllegalStateException("Timed out draining the fenced Patchwork reload coordinator.");
         }
         drain(DRAIN_TIMEOUT);
+        unregisterEarlyLoad();
     }
 
-    @Override public void deactivate(long value) { fence(value); }
+    @Override public void deactivate(long value) {
+        fence(value);
+        drain(DRAIN_TIMEOUT);
+        unregisterEarlyLoad();
+    }
 
     @Override public void start(long value) {
         synchronized (gate) {
             if (!accepting || value != epoch) throw new IllegalStateException("Runtime host is not active for this epoch.");
-        }
+            }
         synchronized (gate) {
             if (registeredEpoch == value) return;
-            registeredEpoch = value;
-        }
-        try {
             Consumer<LoadAssetEvent> callback = event -> runEarlyLoad(value, event);
-            earlyLoadRegistrar.register(value, callback);
-            synchronized (gate) { registeredEarlyLoad = callback; }
-        } catch (RuntimeException failure) {
-            synchronized (gate) { if (registeredEpoch == value) registeredEpoch = Long.MIN_VALUE; }
-            throw failure;
+            EarlyLoadRegistration registration = Objects.requireNonNull(earlyLoadRegistrar.register(value, callback), "Early-load registration handle is required.");
+            registeredEpoch = value;
+            registeredEarlyLoad = callback;
+            earlyLoadRegistration = registration;
         }
     }
 
@@ -220,8 +222,31 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
             if (!accepting || epoch != expectedEpoch) return;
             inFlight++;
         }
-        try { earlyLoadRegistrar.execute(expectedEpoch, macros, event); }
+        try { earlyLoadRegistrar.execute(expectedEpoch, macros, event, action -> runEpochAction(expectedEpoch, action)); }
         finally { synchronized (gate) { inFlight--; gate.notifyAll(); } }
+    }
+
+    private boolean runEpochAction(long expectedEpoch, Runnable action) {
+        synchronized (gate) {
+            if (!accepting || epoch != expectedEpoch) return false;
+            action.run();
+            return true;
+        }
+    }
+
+    private void unregisterEarlyLoad() {
+        EarlyLoadRegistration registration;
+        synchronized (gate) {
+            registration = earlyLoadRegistration;
+        }
+        if (registration == null) return;
+        registration.unregister();
+        synchronized (gate) {
+            if (earlyLoadRegistration != registration) return;
+            earlyLoadRegistration = null;
+            registeredEarlyLoad = null;
+            registeredEpoch = Long.MIN_VALUE;
+        }
     }
 
     /** Test-only callback probe; production event registries own callback delivery. */
@@ -280,7 +305,7 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
             Map<String, Object> request = Map.of("epoch", target.epoch(), "target", target.target(), "expectedHash", target.expectedHash(), "removal", target.removal());
             Object stage = guardedAsync(() -> receiver.getClass().getMethod("reload", String.class, Map.class).invoke(receiver, adapterId, request));
             if (!(stage instanceof CompletionStage<?> completion)) throw new IllegalStateException("Host reload did not return CompletionStage.");
-            return completion.thenApply(value -> decodeReloadResult(adapterId, value));
+            return completion.thenApply(this::decodeReloadResult);
         }
         List<PatchOperation> expand(String id, PatchOperation operation) {
             String json = guarded(() -> (String) receiver.getClass().getMethod("expand", String.class, String.class).invoke(receiver, id, operation.toJson().toString()));
@@ -289,7 +314,7 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
             for (var value : values) result.add(PatchOperation.parseHostOperation(value.getAsJsonObject(), operation.id()));
             return List.copyOf(result);
         }
-        private PatchworkReloadResult decodeReloadResult(String adapterId, Object value) {
+        private PatchworkReloadResult decodeReloadResult(Object value) {
             if (!(value instanceof Map<?, ?> raw)) throw new IllegalStateException("Host reload result is not a map.");
             return new PatchworkReloadResult(requiredText((Map<String, ?>) raw, "adapterId"), copyTexts(raw.get("reloadedTargets"), "reloadedTargets"), copyTexts(raw.get("restartRequiredTargets"), "restartRequiredTargets"), copyTexts(raw.get("failures"), "failures"));
         }
@@ -317,8 +342,14 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
     @FunctionalInterface private interface Invocation<T> { T call() throws ReflectiveOperationException; }
 
     /** Elected-only early-load callback registration seam. */
-    @FunctionalInterface interface EarlyLoadRegistrar {
-        void register(long epoch, Consumer<LoadAssetEvent> callback);
-        default void execute(long epoch, PatchMacroRegistry macros, LoadAssetEvent event) { }
+    interface EarlyLoadRegistrar {
+        EarlyLoadRegistration register(long epoch, Consumer<LoadAssetEvent> callback);
+        default void execute(long epoch, PatchMacroRegistry macros, LoadAssetEvent event, EpochActionGate actionGate) { }
     }
+
+    /** Narrow event-registry handle retained only for the active ownership epoch. */
+    @FunctionalInterface interface EarlyLoadRegistration { void unregister(); }
+
+    /** Runs a publication atomically with the active-epoch check. */
+    @FunctionalInterface interface EpochActionGate { boolean execute(Runnable action); }
 }

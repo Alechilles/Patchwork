@@ -30,8 +30,8 @@ public final class EmbeddedPatchworkBootstrap {
     /** Test/host composition seam; production callers use {@link #bootstrap(JavaPlugin)}. */
     static EmbeddedPatchworkService bootstrap(JavaPlugin plugin, Runnable electedStartupAction) {
         return bootstrap(plugin, new PatchworkRuntimeHost.EarlyLoadRegistrar() {
-            @Override public void register(long epoch, java.util.function.Consumer<com.hypixel.hytale.server.core.asset.LoadAssetEvent> callback) { }
-            @Override public void execute(long epoch, com.alechilles.patchwork.engine.PatchMacroRegistry macros, com.hypixel.hytale.server.core.asset.LoadAssetEvent event) { electedStartupAction.run(); }
+            @Override public PatchworkRuntimeHost.EarlyLoadRegistration register(long epoch, java.util.function.Consumer<com.hypixel.hytale.server.core.asset.LoadAssetEvent> callback) { return () -> { }; }
+            @Override public void execute(long epoch, com.alechilles.patchwork.engine.PatchMacroRegistry macros, com.hypixel.hytale.server.core.asset.LoadAssetEvent event, PatchworkRuntimeHost.EpochActionGate actionGate) { actionGate.execute(electedStartupAction); }
         });
     }
     /** Test-only composition seam; production callers use {@link #bootstrap(JavaPlugin)}. */

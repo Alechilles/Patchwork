@@ -20,6 +20,38 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class PatchworkContributionForwardingTest {
+    @Test void passiveMacroConflictsUseTheCaseInsensitiveDispatchNamespace() {
+        Object original = System.getProperties().get(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
+        System.getProperties().remove(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
+        try {
+            assertThrows(IllegalArgumentException.class, () -> PatchworkCoordinatorRegistry.registerContribution(Map.of(
+                    "hostPluginIdentifier", "Host", "contributionVersion", "1", "macroIds", List.of("Foo", "foo"),
+                    "adapterIds", List.of(), "bridge", new Object())));
+            String first = PatchworkCoordinatorRegistry.registerContribution(Map.of(
+                    "hostPluginIdentifier", "First", "contributionVersion", "1", "macroIds", List.of("Foo"),
+                    "adapterIds", List.of(), "bridge", new Object()));
+            assertThrows(IllegalArgumentException.class, () -> PatchworkCoordinatorRegistry.registerContribution(Map.of(
+                    "hostPluginIdentifier", "Second", "contributionVersion", "9", "macroIds", List.of("foo"),
+                    "adapterIds", List.of(), "bridge", new Object())));
+            assertTrue(PatchworkCoordinatorRegistry.unregisterContribution(first));
+            String replacement = PatchworkCoordinatorRegistry.registerContribution(Map.of(
+                    "hostPluginIdentifier", "Second", "contributionVersion", "9", "macroIds", List.of("foo"),
+                    "adapterIds", List.of(), "bridge", new Object()));
+
+            PatchworkRuntimeHost host = new PatchworkRuntimeHost(Path.of("generated"), () -> { });
+            String provider = PatchworkCoordinatorRegistry.register(Map.of(
+                    "providerId", "owner", "origin", "EMBEDDED", "runtimeVersion", "1.0.0", "coordinatorAbi", 1,
+                    "providerPluginId", "owner", "providerPluginVersion", "1", "sourceJarPath", Path.of("owner.jar"),
+                    "providerDataRoot", Path.of("owner"), "bridge", host));
+            assertEquals("owner", PatchworkCoordinatorRegistry.activeProviderId());
+            assertTrue(PatchworkCoordinatorRegistry.unregisterContribution(replacement));
+            assertTrue(PatchworkCoordinatorRegistry.unregister(provider));
+        } finally {
+            if (original == null) System.getProperties().remove(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
+            else System.getProperties().put(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY, original);
+        }
+    }
+
     @Test void electedReplacementReplaysExistingContributionWithoutReregistration() throws Exception {
         Object original = System.getProperties().get(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY); System.getProperties().remove(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
         try {
