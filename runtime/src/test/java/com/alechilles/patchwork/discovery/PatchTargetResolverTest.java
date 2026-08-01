@@ -38,6 +38,21 @@ final class PatchTargetResolverTest {
     }
 
     @Test
+    void resolvesHigherLoadOrderBeforeSourceIdTieBreak() throws Exception {
+        Path lower = tempDir.resolve("lower");
+        Path higher = tempDir.resolve("higher");
+        write(lower, "Server/Target.json", "lower");
+        write(higher, "Server/Target.json", "higher");
+
+        PatchTargetResolver.ResolvedTarget target = new PatchTargetResolver().resolve(List.of(
+                PatchSource.directory("z-pack", 1, lower),
+                PatchSource.directory("a-pack", 2, higher)), "Server/Target.json").orElseThrow();
+
+        assertEquals("a-pack", target.sourcePackId());
+        assertArrayEquals("higher".getBytes(StandardCharsets.UTF_8), target.bytes());
+    }
+
+    @Test
     void resolvesArchiveBytesAndRejectsUnsafeTargetPaths() throws Exception {
         Path archive = tempDir.resolve("pack.jar");
         writeArchive(archive, "Server/Target.json", "archive");

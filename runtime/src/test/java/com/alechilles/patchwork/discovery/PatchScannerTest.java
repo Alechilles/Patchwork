@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.zip.ZipEntry;
@@ -71,6 +73,19 @@ final class PatchScannerTest {
     }
 
     @Test
+    void rejectsDuplicateNeutralFileAfterAnInterveningNeutralFileWithoutAcceptingItsOtherTarget() throws Exception {
+        Path pack = tempDir.resolve("pack");
+        write(pack, "Server/Patchwork/Patches/A.json", patch("shared", "Server/X.json"));
+        write(pack, "Server/Patchwork/Patches/B.json", patch("other", "Server/Y.json"));
+        write(pack, "Server/Patchwork/Patches/C.json", multiTargetPatch("shared", "Server/X.json", "Server/Z.json"));
+
+        PatchScanner.ScanResult result = new PatchScanner().scan(List.of(PatchSource.directory("pack", 1, pack)), Set.of());
+
+        assertEquals(List.of("Server/X.json", "Server/Y.json"), result.definitions().stream().map(definition -> definition.target()).toList());
+        assertEquals(List.of("Duplicate patch key in pack:Server/Patchwork/Patches/C.json"), result.failures());
+    }
+
+    @Test
     void permitsMatchingDefinitionsFromDifferentPacksAndIgnoresGeneratedPack() throws Exception {
         Path one = tempDir.resolve("one");
         Path two = tempDir.resolve("two");
@@ -99,8 +114,33 @@ final class PatchScannerTest {
         assertThrows(UnsupportedOperationException.class, () -> result.failures().add("extra"));
     }
 
+    @Test
+    void skipsNonJsonReadsAndContinuesAfterOneJsonReadFailure() throws Exception {
+        Path pack = tempDir.resolve("pack");
+        write(pack, "Server/Patchwork/Patches/Notes.txt", "must not be read");
+        write(pack, "Server/Patchwork/Patches/Bad.json", patch("bad", "Server/Bad.json"));
+        write(pack, "Server/Patchwork/Patches/Good.json", patch("good", "Server/Good.json"));
+        List<String> reads = new ArrayList<>();
+
+        PatchScanner scanner = new PatchScanner((source, assetPath) -> {
+            reads.add(assetPath);
+            if (assetPath.endsWith("Bad.json")) throw new IOException("planned read failure");
+            return Files.readAllBytes(source.backingPath().resolve(assetPath));
+        });
+        PatchScanner.ScanResult result = scanner.scan(List.of(PatchSource.directory("pack", 1, pack)), Set.of());
+
+        assertEquals(List.of("Server/Patchwork/Patches/Bad.json", "Server/Patchwork/Patches/Good.json"), reads);
+        assertEquals(List.of("good"), result.definitions().stream().map(definition -> definition.id()).toList());
+        assertEquals(List.of("Failed to parse pack:Server/Patchwork/Patches/Bad.json: planned read failure"), result.failures());
+    }
+
     private static String patch(String id, String target) {
         return "{ \"Id\": \"" + id + "\", \"Target\": \"" + target + "\", \"Operations\": [] }";
+    }
+
+    private static String multiTargetPatch(String id, String... targets) {
+        return "{ \"Id\": \"" + id + "\", \"Targets\": [" + java.util.Arrays.stream(targets)
+                .map(target -> "\"" + target + "\"").collect(java.util.stream.Collectors.joining(", ")) + "], \"Operations\": [] }";
     }
 
     private static void write(Path root, String path, String content) throws Exception {

@@ -21,6 +21,16 @@ import java.util.zip.ZipFile;
 public final class PatchScanner {
     /** Generated output pack that must never be treated as a patch input. */
     public static final String GENERATED_PACK_ID = "Alechilles:Patchwork_GeneratedPatches";
+    private final PatchFileReader reader;
+
+    /** Creates a scanner that reads directly from directory and archive sources. */
+    public PatchScanner() {
+        this(PatchScanner::readDefault);
+    }
+
+    PatchScanner(PatchFileReader reader) {
+        this.reader = java.util.Objects.requireNonNull(reader, "reader");
+    }
 
     /** Scans active root paths across sources and returns immutable definitions and diagnostics. */
     public ScanResult scan(List<PatchSource> sources, Set<String> installedPluginIds) {
@@ -38,25 +48,25 @@ public final class PatchScanner {
         return new ScanResult(definitions, skipped, failures);
     }
 
-    private static void scanRoot(PatchSource source, PatchRoot root, List<PatchDefinition> definitions,
-                                 Map<DuplicateKey, PatchRoot> accepted, List<String> skipped, List<String> failures) {
+    private void scanRoot(PatchSource source, PatchRoot root, List<PatchDefinition> definitions,
+                          Map<DuplicateKey, PatchRoot> accepted, List<String> skipped, List<String> failures) {
         try {
-            for (SourceFile file : sourceFiles(source, root.path())) {
-                processFile(source, root, file, definitions, accepted, skipped, failures);
+            for (String assetPath : sourceFiles(source, root.path())) {
+                processFile(source, root, assetPath, definitions, accepted, skipped, failures);
             }
         } catch (Exception exception) {
             failures.add("Failed to scan " + source.sourcePackId() + ":" + root.path() + ": " + exception.getMessage());
         }
     }
 
-    private static void processFile(PatchSource source, PatchRoot root, SourceFile file, List<PatchDefinition> definitions,
-                                    Map<DuplicateKey, PatchRoot> accepted, List<String> skipped, List<String> failures) {
+    private void processFile(PatchSource source, PatchRoot root, String assetPath, List<PatchDefinition> definitions,
+                             Map<DuplicateKey, PatchRoot> accepted, List<String> skipped, List<String> failures) {
         try {
-            JsonElement element = JsonParser.parseString(new String(file.bytes(), StandardCharsets.UTF_8));
+            JsonElement element = JsonParser.parseString(new String(reader.read(source, assetPath), StandardCharsets.UTF_8));
             if (!element.isJsonObject()) {
                 throw new IllegalArgumentException("Patch file must contain a JSON object.");
             }
-            List<PatchDefinition> parsed = PatchDefinition.parseAll(element.getAsJsonObject(), source.sourcePackId(), file.assetPath(), source.sourcePackLoadOrder())
+            List<PatchDefinition> parsed = PatchDefinition.parseAll(element.getAsJsonObject(), source.sourcePackId(), assetPath, source.sourcePackLoadOrder())
                     .stream().sorted(Comparator.comparing(PatchDefinition::target)).toList();
             validateTargets(parsed);
             List<PatchDefinition> enabled = parsed.stream().filter(PatchDefinition::enabled).toList();
@@ -66,7 +76,7 @@ public final class PatchScanner {
                 }
             }
             if (containsSameRootDuplicate(root, enabled, accepted)) {
-                failures.add("Duplicate patch key in " + source.sourcePackId() + ":" + file.assetPath());
+                failures.add("Duplicate patch key in " + source.sourcePackId() + ":" + assetPath);
                 return;
             }
             if (root == PatchRoot.NEUTRAL) {
@@ -77,7 +87,7 @@ public final class PatchScanner {
                 definitions.add(definition);
             }
         } catch (Exception exception) {
-            failures.add("Failed to parse " + source.sourcePackId() + ":" + file.assetPath() + ": " + exception.getMessage());
+            failures.add("Failed to parse " + source.sourcePackId() + ":" + assetPath + ": " + exception.getMessage());
         }
     }
 
@@ -105,26 +115,25 @@ public final class PatchScanner {
         Set<DuplicateKey> shadows = neutral.stream().map(PatchScanner::key).collect(java.util.stream.Collectors.toSet());
         if (shadows.isEmpty()) return;
         definitions.removeIf(definition -> shadows.contains(key(definition)));
-        accepted.clear();
-        for (PatchDefinition definition : definitions) accepted.put(key(definition), PatchRoot.LEGACY);
+        accepted.keySet().removeAll(shadows);
     }
 
     private static DuplicateKey key(PatchDefinition definition) {
         return new DuplicateKey(definition.sourcePack(), definition.id(), definition.target());
     }
 
-    private static List<SourceFile> sourceFiles(PatchSource source, String root) throws IOException {
+    private static List<String> sourceFiles(PatchSource source, String root) throws IOException {
         return source.kind() == PatchSource.Kind.DIRECTORY ? directoryFiles(source.backingPath(), root) : archiveFiles(source.backingPath(), root);
     }
 
-    private static List<SourceFile> directoryFiles(Path packRoot, String root) throws IOException {
+    private static List<String> directoryFiles(Path packRoot, String root) throws IOException {
         Path normalizedRoot = packRoot.resolve(root).normalize();
         if (!normalizedRoot.startsWith(packRoot) || !Files.isDirectory(normalizedRoot)) return List.of();
         Path realPackRoot = packRoot.toRealPath();
         try (var files = Files.walk(normalizedRoot)) {
-            return files.filter(Files::isRegularFile).filter(file -> isInside(file, realPackRoot))
-                    .map(file -> new SourceFile(normalizeAssetPath(packRoot.relativize(file).toString()), readFile(file)))
-                    .filter(file -> file.assetPath().endsWith(".json")).sorted(Comparator.comparing(SourceFile::assetPath)).toList();
+            return files.filter(Files::isRegularFile).filter(file -> file.getFileName().toString().endsWith(".json"))
+                    .filter(file -> isInside(file, realPackRoot)).map(file -> normalizeAssetPath(packRoot.relativize(file).toString()))
+                    .sorted().toList();
         }
     }
 
@@ -132,20 +141,31 @@ public final class PatchScanner {
         try { return file.toRealPath().startsWith(realPackRoot); } catch (IOException exception) { return false; }
     }
 
-    private static byte[] readFile(Path file) {
-        try { return Files.readAllBytes(file); } catch (IOException exception) { throw new FileReadException(exception); }
-    }
-
-    private static List<SourceFile> archiveFiles(Path archive, String root) throws IOException {
+    private static List<String> archiveFiles(Path archive, String root) throws IOException {
         String prefix = root + "/";
         try (ZipFile zip = new ZipFile(archive.toFile())) {
-            List<SourceFile> result = new ArrayList<>();
-            for (ZipEntry entry : zip.stream().filter(entry -> !entry.isDirectory() && entry.getName().startsWith(prefix) && entry.getName().endsWith(".json")).sorted(Comparator.comparing(ZipEntry::getName)).toList()) {
-                try (var input = zip.getInputStream(entry)) {
-                    result.add(new SourceFile(normalizeAssetPath(entry.getName()), input.readAllBytes()));
-                }
-            }
-            return List.copyOf(result);
+            return zip.stream().filter(entry -> !entry.isDirectory() && entry.getName().startsWith(prefix) && entry.getName().endsWith(".json"))
+                    .map(ZipEntry::getName).map(PatchScanner::normalizeAssetPath).sorted().toList();
+        }
+    }
+
+    private static byte[] readDefault(PatchSource source, String assetPath) throws IOException {
+        return source.kind() == PatchSource.Kind.DIRECTORY ? readDirectory(source.backingPath(), assetPath) : readArchive(source.backingPath(), assetPath);
+    }
+
+    private static byte[] readDirectory(Path root, String assetPath) throws IOException {
+        Path file = root.resolve(assetPath).normalize();
+        if (!file.startsWith(root) || !Files.isRegularFile(file)) throw new IOException("Patch source is missing.");
+        Path realFile = file.toRealPath();
+        if (!realFile.startsWith(root.toRealPath())) throw new IOException("Patch source escapes pack root.");
+        return Files.readAllBytes(realFile);
+    }
+
+    private static byte[] readArchive(Path archive, String assetPath) throws IOException {
+        try (ZipFile zip = new ZipFile(archive.toFile())) {
+            ZipEntry entry = zip.getEntry(assetPath);
+            if (entry == null || entry.isDirectory()) throw new IOException("Patch source is missing.");
+            try (var input = zip.getInputStream(entry)) { return input.readAllBytes(); }
         }
     }
 
@@ -164,6 +184,6 @@ public final class PatchScanner {
     }
 
     private record DuplicateKey(String sourcePackId, String patchId, String target) { }
-    private record SourceFile(String assetPath, byte[] bytes) { }
-    private static final class FileReadException extends RuntimeException { FileReadException(IOException cause) { super(cause); } }
+    @FunctionalInterface
+    interface PatchFileReader { byte[] read(PatchSource source, String assetPath) throws IOException; }
 }
