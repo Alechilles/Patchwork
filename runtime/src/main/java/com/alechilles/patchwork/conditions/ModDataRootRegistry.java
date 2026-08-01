@@ -171,8 +171,11 @@ public final class ModDataRootRegistry {
             try { attributes = attributeReader.read(current); }
             catch (java.nio.file.NoSuchFileException missing) {
                 Path parent = i == 0 ? root : root.resolve(String.join("/", java.util.Arrays.copyOf(parts, i)));
-                try { attributeReader.read(parent); }
+                ComponentAttributes capturedParent = components.getLast();
+                FileAttributes parentAfter;
+                try { parentAfter = attributeReader.read(parent); }
                 catch (java.nio.file.NoSuchFileException disappeared) { throw new IOException("component disappeared after validation", disappeared); }
+                if (!capturedParent.sameAs(ComponentAttributes.from(parentAfter))) throw new IOException("component changed during lookup");
                 return null;
             }
             if (Files.isSymbolicLink(current) || attributes.other() || (i < parts.length - 1 && !attributes.directory()) || (i == parts.length - 1 && !attributes.regular())) throw new IOException("unsafe component");

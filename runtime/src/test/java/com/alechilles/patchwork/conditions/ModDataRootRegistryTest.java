@@ -255,6 +255,34 @@ final class ModDataRootRegistryTest {
     }
 
     @Test
+    void failsWhenMissingChildParentIsReplacedAfterCapture() throws Exception {
+        Path root = Files.createDirectories(temporaryDirectory.resolve("fallback-missing-parent-replacement"));
+        Path config = Files.createDirectories(root.resolve("config"));
+        boolean[] capturedOriginalConfig = {false};
+        ModDataRootRegistry.AttributeReader attributes = path -> {
+            ModDataRootRegistry.FileAttributes captured = ModDataRootRegistry.FileAttributes.readSystem(path);
+            if (path.equals(config) && !capturedOriginalConfig[0]) {
+                capturedOriginalConfig[0] = true;
+                Files.move(config, root.resolve("config-old"));
+                Files.createDirectories(config);
+            }
+            return captured;
+        };
+        ModDataRootRegistry registry = new ModDataRootRegistry(Map.of("Example:Mod", root), path -> { }, path -> { }, attributes);
+
+        assertEquals(ModDataRootRegistry.ReadStatus.FAILED, registry.readJson("Example:Mod", "config/settings.json").status());
+    }
+
+    @Test
+    void returnsMissingForAbsentChildUnderUnchangedCapturedParent() throws Exception {
+        Path root = Files.createDirectories(temporaryDirectory.resolve("fallback-missing-unchanged-parent"));
+        Files.createDirectories(root.resolve("config"));
+        ModDataRootRegistry registry = new ModDataRootRegistry(Map.of("Example:Mod", root));
+
+        assertEquals(ModDataRootRegistry.ReadStatus.MISSING, registry.readJson("Example:Mod", "config/settings.json").status());
+    }
+
+    @Test
     void treatsSecureIntermediateDisappearanceAfterAttributesAsFailed() throws Exception {
         try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
             Path root = Files.createDirectories(fs.getPath("/data/config"));
