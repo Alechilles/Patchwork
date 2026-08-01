@@ -84,8 +84,8 @@ public final class StartupPackPublisher {
             if (unresolved) return new Publication(false, message(failure), null, ordered(evidence), List.of(live), true);
             // A move may have committed before its provider reports failure; reconcile both named endpoints.
             if (Files.exists(prior, java.nio.file.LinkOption.NOFOLLOW_LINKS) && !evidence.contains(prior)) evidence.add(prior);
-            if (!activationConfirmed && !Files.exists(staging, java.nio.file.LinkOption.NOFOLLOW_LINKS)
-                    && Files.exists(live, java.nio.file.LinkOption.NOFOLLOW_LINKS)) activationConfirmed = true;
+            if (!activationConfirmed && intents.stream().anyMatch(intent -> "ACTIVATION".equals(intent.phase())
+                    && Files.exists(intent.destination(), java.nio.file.LinkOption.NOFOLLOW_LINKS))) activationConfirmed = true;
             List<Path> residual = reconcile(intents, evidence);
             residual.addAll(retainFailure(staging, live, evidence, priorPresent, activationConfirmed, intents));
             residual.addAll(reconcile(intents, evidence));

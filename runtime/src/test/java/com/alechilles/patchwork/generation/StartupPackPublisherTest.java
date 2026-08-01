@@ -183,6 +183,20 @@ final class StartupPackPublisherTest {
     }
 
     @Test
+    void copiedActivationThrowWithPriorNeverClassifiesNewLiveAsPrior() throws Exception {
+        GeneratedPackLayout layout = new GeneratedPackLayout(temporary); Files.createDirectories(layout.generatedRoot()); Files.writeString(layout.generatedRoot().resolve("old.json"), "old");
+        StartupPackPublisher.MoveStrategy moves = new StartupPackPublisher.MoveStrategy() {
+            public void atomicMove(Path from, Path to) throws IOException { move(from, to); } public void nonAtomicMove(Path from, Path to) throws IOException { move(from, to); }
+            private void move(Path from, Path to) throws IOException { if (to.equals(layout.generatedRoot())) { try (var paths = Files.walk(from)) { for (Path path : paths.toList()) { Path copy = to.resolve(from.relativize(path)); if (Files.isDirectory(path)) Files.createDirectories(copy); else Files.copy(path, copy); } } throw new IOException("copied activation"); } Files.move(from, to); }
+        };
+        var publication = new StartupPackPublisher(layout, id -> { throw new AssertionError("must not register"); }, moves, (s, p) -> { }).publish(plan());
+        assertFalse(publication.published()); assertFalse(Files.exists(layout.generatedRoot()));
+        var prior = publication.recoveryEvidence().stream().filter(path -> path.getFileName().toString().startsWith("GeneratedPatches-prior-")).toList();
+        assertEquals(1, prior.size()); assertEquals("old", Files.readString(prior.getFirst().resolve("old.json")));
+        assertTrue(publication.recoveryEvidence().stream().filter(path -> path.getFileName().toString().startsWith("GeneratedPatches-failed-new-")).count() >= 1);
+    }
+
+    @Test
     void committedThrowingFailedNewRecoveryIsRecordedAsEvidence() {
         GeneratedPackLayout layout = new GeneratedPackLayout(temporary);
         var publication = new StartupPackPublisher(layout, attemptRegistrar(() -> { throw new IOException("registration failure"); }, () -> { }), throwAfterMove("GeneratedPatches-failed-new-"), (s, p) -> { }).publish(plan());
