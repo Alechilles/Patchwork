@@ -158,16 +158,94 @@ final class PatchConditionEvaluatorTest {
     @Test
     void defensivelyCopiesContextInputsAndCachedDocuments() {
         byte[] target = "{\"value\":1}".getBytes(StandardCharsets.UTF_8);
+        java.util.HashSet<String> installed = new java.util.HashSet<>(Set.of("Example:Mod"));
+        java.util.HashMap<String, String> versions = new java.util.HashMap<>(Map.of("Example:Mod", "1"));
         java.util.ArrayList<PatchSource> sources = new java.util.ArrayList<>();
         PatchConditionEvaluator.EvaluationContext context = new PatchConditionEvaluator.EvaluationContext(
-                Set.of("Example:Mod"), Map.of("Example:Mod", "1"), null, "Target.json", target,
+                installed, versions, null, "Target.json", target,
                 new ConditionSourceResolver(new PatchTargetResolver(), new ModDataRootRegistry(Map.of()), new ConditionDocumentCache()), sources);
         target[0] = 'X';
+        installed.clear(); versions.clear();
         sources.add(PatchSource.directory("later", 1, temporaryDirectory));
         assertEquals('{', context.targetBytes()[0]);
         assertEquals(0, context.sources().size());
+        assertTrue(context.installedIds().contains("Example:Mod"));
+        assertEquals("1", context.versions().get("Example:Mod"));
         ConditionDocumentCache.Snapshot snapshot = new ConditionDocumentCache.Snapshot(ConditionDocumentCache.Status.FOUND, JsonParser.parseString("{\"x\":1}"), "");
         snapshot.document().getAsJsonObject().addProperty("x", 2);
         assertEquals(1, snapshot.document().getAsJsonObject().get("x").getAsInt());
+        ConditionSourceResolver.Result result = new ConditionSourceResolver.Result(ConditionSourceResolver.ResultStatus.FOUND, JsonParser.parseString("{\"x\":1}"), "");
+        result.document().getAsJsonObject().addProperty("x", 2);
+        assertEquals(1, result.document().getAsJsonObject().get("x").getAsInt());
+    }
+
+    @Test
+    void evaluatesExplicitAssetJsonPathsAndRedactsNotMatchedSecrets() throws Exception {
+        Path assets = Files.createDirectories(temporaryDirectory.resolve("asset-json"));
+        Files.writeString(assets.resolve("settings.json"), "{\"enabled\":true}", StandardCharsets.UTF_8);
+        ConditionSourceResolver resolver = new ConditionSourceResolver(new PatchTargetResolver(), new ModDataRootRegistry(Map.of()), new ConditionDocumentCache());
+        PatchConditionEvaluator.EvaluationContext context = new PatchConditionEvaluator.EvaluationContext(Set.of(), Map.of(), null, "Target.json", null, resolver, List.of(PatchSource.directory("pack", 1, assets)));
+        PatchConditionEvaluator evaluator = new PatchConditionEvaluator();
+        ConditionSource.Asset source = new ConditionSource.Asset("settings.json");
+        assertTrue(evaluator.evaluate(new PatchCondition.JsonPathExists(source, "/enabled"), context).matched());
+        assertTrue(evaluator.evaluate(new PatchCondition.JsonPathEquals(source, "/enabled", JsonParser.parseString("true")), context).matched());
+        PatchConditionEvaluator.Evaluation miss = evaluator.evaluate(new PatchCondition.JsonPathEquals(source, "/secret-source", JsonParser.parseString("\"expected-secret\"")), context);
+        assertEquals(PatchConditionEvaluator.Status.NOT_MATCHED, miss.status());
+        assertFalse(miss.diagnostic().contains("expected-secret"));
+        assertFalse(miss.diagnostic().contains("secret-source"));
+    }
+
+    @Test
+    void keepsFoundMissingAndFailedAssetSnapshotsStickyAcrossBackingChanges() throws Exception {
+        Path assets = Files.createDirectories(temporaryDirectory.resolve("sticky"));
+        Files.writeString(assets.resolve("found.json"), "{\"v\":1}", StandardCharsets.UTF_8);
+        Files.writeString(assets.resolve("failed.json"), "{", StandardCharsets.UTF_8);
+        ConditionSourceResolver resolver = new ConditionSourceResolver(new PatchTargetResolver(), new ModDataRootRegistry(Map.of()), new ConditionDocumentCache());
+        List<PatchSource> sources = List.of(PatchSource.directory("pack", 1, assets));
+        assertEquals(ConditionSourceResolver.ResultStatus.FOUND, resolver.resolve(new ConditionSource.Asset("found.json"), "Target.json", null, sources).status());
+        Files.writeString(assets.resolve("found.json"), "{", StandardCharsets.UTF_8);
+        assertEquals(ConditionSourceResolver.ResultStatus.FOUND, resolver.resolve(new ConditionSource.Asset("found.json"), "Target.json", null, sources).status());
+        assertEquals(ConditionSourceResolver.ResultStatus.MISSING, resolver.resolve(new ConditionSource.Asset("missing.json"), "Target.json", null, sources).status());
+        Files.writeString(assets.resolve("missing.json"), "{}", StandardCharsets.UTF_8);
+        assertEquals(ConditionSourceResolver.ResultStatus.MISSING, resolver.resolve(new ConditionSource.Asset("missing.json"), "Target.json", null, sources).status());
+        assertEquals(ConditionSourceResolver.ResultStatus.FAILED, resolver.resolve(new ConditionSource.Asset("failed.json"), "Target.json", null, sources).status());
+        Files.writeString(assets.resolve("failed.json"), "{}", StandardCharsets.UTF_8);
+        assertEquals(ConditionSourceResolver.ResultStatus.FAILED, resolver.resolve(new ConditionSource.Asset("failed.json"), "Target.json", null, sources).status());
+    }
+
+    @Test
+    void keepsInitialAssetWinnerWhenCallerSourceListChangesAfterSnapshot() throws Exception {
+        Path lower = Files.createDirectories(temporaryDirectory.resolve("winner-lower"));
+        Path higher = Files.createDirectories(temporaryDirectory.resolve("winner-higher"));
+        Files.writeString(lower.resolve("winner.json"), "{\"winner\":\"lower\"}", StandardCharsets.UTF_8);
+        Files.writeString(higher.resolve("winner.json"), "{\"winner\":\"higher\"}", StandardCharsets.UTF_8);
+        java.util.ArrayList<PatchSource> callerSources = new java.util.ArrayList<>(List.of(PatchSource.directory("lower", 1, lower)));
+        ConditionSourceResolver resolver = new ConditionSourceResolver(new PatchTargetResolver(), new ModDataRootRegistry(Map.of()), new ConditionDocumentCache());
+        PatchConditionEvaluator evaluator = new PatchConditionEvaluator();
+        PatchConditionEvaluator.EvaluationContext context = new PatchConditionEvaluator.EvaluationContext(Set.of(), Map.of(), null, "Target.json", null, resolver, callerSources);
+        ConditionSource.Asset asset = new ConditionSource.Asset("winner.json");
+        PatchCondition condition = new PatchCondition.JsonPathEquals(asset, "/winner", JsonParser.parseString("\"lower\""));
+
+        assertTrue(evaluator.evaluate(condition, context).matched());
+        callerSources.add(PatchSource.directory("higher", 2, higher));
+        Files.writeString(lower.resolve("winner.json"), "{\"winner\":\"mutated\"}", StandardCharsets.UTF_8);
+
+        ConditionSourceResolver.Result cached = resolver.resolve(asset, "Target.json", null, callerSources);
+        assertEquals(ConditionSourceResolver.ResultStatus.FOUND, cached.status());
+        assertEquals("lower", cached.document().getAsJsonObject().get("winner").getAsString());
+        assertTrue(evaluator.evaluate(condition, context).matched());
+        assertEquals(1, resolver.documentCache().snapshotCount());
+    }
+
+    @Test
+    void normalizesModDataAliasesToOneStickySnapshot() throws Exception {
+        Path root = Files.createDirectories(temporaryDirectory.resolve("mod-alias"));
+        Files.createDirectories(root.resolve("config"));
+        Files.writeString(root.resolve("config/settings.json"), "{\"v\":1}", StandardCharsets.UTF_8);
+        ConditionSourceResolver resolver = new ConditionSourceResolver(new PatchTargetResolver(), new ModDataRootRegistry(Map.of("Example:Mod", root)), new ConditionDocumentCache());
+        assertEquals(1, resolver.resolve(new ConditionSource.ModData("Example:Mod", "config/settings.json"), "Target.json", null, List.of()).document().getAsJsonObject().get("v").getAsInt());
+        Files.writeString(root.resolve("config/settings.json"), "{\"v\":2}", StandardCharsets.UTF_8);
+        assertEquals(1, resolver.resolve(new ConditionSource.ModData("Example:Mod", "config\\settings.json"), "Target.json", null, List.of()).document().getAsJsonObject().get("v").getAsInt());
+        assertEquals(1, resolver.documentCache().snapshotCount());
     }
 }

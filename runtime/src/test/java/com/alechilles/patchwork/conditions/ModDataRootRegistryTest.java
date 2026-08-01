@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
@@ -35,35 +36,83 @@ final class ModDataRootRegistryTest {
     }
 
     @Test
-    void rejectsSymlinkComponentsAndOversizedOrNonRegularFiles() throws Exception {
-        Path root = Files.createDirectories(temporaryDirectory.resolve("data"));
-        Path outside = Files.createDirectories(temporaryDirectory.resolve("outside"));
-        Files.writeString(outside.resolve("outside.json"), "{}", StandardCharsets.UTF_8);
-        Path link = root.resolve("linked");
-        try {
-            Files.createSymbolicLink(link, outside);
-        } catch (UnsupportedOperationException | java.nio.file.FileSystemException unsupported) {
-            return;
-        }
-        ModDataRootRegistry registry = new ModDataRootRegistry(Map.of("Example:Mod", root));
-
-        ModDataRootRegistry.ReadResult result = registry.readJson("Example:Mod", "linked/outside.json");
-
-        assertEquals(ModDataRootRegistry.ReadStatus.FAILED, result.status());
-        assertFalseContainsPath(result.diagnostic(), outside);
+    void mapsPluginRootsByExactManifestIdThroughFactoryHelper() throws Exception {
+        Path root = Files.createDirectories(temporaryDirectory.resolve("factory"));
+        ModDataRootRegistry registry = ModDataRootRegistry.fromPluginRoots(Map.of("Example:Mod", root));
+        assertEquals(root.toAbsolutePath().normalize(), registry.rootFor("Example:Mod").orElseThrow());
+        assertTrue(registry.rootFor("example:mod").isEmpty());
     }
 
     @Test
-    void permitsApprovedNullFileKeyFallbackAndFailsOnObservableSwap() throws Exception {
+    void rejectsSymlinkComponentsAndOversizedOrNonRegularFiles() throws Exception {
+        try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+            Path root = Files.createDirectories(fs.getPath("/data"));
+            Path outside = Files.createDirectories(fs.getPath("/outside"));
+            Files.writeString(outside.resolve("outside.json"), "{}", StandardCharsets.UTF_8);
+            Files.createSymbolicLink(root.resolve("linked"), outside);
+            ModDataRootRegistry.ReadResult result = new ModDataRootRegistry(Map.of("Example:Mod", root)).readJson("Example:Mod", "linked/outside.json");
+            assertEquals(ModDataRootRegistry.ReadStatus.FAILED, result.status());
+            assertTrue(!result.diagnostic().contains(outside.resolve("outside.json").toString()));
+        }
+    }
+
+    @Test
+    void readsUnchangedFallbackFileWhenInjectedReaderRemovesEveryFileKey() throws Exception {
         Path root = Files.createDirectories(temporaryDirectory.resolve("data"));
         Path file = root.resolve("settings.json");
         Files.writeString(file, "{}", StandardCharsets.UTF_8);
-        ModDataRootRegistry readable = new ModDataRootRegistry(Map.of("Example:Mod", root));
+        NullFileKeyAttributeReader attributes = new NullFileKeyAttributeReader();
+        ModDataRootRegistry readable = registry(root, attributes, path -> { });
         assertEquals(ModDataRootRegistry.ReadStatus.FOUND, readable.readJson("Example:Mod", "settings.json").status());
+        assertTrue(attributes.readCount > 0);
+        assertTrue(attributes.returnedOnlyNullKeys);
+    }
 
-        ModDataRootRegistry swapped = new ModDataRootRegistry(Map.of("Example:Mod", root), path ->
+    @Test
+    void rejectsObservableFinalMutationWhenInjectedReaderRemovesEveryFileKey() throws Exception {
+        Path root = Files.createDirectories(temporaryDirectory.resolve("final-mutation"));
+        Path file = root.resolve("settings.json");
+        Files.writeString(file, "{}", StandardCharsets.UTF_8);
+        NullFileKeyAttributeReader attributes = new NullFileKeyAttributeReader();
+        ModDataRootRegistry swapped = registry(root, attributes, path ->
                 Files.writeString(path, "{\"changed\":true}", StandardCharsets.UTF_8));
         assertEquals(ModDataRootRegistry.ReadStatus.FAILED, swapped.readJson("Example:Mod", "settings.json").status());
+        assertTrue(attributes.readCount > 0);
+        assertTrue(attributes.returnedOnlyNullKeys);
+    }
+
+    @Test
+    void rejectsObservableIntermediateReplacementWhenInjectedReaderRemovesEveryFileKey() throws Exception {
+        Path root = Files.createDirectories(temporaryDirectory.resolve("intermediate-null-key"));
+        Path config = Files.createDirectories(root.resolve("config"));
+        Files.writeString(config.resolve("settings.json"), "{}", StandardCharsets.UTF_8);
+        NullFileKeyAttributeReader attributes = new NullFileKeyAttributeReader();
+        ModDataRootRegistry registry = registry(root, attributes, path -> {
+            Files.move(config, root.resolve("config-old"));
+            Files.createDirectories(config);
+            Files.writeString(config.resolve("settings.json"), "{}", StandardCharsets.UTF_8);
+            Files.writeString(config.resolve("observable-marker"), "changed", StandardCharsets.UTF_8);
+        });
+        assertEquals(ModDataRootRegistry.ReadStatus.FAILED, registry.readJson("Example:Mod", "config/settings.json").status());
+        assertTrue(attributes.readCount > 0);
+        assertTrue(attributes.returnedOnlyNullKeys);
+    }
+
+    @Test
+    void rejectsObservableRootReplacementWhenInjectedReaderRemovesEveryFileKey() throws Exception {
+        Path root = temporaryDirectory.resolve("root-null-key");
+        Path config = Files.createDirectories(root.resolve("config"));
+        Files.writeString(config.resolve("settings.json"), "{}", StandardCharsets.UTF_8);
+        NullFileKeyAttributeReader attributes = new NullFileKeyAttributeReader();
+        ModDataRootRegistry registry = registry(root, attributes, path -> {
+            Files.move(root, temporaryDirectory.resolve("root-null-key-old"));
+            Path replacement = Files.createDirectories(root.resolve("config"));
+            Files.writeString(replacement.resolve("settings.json"), "{}", StandardCharsets.UTF_8);
+            Files.writeString(root.resolve("observable-marker"), "changed", StandardCharsets.UTF_8);
+        });
+        assertEquals(ModDataRootRegistry.ReadStatus.FAILED, registry.readJson("Example:Mod", "config/settings.json").status());
+        assertTrue(attributes.readCount > 0);
+        assertTrue(attributes.returnedOnlyNullKeys);
     }
 
     @Test
@@ -120,6 +169,22 @@ final class ModDataRootRegistryTest {
     }
 
     @Test
+    void treatsSecureInitialAbsenceAsMissing() throws Exception {
+        try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+            Path root = Files.createDirectories(fs.getPath("/data"));
+            assertEquals(ModDataRootRegistry.ReadStatus.MISSING, new ModDataRootRegistry(Map.of("Example:Mod", root)).readJson("Example:Mod", "missing.json").status());
+        }
+    }
+
+    @Test
+    void treatsFallbackPostReadDisappearanceAsFailed() throws Exception {
+        Path root = Files.createDirectories(temporaryDirectory.resolve("post-read"));
+        Path file = root.resolve("settings.json"); Files.writeString(file, "{}", StandardCharsets.UTF_8);
+        ModDataRootRegistry registry = new ModDataRootRegistry(Map.of("Example:Mod", root), path -> { }, Files::delete);
+        assertEquals(ModDataRootRegistry.ReadStatus.FAILED, registry.readJson("Example:Mod", "settings.json").status());
+    }
+
+    @Test
     void distinguishesInitialMissingFromPostValidationDisappearance() throws Exception {
         Path root = Files.createDirectories(temporaryDirectory.resolve("data"));
         ModDataRootRegistry initial = new ModDataRootRegistry(Map.of("Example:Mod", root));
@@ -156,5 +221,22 @@ final class ModDataRootRegistryTest {
 
     private static void assertFalseContainsPath(String diagnostic, Path path) {
         assertTrue(!diagnostic.contains(path.toAbsolutePath().toString()));
+    }
+
+    private static ModDataRootRegistry registry(Path root, NullFileKeyAttributeReader attributes, ModDataRootRegistry.ReadHook hook) {
+        return new ModDataRootRegistry(Map.of("Example:Mod", root), hook, path -> { }, attributes);
+    }
+
+    private static final class NullFileKeyAttributeReader implements ModDataRootRegistry.AttributeReader {
+        private int readCount;
+        private boolean returnedOnlyNullKeys = true;
+
+        @Override
+        public ModDataRootRegistry.FileAttributes read(Path path) throws IOException {
+            readCount++;
+            ModDataRootRegistry.FileAttributes attributes = ModDataRootRegistry.FileAttributes.readSystem(path).withoutFileKey();
+            returnedOnlyNullKeys &= attributes.fileKey() == null;
+            return attributes;
+        }
     }
 }

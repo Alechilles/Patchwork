@@ -105,6 +105,56 @@ final class PatchTargetResolverTest {
         }
     }
 
+    @Test
+    void treatsPostValidationDisappearanceAsFailedForSecureAndFallbackReads() throws Exception {
+        try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+            Path root = Files.createDirectories(fs.getPath("/pack/Server"));
+            Path file = root.resolve("Target.json");
+            Files.writeString(file, "{}", StandardCharsets.UTF_8);
+            PatchTargetResolver secure = new PatchTargetResolver(Files::delete);
+            assertEquals(PatchTargetResolver.Status.FAILED, secure.resolveDetailed(List.of(PatchSource.directory("pack", 1, root.getParent())), "Server/Target.json").status());
+        }
+        Path root = tempDir.resolve("fallback");
+        write(root, "Server/Target.json", "{}");
+        PatchTargetResolver fallback = new PatchTargetResolver(Files::delete);
+        assertEquals(PatchTargetResolver.Status.FAILED, fallback.resolveDetailed(List.of(PatchSource.directory("pack", 1, root)), "Server/Target.json").status());
+    }
+
+    @Test
+    void rejectsFallbackIntermediateReplacementAfterSnapshot() throws Exception {
+        Path root = tempDir.resolve("intermediate-swap");
+        write(root, "Server/Target.json", "inside");
+        PatchTargetResolver resolver = new PatchTargetResolver(path -> {
+            Path server = root.resolve("Server");
+            Files.move(server, root.resolve("Server-old"));
+            Files.createDirectories(server);
+            Files.writeString(server.resolve("Target.json"), "replacement", StandardCharsets.UTF_8);
+        });
+
+        PatchTargetResolver.Resolution result = resolver.resolveDetailed(List.of(PatchSource.directory("pack", 1, root)), "Server/Target.json");
+
+        assertEquals(PatchTargetResolver.Status.FAILED, result.status());
+        assertTrue(result.target().isEmpty());
+    }
+
+    @Test
+    void rejectsFallbackOutsideRootSymlinkSwapWithoutReturningOutsideBytes() throws Exception {
+        Path root = tempDir.resolve("symlink-swap");
+        Path outside = Files.createDirectories(tempDir.resolve("outside"));
+        write(root, "Server/Target.json", "inside");
+        Path target = root.resolve("Server/Target.json");
+        Files.writeString(outside.resolve("outside.json"), "outside", StandardCharsets.UTF_8);
+        PatchTargetResolver resolver = new PatchTargetResolver(path -> {
+            Files.delete(target);
+            Files.createSymbolicLink(target, outside.resolve("outside.json"));
+        });
+
+        PatchTargetResolver.Resolution result = resolver.resolveDetailed(List.of(PatchSource.directory("pack", 1, root)), "Server/Target.json");
+
+        assertEquals(PatchTargetResolver.Status.FAILED, result.status());
+        assertTrue(result.target().isEmpty());
+    }
+
     private static void write(Path root, String path, String content) throws Exception {
         Path file = root.resolve(path);
         Files.createDirectories(file.getParent());

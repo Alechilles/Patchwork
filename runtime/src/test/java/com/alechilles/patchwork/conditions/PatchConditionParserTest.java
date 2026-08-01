@@ -43,10 +43,27 @@ final class PatchConditionParserTest {
                 ],"$Comment":"ignored"}
                 """).getAsJsonObject());
 
-        assertInstanceOf(PatchCondition.All.class, condition);
+        PatchCondition.All all = assertInstanceOf(PatchCondition.All.class, condition);
+        assertInstanceOf(PatchCondition.ModInstalled.class, all.children().get(0));
+        PatchCondition.Any any = assertInstanceOf(PatchCondition.Any.class, all.children().get(1));
+        assertInstanceOf(PatchCondition.AssetExists.class, any.children().get(0));
+        assertInstanceOf(PatchCondition.AssetMissing.class, any.children().get(1));
+        assertInstanceOf(PatchCondition.Not.class, all.children().get(2));
+        assertInstanceOf(PatchCondition.TargetExists.class, all.children().get(3));
         assertThrows(IllegalArgumentException.class, () -> parser.parse(JsonParser.parseString(
                 "{\"ModVersion\":{\"Mod\":\"Example:Mod\",\"Equals\":\"1.x\"}}"
         ).getAsJsonObject()));
+    }
+
+    @Test
+    void parsesEveryRetainedSimpleShapeAndLegacyNonTargetAsset() {
+        assertEquals("Example:Mod", assertInstanceOf(PatchCondition.ModInstalled.class, parser.parse(JsonParser.parseString("{\"ModInstalled\":\"Example:Mod\"}").getAsJsonObject())).modId());
+        assertEquals("Server/A.json", assertInstanceOf(PatchCondition.AssetExists.class, parser.parse(JsonParser.parseString("{\"AssetExists\":\"Server/A.json\"}").getAsJsonObject())).path());
+        assertEquals("Server/A.json", assertInstanceOf(PatchCondition.AssetMissing.class, parser.parse(JsonParser.parseString("{\"AssetMissing\":\"Server/A.json\"}").getAsJsonObject())).path());
+        assertInstanceOf(PatchCondition.TargetExists.class, parser.parse(JsonParser.parseString("{\"TargetExists\":true}").getAsJsonObject()));
+        assertEquals("Example:Mod", assertInstanceOf(PatchCondition.ModVersion.class, parser.parse(JsonParser.parseString("{\"ModVersion\":{\"Mod\":\"Example:Mod\",\"AtLeast\":\"1.2\"}}").getAsJsonObject())).modId());
+        PatchCondition.JsonPathExists legacy = assertInstanceOf(PatchCondition.JsonPathExists.class, parser.parse(JsonParser.parseString("{\"JsonPathExists\":{\"Asset\":\"Server/A.json\",\"Path\":\"/x\"}}").getAsJsonObject()));
+        assertEquals(new ConditionSource.Asset("Server/A.json"), legacy.source());
     }
 
     @Test
