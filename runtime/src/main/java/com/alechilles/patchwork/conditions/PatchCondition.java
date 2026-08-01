@@ -15,9 +15,9 @@ public sealed interface PatchCondition permits PatchCondition.Always, PatchCondi
     record TargetExists() implements PatchCondition { }
     record ModVersion(String modId, VersionMatcher matcher) implements PatchCondition { public ModVersion { modId = required(modId); matcher = Objects.requireNonNull(matcher); } }
     record ServerVersion(VersionMatcher matcher) implements PatchCondition { public ServerVersion { matcher = Objects.requireNonNull(matcher); } }
-    record JsonPathExists(ConditionSource source, String path) implements PatchCondition { public JsonPathExists { source = Objects.requireNonNull(source); path = required(path); } }
+    record JsonPathExists(ConditionSource source, String path) implements PatchCondition { public JsonPathExists { source = Objects.requireNonNull(source); path = pointer(path); } }
     record JsonPathEquals(ConditionSource source, String path, JsonElement expected) implements PatchCondition {
-        public JsonPathEquals { source = Objects.requireNonNull(source); path = required(path); expected = Objects.requireNonNull(expected).deepCopy(); }
+        public JsonPathEquals { source = Objects.requireNonNull(source); path = pointer(path); expected = Objects.requireNonNull(expected).deepCopy(); }
         @Override public JsonElement expected() { return expected.deepCopy(); }
     }
     record All(List<PatchCondition> children) implements PatchCondition { public All { children = List.copyOf(children); } }
@@ -25,4 +25,5 @@ public sealed interface PatchCondition permits PatchCondition.Always, PatchCondi
     record Not(PatchCondition child) implements PatchCondition { public Not { child = Objects.requireNonNull(child); } }
     record VersionMatcher(String equals, String atLeast, String atMost, String above, String below) { }
     private static String required(String value) { if (value == null || value.trim().isEmpty()) throw new IllegalArgumentException("Condition text must not be blank."); return value.trim(); }
+    private static String pointer(String value) { if (value == null) throw new IllegalArgumentException("JSON pointer must not be null."); return value.isEmpty() ? "" : required(value); }
 }

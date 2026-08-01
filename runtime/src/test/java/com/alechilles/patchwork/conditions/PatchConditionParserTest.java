@@ -90,4 +90,15 @@ final class PatchConditionParserTest {
                 "{\"JsonPathExists\":{\"Asset\":\"Server/A.json\",\"Source\":{\"Type\":\"Target\"},\"Path\":\"/a\"}}"
         ).getAsJsonObject()));
     }
+
+    @Test
+    void acceptsTheEmptyJsonPointerForWholeDocumentChecks() {
+        PatchCondition.JsonPathExists exists = assertInstanceOf(PatchCondition.JsonPathExists.class,
+                parser.parse(JsonParser.parseString("{\"JsonPathExists\":{\"Path\":\"\"}}").getAsJsonObject()));
+        PatchCondition.JsonPathEquals equals = assertInstanceOf(PatchCondition.JsonPathEquals.class,
+                parser.parse(JsonParser.parseString("{\"JsonPathEquals\":{\"Path\":\"\",\"Value\":{\"enabled\":true}}}").getAsJsonObject()));
+
+        assertEquals("", exists.path());
+        assertEquals("", equals.path());
+    }
 }

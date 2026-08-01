@@ -15,7 +15,7 @@ final class PatchDefinitionTest {
     @Test
     void parsesMultipleTargetsAndSortsByPriorityIdThenSourcePackLoadOrder() {
         List<PatchDefinition> multiTarget = PatchDefinition.parseAll(object("""
-                { "Id": "shared", "Targets": ["/Server/A.json", "Server/B.json"], "Operations": [] }
+                { "Id": "shared", "Targets": ["Server/A.json", "Server/B.json"], "Operations": [] }
                 """), "pack-a", "patches/shared.json", 4);
         PatchDefinition lowerPriority = PatchDefinition.parse(object("""
                 { "Id": "z", "Target": "Server/C.json", "Priority": 1, "Operations": [] }
@@ -46,6 +46,21 @@ final class PatchDefinitionTest {
                 """), "pack", "patches/invalid.json"));
 
         assertEquals("Patch 'invalid' must define either Target or Targets, not both.", exception.getMessage());
+    }
+
+    @Test
+    void rejectsAbsoluteUnsafeAndNonIntegralDefinitionFields() {
+        for (String target : List.of("/Server/A.json", "C:/Server/A.json", "Server/../A.json", "Server//A.json")) {
+            assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
+                    { "Id": "unsafe", "Target": "%s", "Operations": [] }
+                    """.formatted(target)), "pack", "patches/unsafe.json"));
+        }
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
+                { "Id": "fraction", "Target": "Server/A.json", "Priority": 1.9, "Operations": [] }
+                """), "pack", "patches/fraction.json"));
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
+                { "Id": "overflow", "Target": "Server/A.json", "Priority": 2147483648, "Operations": [] }
+                """), "pack", "patches/overflow.json"));
     }
 
     private static JsonObject object(String json) {

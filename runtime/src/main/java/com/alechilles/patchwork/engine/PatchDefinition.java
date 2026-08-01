@@ -2,14 +2,15 @@ package com.alechilles.patchwork.engine;
 
 import com.alechilles.patchwork.conditions.PatchCondition;
 import com.alechilles.patchwork.conditions.PatchConditionParser;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
 
 /** Parsed Patchwork definition associated with one target asset and source location. */
 public final class PatchDefinition {
@@ -25,9 +26,9 @@ public final class PatchDefinition {
     public String getId(){return id();} public String getTarget(){return target();} public int getPriority(){return priority();} public boolean isEnabled(){return enabled();} public List<PatchOperation> getOperations(){return operations();} public String getSourcePack(){return sourcePack();} public String getSourcePath(){return sourcePath();} public int getSourcePackLoadOrder(){return sourcePackLoadOrder();}
     static String readRequiredString(JsonObject object,String name,String context){String value=readString(object,name,null);if(value==null||value.isBlank())throw new IllegalArgumentException(context+" must define non-empty "+name+".");return value;}
     static String readString(JsonObject object,String name,String fallback){JsonElement value=object.get(name);if(value==null||value.isJsonNull())return fallback;if(!value.isJsonPrimitive()||!value.getAsJsonPrimitive().isString())throw new IllegalArgumentException(name+" must be a string.");return value.getAsString();}
-    static int readInt(JsonObject object,String name,int fallback){JsonElement value=object.get(name);if(value==null||value.isJsonNull())return fallback;if(!value.isJsonPrimitive()||!value.getAsJsonPrimitive().isNumber())throw new IllegalArgumentException(name+" must be a number.");return value.getAsInt();}
+    static int readInt(JsonObject object,String name,int fallback){JsonElement value=object.get(name);if(value==null||value.isJsonNull())return fallback;if(!value.isJsonPrimitive()||!value.getAsJsonPrimitive().isNumber())throw new IllegalArgumentException(name+" must be an integer.");try{return new BigDecimal(value.getAsString()).intValueExact();}catch(NumberFormatException|ArithmeticException failure){throw new IllegalArgumentException(name+" must be an integer.",failure);}}
     static boolean readBoolean(JsonObject object,String name,boolean fallback){JsonElement value=object.get(name);if(value==null||value.isJsonNull())return fallback;if(!value.isJsonPrimitive()||!value.getAsJsonPrimitive().isBoolean())throw new IllegalArgumentException(name+" must be a boolean.");return value.getAsBoolean();}
     private static List<PatchOperation> readOperations(JsonObject root,String id){JsonElement raw=root.get("Operations");if(raw==null||!raw.isJsonArray())throw new IllegalArgumentException("Patch '"+id+"' must define an Operations array.");JsonArray array=raw.getAsJsonArray();List<PatchOperation> result=new ArrayList<>();for(int i=0;i<array.size();i++){if(!array.get(i).isJsonObject())throw new IllegalArgumentException("Patch '"+id+"' operation "+i+" must be an object.");result.add(PatchOperation.parse(array.get(i).getAsJsonObject(),id,i));}return result;}
     private static List<String> readTargets(JsonObject root,String id){JsonElement single=root.get("Target"),multiple=root.get("Targets");if(single!=null&&!single.isJsonNull()&&multiple!=null&&!multiple.isJsonNull())throw new IllegalArgumentException("Patch '"+id+"' must define either Target or Targets, not both.");if(multiple==null||multiple.isJsonNull())return List.of(normalize(readRequiredString(root,"Target","Patch '"+id+"'"),id));if(!multiple.isJsonArray())throw new IllegalArgumentException("Patch '"+id+"' Targets must be an array.");if(multiple.getAsJsonArray().isEmpty())throw new IllegalArgumentException("Patch '"+id+"' Targets must not be empty.");Set<String> result=new LinkedHashSet<>();for(int i=0;i<multiple.getAsJsonArray().size();i++){JsonElement target=multiple.getAsJsonArray().get(i);if(!target.isJsonPrimitive()||!target.getAsJsonPrimitive().isString())throw new IllegalArgumentException("Patch '"+id+"' Targets entry "+i+" must be a string.");String normalized=normalize(target.getAsString(),id);if(!result.add(normalized))throw new IllegalArgumentException("Patch '"+id+"' Targets contains duplicate target "+normalized+".");}return List.copyOf(result);}
-    private static String normalize(String target,String id){if(target.isBlank())throw new IllegalArgumentException("Patch '"+id+"' target must not be blank.");String normalized=target.replace('\\','/');while(normalized.startsWith("/"))normalized=normalized.substring(1);return normalized;}
+    private static String normalize(String target,String id){if(target.isBlank())throw new IllegalArgumentException("Patch '"+id+"' target must not be blank.");String normalized=target.replace('\\','/');if(normalized.startsWith("/")||normalized.matches("^[A-Za-z]:.*")||normalized.contains("//"))throw new IllegalArgumentException("Patch '"+id+"' target is unsafe: "+target);for(String segment:normalized.split("/",-1))if(segment.isEmpty()||segment.equals(".")||segment.equals(".."))throw new IllegalArgumentException("Patch '"+id+"' target is unsafe: "+target);return normalized;}
 }
