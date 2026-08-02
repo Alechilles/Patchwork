@@ -2,7 +2,7 @@
   "Group": "Alechilles",
   "Name": "Patchwork",
   "Version": "${project.version}",
-  "Description": "Standalone packaging for the Patchwork runtime.",
+  "Description": "Stitch focused changes into Hytale assets with a standalone, embeddable patcher built for clean cross-mod compatibility.",
   "Authors": [
     {
       "Name": "Alec (Alechilles)",
