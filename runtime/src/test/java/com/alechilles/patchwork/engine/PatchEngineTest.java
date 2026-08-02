@@ -223,8 +223,155 @@ final class PatchEngineTest {
                 """), "test-pack", "patches/bad-existing.json"));
     }
 
+    @Test
+    void replacesEveryMatchingArrayEntryUsingOneSnapshot() {
+        PatchEngine.PatchResult result = engine.apply(object("""
+                { "items": [{"id":"a"},{"id":"b"},{"id":"b"},{"id":"c"}] }
+                """), List.of(v2Definition("""
+                { "Id":"replace", "Op":"ReplaceMatching", "Path":"/items", "Match":{"id":"b"},
+                  "MatchPolicy":"All", "Value":{"id":"replaced"} }
+                """)));
+
+        assertEquals(List.of("a", "replaced", "replaced", "c"), objectIds(result.patched(), "items"));
+        assertEquals(List.of("v2:v2#0", "v2:replace"), result.applied());
+    }
+
+    @Test
+    void replaceMatchingSupportsFirstLastAndAllPolicies() {
+        PatchDefinition first = v2Definition("""
+                { "Id":"first", "Op":"ReplaceMatching", "Path":"/items", "Match":{"id":"b"},
+                  "MatchPolicy":"First", "Value":{"id":"first"} }
+                """);
+        PatchDefinition last = v2Definition("""
+                { "Id":"last", "Op":"ReplaceMatching", "Path":"/items", "Match":{"id":"b"},
+                  "MatchPolicy":"Last", "Value":{"id":"last"} }
+                """);
+        PatchDefinition all = v2Definition("""
+                { "Id":"all", "Op":"ReplaceMatching", "Path":"/items", "Match":{"id":"b"},
+                  "MatchPolicy":"All", "Value":{"id":"all"} }
+                """);
+
+        assertEquals(List.of("a", "first", "b", "c"), objectIds(
+                engine.apply(object("{\"items\":[{\"id\":\"a\"},{\"id\":\"b\"},{\"id\":\"b\"},{\"id\":\"c\"}] }"), List.of(first))
+                        .patched(), "items"));
+        assertEquals(List.of("a", "b", "last", "c"), objectIds(
+                engine.apply(object("{\"items\":[{\"id\":\"a\"},{\"id\":\"b\"},{\"id\":\"b\"},{\"id\":\"c\"}] }"), List.of(last))
+                        .patched(), "items"));
+        assertEquals(List.of("a", "all", "all", "c"), objectIds(
+                engine.apply(object("{\"items\":[{\"id\":\"a\"},{\"id\":\"b\"},{\"id\":\"b\"},{\"id\":\"c\"}] }"), List.of(all))
+                        .patched(), "items"));
+    }
+
+    @Test
+    void replaceMatchingRejectsZeroAndAmbiguousExactlyOneMatches() {
+        PatchDefinition zero = v2Definition("""
+                { "Id":"zero", "Op":"ReplaceMatching", "Path":"/items", "Match":{"id":"missing"},
+                  "Value":{"id":"replacement"} }
+                """);
+        PatchDefinition ambiguous = v2Definition("""
+                { "Id":"ambiguous", "Op":"ReplaceMatching", "Path":"/items", "Match":{"id":"b"},
+                  "Value":{"id":"replacement"} }
+                """);
+
+        PatchEngine.PatchFailureException zeroFailure = assertThrows(PatchEngine.PatchFailureException.class,
+                () -> engine.apply(object("{\"items\":[{\"id\":\"a\"}]}"), List.of(zero)));
+        assertEquals("v2:zero failed: ReplaceMatching found no matching entries for zero.", zeroFailure.getMessage());
+        PatchEngine.PatchFailureException ambiguousFailure = assertThrows(PatchEngine.PatchFailureException.class,
+                () -> engine.apply(object("{\"items\":[{\"id\":\"b\"},{\"id\":\"b\"}]}"), List.of(ambiguous)));
+        assertEquals("v2:ambiguous failed: ReplaceMatching found multiple matching entries for ambiguous.", ambiguousFailure.getMessage());
+    }
+
+    @Test
+    void matchingOperationsRequireAnArrayAndOptionalFailuresAreSkipped() {
+        PatchDefinition optional = v2Definition("""
+                { "Id":"not-array", "Op":"RemoveMatching", "Path":"/items", "Required":false,
+                  "Match":{"id":"b"} }
+                """);
+
+        PatchEngine.PatchResult result = engine.apply(object("{\"items\":{\"id\":\"b\"}}"), List.of(optional));
+
+        assertEquals(List.of("v2:not-array failed: RemoveMatching target must be an array at /items."), result.skipped());
+        assertEquals("b", result.patched().getAsJsonObject("items").get("id").getAsString());
+    }
+
+    @Test
+    void removesAllMatchingEntriesFromHighestIndexToLowest() {
+        PatchEngine.PatchResult result = engine.apply(object("""
+                { "items": [{"id":"a"},{"id":"b"},{"id":"c"},{"id":"b"},{"id":"d"},{"id":"b"}] }
+                """), List.of(v2Definition("""
+                { "Id":"remove", "Op":"RemoveMatching", "Path":"/items", "Match":{"id":"b"},
+                  "MatchPolicy":"All" }
+                """)));
+
+        assertEquals(List.of("a", "c", "d"), objectIds(result.patched(), "items"));
+    }
+
+    @Test
+    void movesMatchingEntryBeforeAndAfterAnchorsOnEitherSide() {
+        PatchDefinition before = v2Definition("""
+                { "Id":"before", "Op":"MoveMatching", "Path":"/items", "Match":{"id":"a"},
+                  "Position":"Before", "Find":{"id":"c"} }
+                """);
+        PatchDefinition after = v2Definition("""
+                { "Id":"after", "Op":"MoveMatching", "Path":"/items", "Match":{"id":"c"},
+                  "Position":"After", "Find":{"id":"a"} }
+                """);
+
+        assertEquals(List.of("b", "a", "c", "d"), objectIds(
+                engine.apply(object("{\"items\":[{\"id\":\"a\"},{\"id\":\"b\"},{\"id\":\"c\"},{\"id\":\"d\"}]}"), List.of(before))
+                        .patched(), "items"));
+        assertEquals(List.of("a", "c", "b", "d"), objectIds(
+                engine.apply(object("{\"items\":[{\"id\":\"a\"},{\"id\":\"b\"},{\"id\":\"c\"},{\"id\":\"d\"}]}"), List.of(after))
+                        .patched(), "items"));
+    }
+
+    @Test
+    void movesMatchingToStartAndEnd() {
+        PatchDefinition start = v2Definition("""
+                { "Id":"start", "Op":"MoveMatching", "Path":"/items", "Match":{"id":"c"},
+                  "Position":"Start" }
+                """);
+        PatchDefinition end = v2Definition("""
+                { "Id":"end", "Op":"MoveMatching", "Path":"/items", "Match":{"id":"a"},
+                  "Position":"End" }
+                """);
+
+        assertEquals(List.of("c", "a", "b", "d"), objectIds(
+                engine.apply(object("{\"items\":[{\"id\":\"a\"},{\"id\":\"b\"},{\"id\":\"c\"},{\"id\":\"d\"}]}"), List.of(start))
+                        .patched(), "items"));
+        assertEquals(List.of("b", "c", "d", "a"), objectIds(
+                engine.apply(object("{\"items\":[{\"id\":\"a\"},{\"id\":\"b\"},{\"id\":\"c\"},{\"id\":\"d\"}]}"), List.of(end))
+                        .patched(), "items"));
+    }
+
+    @Test
+    void moveMatchingRejectsSelfAnchorAndSkipsAlreadyRequestedPosition() {
+        PatchDefinition self = v2Definition("""
+                { "Id":"self", "Op":"MoveMatching", "Path":"/items", "Match":{"id":"b"},
+                  "Position":"After", "Find":{"id":"b"}, "Required":false }
+                """);
+        PatchDefinition noOp = v2Definition("""
+                { "Id":"noop", "Op":"MoveMatching", "Path":"/items", "Match":{"id":"b"},
+                  "Position":"Before", "Find":{"id":"c"} }
+                """);
+
+        PatchEngine.PatchResult selfResult = engine.apply(object("{\"items\":[{\"id\":\"a\"},{\"id\":\"b\"},{\"id\":\"c\"}]}"), List.of(self));
+        assertEquals(List.of("v2:self failed: MoveMatching cannot use the moving entry as its own anchor."), selfResult.skipped());
+        PatchEngine.PatchResult noOpResult = engine.apply(object("{\"items\":[{\"id\":\"a\"},{\"id\":\"b\"},{\"id\":\"c\"}]}"), List.of(noOp));
+        assertEquals(List.of("v2:noop (already in requested position)"), noOpResult.skipped());
+        assertEquals(List.of("v2:v2#0"), noOpResult.applied());
+    }
+
     private static PatchDefinition definition(String json) {
         return PatchDefinition.parse(object(json), "test-pack", "patches/test.json");
+    }
+
+    private static PatchDefinition v2Definition(String operation) {
+        return definition("""
+                { "FormatVersion": 2, "Id": "v2", "Target": "Server/Test.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 }, %s
+                ] }
+                """.formatted(operation));
     }
 
     private static JsonObject object(String json) {

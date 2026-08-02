@@ -122,6 +122,31 @@ final class PatchDefinitionTest {
                 """), "pack", "patch.json"));
     }
 
+    @Test
+    void rejectsMalformedMatcherOperationPoliciesAndMoveAnchorShapes() {
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
+                { "FormatVersion": 2, "Id": "bad-policy", "Target": "Server/A.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 },
+                  { "Op": "ReplaceMatching", "Path": "/items", "Match": { "id": "x" },
+                    "MatchPolicy": "Many", "Value": { "id": "y" }, "Required": false }
+                ] }
+                """), "pack", "patch.json"));
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
+                { "FormatVersion": 2, "Id": "bad-position", "Target": "Server/A.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 },
+                  { "Op": "MoveMatching", "Path": "/items", "Match": { "id": "x" },
+                    "Position": "Start", "Find": { "id": "anchor" } }
+                ] }
+                """), "pack", "patch.json"));
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
+                { "FormatVersion": 2, "Id": "missing-find", "Target": "Server/A.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 },
+                  { "Op": "MoveMatching", "Path": "/items", "Match": { "id": "x" },
+                    "Position": "Before" }
+                ] }
+                """), "pack", "patch.json"));
+    }
+
     private static JsonObject object(String json) {
         return JsonParser.parseString(json).getAsJsonObject();
     }

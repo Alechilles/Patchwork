@@ -80,6 +80,15 @@ public final class PatchEngine {
                 yield null;
             }
             case "insert" -> insert(root, operation);
+            case "replacematching" -> {
+                replaceMatching(root, operation);
+                yield null;
+            }
+            case "removematching" -> {
+                removeMatching(root, operation);
+                yield null;
+            }
+            case "movematching" -> moveMatching(root, operation);
             default -> throw new IllegalArgumentException("Unsupported operation '" + operation.op() + "'.");
         };
     }
@@ -168,6 +177,108 @@ public final class PatchEngine {
         int index = find(array, operation.find(), operation.formatVersion());
         if (index < 0) throw new IllegalArgumentException("Insert anchor not found for " + operation.id() + ".");
         return after ? index + 1 : index;
+    }
+
+    private static void replaceMatching(JsonObject root, PatchOperation operation) {
+        JsonArray array = matchingTarget(root, operation, "ReplaceMatching");
+        JsonArray snapshot = array.deepCopy();
+        List<Integer> indexes = matchingIndexes(snapshot, operation.match(), operation.matchPolicy(), operation);
+        JsonElement replacement = value(operation);
+        for (int index : indexes) {
+            array.set(index, replacement.deepCopy());
+        }
+    }
+
+    private static void removeMatching(JsonObject root, PatchOperation operation) {
+        JsonArray array = matchingTarget(root, operation, "RemoveMatching");
+        JsonArray snapshot = array.deepCopy();
+        List<Integer> indexes = matchingIndexes(snapshot, operation.match(), operation.matchPolicy(), operation);
+        for (int offset = indexes.size() - 1; offset >= 0; offset--) {
+            array.remove(indexes.get(offset));
+        }
+    }
+
+    private static String moveMatching(JsonObject root, PatchOperation operation) {
+        JsonArray array = matchingTarget(root, operation, "MoveMatching");
+        JsonArray snapshot = array.deepCopy();
+        int movingIndex = matchingIndexes(snapshot, operation.match(), "ExactlyOne", operation).getFirst();
+        String position = operation.position() == null ? "End" : operation.position();
+        String normalizedPosition = position.toLowerCase(Locale.ROOT);
+        JsonObject find = operation.find();
+        int anchorIndex = -1;
+        if ("before".equals(normalizedPosition) || "after".equals(normalizedPosition)) {
+            if (find == null) {
+                throw new IllegalArgumentException("MoveMatching " + position + " requires Find.");
+            }
+            anchorIndex = matchingIndexes(snapshot, find, "ExactlyOne", operation).getFirst();
+            if (movingIndex == anchorIndex) {
+                throw new IllegalArgumentException("MoveMatching cannot use the moving entry as its own anchor.");
+            }
+        } else if (find != null) {
+            throw new IllegalArgumentException("Find is only allowed with Position Before or After.");
+        } else if (!"start".equals(normalizedPosition) && !"end".equals(normalizedPosition)) {
+            throw new IllegalArgumentException("Position must be Start, End, Before, or After.");
+        }
+
+        JsonArray reordered = snapshot.deepCopy();
+        JsonElement moving = reordered.remove(movingIndex);
+        int insertionIndex = switch (normalizedPosition) {
+            case "start" -> 0;
+            case "end" -> reordered.size();
+            case "before", "after" -> {
+                int adjustedAnchor = movingIndex < anchorIndex ? anchorIndex - 1 : anchorIndex;
+                yield "before".equals(normalizedPosition) ? adjustedAnchor : adjustedAnchor + 1;
+            }
+            default -> throw new IllegalArgumentException("Position must be Start, End, Before, or After.");
+        };
+        insert(reordered, insertionIndex, moving);
+        if (snapshot.equals(reordered)) {
+            return "already in requested position";
+        }
+        while (!array.isEmpty()) {
+            array.remove(0);
+        }
+        for (JsonElement element : reordered) {
+            array.add(element.deepCopy());
+        }
+        return null;
+    }
+
+    private static JsonArray matchingTarget(JsonObject root, PatchOperation operation, String name) {
+        JsonElement target = resolve(root, operation);
+        if (target == null || !target.isJsonArray()) {
+            throw new IllegalArgumentException(name + " target must be an array at " + operation.path() + ".");
+        }
+        return target.getAsJsonArray();
+    }
+
+    private static List<Integer> matchingIndexes(JsonArray snapshot, JsonObject matcher, String requestedPolicy,
+                                                  PatchOperation operation) {
+        if (matcher == null) {
+            throw new IllegalArgumentException(operation.op() + " requires Match.");
+        }
+        List<Integer> matches = new ArrayList<>();
+        for (int index = 0; index < snapshot.size(); index++) {
+            if (matches(snapshot.get(index), matcher, operation.formatVersion())) {
+                matches.add(index);
+            }
+        }
+        if (matches.isEmpty()) {
+            throw new IllegalArgumentException(operation.op() + " found no matching entries for " + operation.id() + ".");
+        }
+        String policy = requestedPolicy == null ? "exactlyone" : requestedPolicy.toLowerCase(Locale.ROOT);
+        return switch (policy) {
+            case "exactlyone" -> {
+                if (matches.size() > 1) {
+                    throw new IllegalArgumentException(operation.op() + " found multiple matching entries for " + operation.id() + ".");
+                }
+                yield List.of(matches.getFirst());
+            }
+            case "first" -> List.of(matches.getFirst());
+            case "last" -> List.of(matches.getLast());
+            case "all" -> List.copyOf(matches);
+            default -> throw new IllegalArgumentException("MatchPolicy must be ExactlyOne, First, Last, or All.");
+        };
     }
 
     /** Legacy matcher entry point retained for package compatibility. */
