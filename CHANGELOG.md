@@ -16,6 +16,7 @@
 
 ### Fixed
 
+- Added the missing standalone mod icon at the artifact root beside `manifest.json`.
 - Fixed target resolution for registered asset packs installed through symbolic links or Windows junctions.
 
 ### Removed

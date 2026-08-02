@@ -41,6 +41,7 @@
                 <directory>src/main/resources</directory>
                 <filtering>true</filtering>
                 <includes>
+                    <include>icon-256.png</include>
                     <include>manifest.json</include>
                 </includes>
             </resource>

@@ -45,6 +45,8 @@ class StandalonePackagingIT {
             assertNotNull(standalone.getJarEntry("com/alechilles/patchwork/standalone/PatchworkPlugin.class"));
             assertNotNull(standalone.getJarEntry("com/alechilles/patchwork/embedded/StandalonePatchworkBootstrap.class"));
             assertNotNull(standalone.getJarEntry("META-INF/maven/com.alechilles/patchwork-runtime/pom.properties"));
+            assertNotNull(standalone.getJarEntry("icon-256.png"),
+                    "The standalone artifact must publish its mod icon beside the manifest.");
             assertEquals(1, standalone.stream().filter(entry -> entry.getName().equals("manifest.json")).count());
             assertFalse(standalone.stream().anyMatch(entry -> entry.getName().matches("META-INF/.*\\.(SF|DSA|RSA)")));
         }
