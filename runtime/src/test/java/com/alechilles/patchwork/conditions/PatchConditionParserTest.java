@@ -149,6 +149,13 @@ final class PatchConditionParserTest {
     }
 
     @Test
+    void rejectsWhitespaceOnlyTargetProvidedByInFormatTwo() {
+        assertThrows(IllegalArgumentException.class, () -> parser.parse(JsonParser.parseString(
+                "{\"TargetProvidedBy\":\"   \"}"
+        ).getAsJsonObject(), 2));
+    }
+
+    @Test
     void rejectsUnknownNestedConditionAndSourceFieldsInFormatTwo() {
         assertThrows(IllegalArgumentException.class, () -> parser.parse(JsonParser.parseString(
                 "{\"AssetExists\":{\"Asset\":\"Server/A.json\",\"Unexpected\":true}}"

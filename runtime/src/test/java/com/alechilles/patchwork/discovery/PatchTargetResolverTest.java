@@ -3,6 +3,7 @@ package com.alechilles.patchwork.discovery;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -55,6 +56,18 @@ final class PatchTargetResolverTest {
 
         assertEquals(supplementaryPack, target.sourcePackId());
         assertArrayEquals("supplementary".getBytes(StandardCharsets.UTF_8), target.bytes());
+    }
+
+    @Test
+    void rejectsUnpairedSurrogateSourcePackIdsBeforeWinnerSelection() throws Exception {
+        Path first = tempDir.resolve("first-surrogate");
+        Path second = tempDir.resolve("second-surrogate");
+        write(first, "Server/Target.json", "first");
+        write(second, "Server/Target.json", "second");
+
+        assertThrows(IllegalArgumentException.class, () -> new PatchTargetResolver().resolve(List.of(
+                PatchSource.directory("\uD800", 4, first),
+                PatchSource.directory("\uD801", 4, second)), "Server/Target.json"));
     }
 
     @Test

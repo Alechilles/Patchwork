@@ -15,7 +15,8 @@
     },
     "Id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "pattern": "\\S"
     },
     "Target": {
       "type": "string",
@@ -193,7 +194,8 @@
     },
     "operationId": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "pattern": "\\S"
     },
     "matchPolicy": {
       "type": "string",
@@ -616,7 +618,8 @@
         },
         "Macro": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "\\S"
         },
         "Options": {
           "$ref": "#/$defs/jsonObject"
@@ -800,7 +803,8 @@
       "properties": {
         "TargetProvidedBy": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "\\S"
         },
         "$Comment": {
           "$ref": "#/$defs/comment"

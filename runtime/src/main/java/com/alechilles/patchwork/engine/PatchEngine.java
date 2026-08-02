@@ -46,6 +46,9 @@ public final class PatchEngine {
             String skip = raw(root, definition, operation);
             if (skip == null) applied.add(label);
             else skipped.add(label + " (" + skip + ")");
+        } catch (JsonPointer.StructuralException ex) {
+            String message = label + " failed: " + ex.getMessage();
+            throw new PatchFailureException(message, ex);
         } catch (RuntimeException ex) {
             String message = label + " failed: " + ex.getMessage();
             if (operation.required()) throw new PatchFailureException(message, ex);

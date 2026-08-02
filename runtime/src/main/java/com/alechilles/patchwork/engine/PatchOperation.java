@@ -74,7 +74,17 @@ public final class PatchOperation {
 
     /** Parses a host-expanded operation with a stable synthetic source position. */
     public static PatchOperation parseHostOperation(JsonObject object, String patchId) {
-        return parse(object, patchId, 0);
+        return parseHostOperation(object, patchId, 1);
+    }
+
+    /**
+     * Parses a host-expanded operation using the enclosing definition format.
+     * Macro results are serialized and reparsed at this boundary so strict
+     * format-2 pointer and matcher validation cannot be bypassed by a legacy
+     * host model.
+     */
+    public static PatchOperation parseHostOperation(JsonObject object, String patchId, int formatVersion) {
+        return parse(object, patchId, 0, formatVersion);
     }
 
     /** Serializes this operation for the isolated host macro boundary. */
@@ -193,7 +203,10 @@ public final class PatchOperation {
             }
         }
         if (operation.has("Id")) {
-            strictString(operation, "Id", patchId + " operation " + index);
+            String id = strictString(operation, "Id", patchId + " operation " + index);
+            if (id.isBlank()) {
+                throw structural(patchId, index, "Id must be a non-empty string.");
+            }
         }
         if ("RequireFormat".equals(op)) {
             int version = readVersion(operation, patchId, index);

@@ -89,6 +89,32 @@ final class PatchDefinitionSchemaTest {
                 """), "unknown-mod-data-source-field");
     }
 
+    @Test
+    void rejectsWhitespaceOnlyNonblankContractFields() {
+        assertInvalid(document("""
+                {"FormatVersion":2,"Id":"   ","Target":"Server/Test.json","Operations":[
+                  {"Op":"RequireFormat","Version":2}
+                ]}
+                """), "blank-definition-id");
+        assertInvalid(document("""
+                {"FormatVersion":2,"Target":"Server/Test.json","Operations":[
+                  {"Op":"RequireFormat","Version":2},
+                  {"Op":"Macro","Macro":"   "}
+                ]}
+                """), "blank-macro");
+        assertInvalid(document("""
+                {"FormatVersion":2,"Target":"Server/Test.json","When":{"TargetProvidedBy":" \\t "},"Operations":[
+                  {"Op":"RequireFormat","Version":2}
+                ]}
+                """), "blank-target-provider");
+        assertInvalid(document("""
+                {"FormatVersion":2,"Target":"Server/Test.json","Operations":[
+                  {"Op":"RequireFormat","Version":2},
+                  {"Op":"Add","Id":" \\t ","Path":"/flag","Value":true}
+                ]}
+                """), "blank-operation-id");
+    }
+
     private static JsonSchema loadSchema() {
         try {
             Path root = Path.of("docs/authoring-kit/v2/patch-definition.schema.json");

@@ -1,6 +1,7 @@
 package com.alechilles.patchwork.engine;
 
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -29,7 +30,15 @@ public final class PatchMacroRegistry {
         if (macroId == null || macroId.isBlank()) throw new IllegalArgumentException("Macro operation " + operation.id() + " requires Macro.");
         Registration registration = registrations.get(normalize(macroId));
         if (registration == null) throw new IllegalArgumentException("Unsupported macro '" + macroId + "'.");
-        return List.copyOf(registration.expander().expand(operation));
+        List<PatchOperation> expanded = registration.expander().expand(operation);
+        if (expanded == null) throw new IllegalArgumentException("Macro '" + macroId + "' returned no operation list.");
+        List<PatchOperation> normalized = new ArrayList<>(expanded.size());
+        for (PatchOperation candidate : expanded) {
+            if (candidate == null) throw new IllegalArgumentException("Macro '" + macroId + "' returned a null operation.");
+            normalized.add(PatchOperation.parseHostOperation(
+                    candidate.toJson(), operation.id(), operation.formatVersion()));
+        }
+        return List.copyOf(normalized);
     }
     /** Removes the exact macro ID when the supplied host owns it. */
     public synchronized boolean unregister(String hostPluginIdentifier, String macroId) {

@@ -7,6 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.alechilles.patchwork.engine.PatchDefinition;
+import com.alechilles.patchwork.engine.PatchEngine;
 import com.alechilles.patchwork.reload.HytalePatchTargetAdapter;
 import com.alechilles.patchwork.coordinator.PatchworkCoordinatorRegistry;
 import com.alechilles.patchwork.reload.PatchReloadCoordinator;
@@ -24,6 +27,38 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class PatchworkContributionForwardingTest {
+    @Test void bridgeExpansionUsesParentFormatForStrictPointerValidation() {
+        PatchworkRuntimeHost host = new PatchworkRuntimeHost(Path.of("bridge-v2-invalid"), () -> { });
+        host.activate(3L);
+        EmbeddedPatchworkBootstrap.HostBridge bridge = macroBridge("example", ignored -> one(
+                JsonParser.parseString("{\"Id\":\"expanded\",\"Op\":\"Add\",\"Path\":\"/a~2b\",\"Value\":1}").getAsJsonObject()));
+        host.replayContributions(3L, List.of(Map.of("contributionToken", "bridge-v2-invalid", "hostPluginIdentifier", "Host",
+                "contributionVersion", "1", "macroIds", List.of("example"), "adapterIds", List.of(), "bridge", bridge)));
+
+        assertThrows(IllegalArgumentException.class, () -> host.expandOperationJson(
+                "{\"Id\":\"macro\",\"Op\":\"Macro\",\"Macro\":\"example\"}", 2));
+    }
+
+    @Test void bridgeExpansionExecutesReturnedFormatTwoMatcherOperation() {
+        PatchworkRuntimeHost host = new PatchworkRuntimeHost(Path.of("bridge-v2-matcher"), () -> { });
+        host.activate(4L);
+        EmbeddedPatchworkBootstrap.HostBridge bridge = macroBridge("example", ignored -> one(
+                JsonParser.parseString("{\"Id\":\"expanded\",\"Op\":\"ReplaceMatching\",\"Path\":\"/items\",\"Match\":{\"id\":\"b\"},\"Value\":{\"id\":\"changed\"}}").getAsJsonObject()));
+        host.replayContributions(4L, List.of(Map.of("contributionToken", "bridge-v2-matcher", "hostPluginIdentifier", "Host",
+                "contributionVersion", "1", "macroIds", List.of("example"), "adapterIds", List.of(), "bridge", bridge)));
+        PatchDefinition definition = PatchDefinition.parse(JsonParser.parseString("""
+                {"FormatVersion":2,"Id":"v2","Target":"Server/Test.json","Operations":[
+                  {"Op":"RequireFormat","Version":2},
+                  {"Op":"Macro","Macro":"example"}
+                ]}
+                """).getAsJsonObject(), "pack", "patch.json");
+
+        PatchEngine.PatchResult result = new PatchEngine(host.macros()).apply(
+                JsonParser.parseString("{\"items\":[{\"id\":\"b\"}]}").getAsJsonObject(), List.of(definition));
+
+        assertEquals("changed", result.patched().getAsJsonArray("items").get(0).getAsJsonObject().get("id").getAsString());
+    }
+
     @Test void commandRegistrationFailureRetainsTheEarlyLoadHandleThroughCoordinatorRecovery() {
         // Catches losing the only early-load unregister handle when both startup compensation and
         // the coordinator's first cleanup attempt fail.
@@ -255,6 +290,23 @@ class PatchworkContributionForwardingTest {
         } finally { if (original == null) System.getProperties().remove(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY); else System.getProperties().put(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY, original); }
     }
 
+    private static JsonArray one(JsonObject value) {
+        JsonArray values = new JsonArray();
+        values.add(value);
+        return values;
+    }
+    private static EmbeddedPatchworkBootstrap.HostBridge macroBridge(String id, java.util.function.Function<JsonObject, JsonArray> expansion) {
+        PatchworkHostContribution contribution = new PatchworkHostContribution() {
+            public String hostPluginIdentifier() { return "Example:Host"; }
+            public String contributionVersion() { return "1.0.0"; }
+            public List<PatchworkMacroProvider> macroProviders() { return List.of(new PatchworkMacroProvider() {
+                public String macroId() { return id; }
+                public JsonArray expand(JsonObject operation) { return expansion.apply(operation); }
+            }); }
+            public List<PatchworkTargetAdapter> targetAdapters() { return List.of(); }
+        };
+        return new EmbeddedPatchworkBootstrap.HostBridge(contribution);
+    }
     private static PatchworkHostContribution contribution(String id, java.util.function.Function<PatchworkReloadRequest, java.util.concurrent.CompletionStage<PatchworkReloadResult>> reload) {
         return new PatchworkHostContribution() {
             public String hostPluginIdentifier() { return "Example:Host"; }

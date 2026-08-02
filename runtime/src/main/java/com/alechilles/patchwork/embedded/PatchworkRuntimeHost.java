@@ -5,6 +5,7 @@ import com.alechilles.patchwork.command.PatchworkCommandRoot;
 import com.alechilles.patchwork.command.PatchworkCommandActions;
 import com.alechilles.patchwork.engine.PatchMacroRegistry;
 import com.alechilles.patchwork.engine.PatchOperation;
+import com.alechilles.patchwork.format.PatchFormat;
 import com.alechilles.patchwork.reload.HytalePatchTargetAdapter;
 import com.alechilles.patchwork.reload.PatchReloadTracker;
 import com.alechilles.patchwork.reload.PatchReloadCoordinator;
@@ -128,7 +129,12 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
 
     @Override public String generatedPatchRoot() { return generatedRoot.toString(); }
     @Override public String expandOperationJson(String operationJson) {
-        PatchOperation operation = PatchOperation.parseHostOperation(JsonParser.parseString(operationJson).getAsJsonObject(), "embedded");
+        return expandOperationJson(operationJson, PatchFormat.LEGACY_VERSION);
+    }
+    /** Expands one operation using the caller's enclosing Patchwork format. */
+    public String expandOperationJson(String operationJson, int formatVersion) {
+        PatchOperation operation = PatchOperation.parseHostOperation(
+                JsonParser.parseString(operationJson).getAsJsonObject(), "embedded", formatVersion);
         JsonArray values = new JsonArray(); for (PatchOperation expanded : macros.expand(operation)) values.add(expanded.toJson());
         return values.toString();
     }
@@ -381,7 +387,9 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
             String json = guarded(() -> (String) receiver.getClass().getMethod("expand", String.class, String.class).invoke(receiver, id, operation.toJson().toString()));
             JsonArray values = JsonParser.parseString(new String(json.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8)).getAsJsonArray();
             List<PatchOperation> result = new ArrayList<>();
-            for (var value : values) result.add(PatchOperation.parseHostOperation(value.getAsJsonObject(), operation.id()));
+            for (var value : values) {
+                result.add(PatchOperation.parseHostOperation(value.getAsJsonObject(), operation.id(), operation.formatVersion()));
+            }
             return List.copyOf(result);
         }
         private PatchworkReloadResult decodeReloadResult(Object value) {

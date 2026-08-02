@@ -228,6 +228,21 @@ final class PatchEngineTest {
     }
 
     @Test
+    void rejectsOptionalStructuralArrayTokenInsteadOfReturningPatchedResult() {
+        PatchDefinition definition = definition("""
+                { "FormatVersion": 2, "Id": "structural", "Target": "Server/Test.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 },
+                  { "Id": "before", "Op": "Add", "Path": "/before", "Value": true },
+                  { "Id": "malformed", "Op": "Replace", "Path": "/items/01", "Value": "changed", "Required": false },
+                  { "Id": "after", "Op": "Add", "Path": "/after", "Value": true }
+                ] }
+                """);
+
+        assertThrows(PatchEngine.PatchFailureException.class,
+                () -> engine.apply(object("{\"items\":[\"zero\",\"one\"]}"), List.of(definition)));
+    }
+
+    @Test
     void rejectsMalformedV2InsertMatchersDuringParsingEvenWhenOptional() {
         assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
                 { "FormatVersion": 2, "Id": "bad-find", "Target": "Server/Test.json", "Operations": [

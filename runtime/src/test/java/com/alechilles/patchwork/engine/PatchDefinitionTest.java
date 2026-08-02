@@ -16,6 +16,7 @@ import java.util.stream.Stream;
 
 import com.alechilles.patchwork.conditions.PatchCondition;
 import com.alechilles.patchwork.format.PatchDefinitionReader;
+import com.alechilles.patchwork.format.Utf8Ordering;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Test;
@@ -76,6 +77,17 @@ final class PatchDefinitionTest {
 
         assertEquals(List.of(privateUse, supplementary), List.of(supplementary, privateUse).stream()
                 .sorted(PatchDefinition.ORDERING).toList());
+    }
+
+    @Test
+    void rejectsUnpairedSurrogatesAtUtf8OrderingAndDefinitionBoundaries() {
+        String first = "\uD800";
+        String second = "\uD801";
+
+        assertThrows(IllegalArgumentException.class, () -> Utf8Ordering.UNSIGNED_BYTES.compare(first, second));
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
+                { "Id": "shared", "Target": "Server/A.json", "Operations": [] }
+                """), first, "patch.json"));
     }
 
     @Test
@@ -184,6 +196,47 @@ final class PatchDefinitionTest {
                     "Position": "Before" }
                 ] }
         """), "pack", "patch.json"));
+    }
+
+    @Test
+    void rejectsWhitespaceOnlyFormatTwoOperationIds() {
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
+                { "FormatVersion": 2, "Id": "v2", "Target": "Server/A.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 },
+                  { "Op": "Add", "Id": " \t ", "Path": "/flag", "Value": true }
+                ] }
+        """), "pack", "patch.json"));
+    }
+
+    @Test
+    void rejectsWhitespaceOnlyFormatTwoDefinitionIdButKeepsLegacyCompatibility() {
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
+                { "FormatVersion": 2, "Id": "   ", "Target": "Server/A.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 }
+                ] }
+                """), "pack", "patch.json"));
+
+        PatchDefinition legacy = PatchDefinition.parse(object("""
+                { "Id": "   ", "Target": "Server/A.json", "Operations": [] }
+                """), "pack", "patch.json");
+        assertEquals("   ", legacy.id());
+    }
+
+    @Test
+    void rejectsWhitespaceOnlyFormatTwoMacroButKeepsLegacyParsing() {
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
+                { "FormatVersion": 2, "Id": "v2", "Target": "Server/A.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 },
+                  { "Op": "Macro", "Macro": "   " }
+                ] }
+                """), "pack", "patch.json"));
+
+        PatchDefinition legacy = PatchDefinition.parse(object("""
+                { "Id": "legacy", "Target": "Server/A.json", "Operations": [
+                  { "Op": "Macro", "Macro": "   " }
+                ] }
+                """), "pack", "patch.json");
+        assertEquals("   ", legacy.operations().getFirst().macro());
     }
 
     @Test

@@ -88,7 +88,7 @@ public final class JsonPointer {
     }
 
     private static IllegalArgumentException invalidEscape(String pointer) {
-        return new IllegalArgumentException("JSON pointer contains an invalid '~' escape: " + pointer);
+        return new StructuralException("JSON pointer contains an invalid '~' escape: " + pointer);
     }
 
     private static List<String> legacyTokens(String pointer) {
@@ -108,13 +108,13 @@ public final class JsonPointer {
             return size;
         }
         if (token == null || !token.matches("0|[1-9]\\d*")) {
-            throw new IllegalArgumentException("Array path token must be a non-negative integer: " + token + ".");
+            throw new StructuralException("Array path token must be a non-negative integer: " + token + ".");
         }
         final int index;
         try {
             index = Integer.parseInt(token);
         } catch (NumberFormatException failure) {
-            throw new IllegalArgumentException("Array path token is out of range: " + token + ".", failure);
+            throw new StructuralException("Array path token is out of range: " + token + ".", failure);
         }
         int upper = allowAppend ? size : size - 1;
         if (index < 0 || index > upper) {
@@ -136,6 +136,23 @@ public final class JsonPointer {
             return index;
         } catch (NumberFormatException failure) {
             throw new IllegalArgumentException("Array path token must be an integer: " + token + ".", failure);
+        }
+    }
+
+    /**
+     * Indicates a pointer grammar defect discovered after traversal reached a
+     * context where token semantics are known (for example, an array token
+     * with a leading zero).  PatchEngine treats this as fatal even for an
+     * optional operation; missing paths and out-of-bounds indexes remain plain
+     * applicability failures.
+     */
+    public static final class StructuralException extends IllegalArgumentException {
+        public StructuralException(String message) {
+            super(message);
+        }
+
+        public StructuralException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 }
