@@ -1,5 +1,6 @@
 package com.alechilles.patchwork.selftest;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -9,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.io.IOException;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
@@ -37,8 +39,26 @@ final class PatchworkSelfTestRunnerTest {
 
         assertTrue(result.completed(), result.diagnostic());
         assertTrue(result.caseOutcomes().stream().allMatch(PatchworkSelfTestResult.CaseOutcome::passed), result.diagnostic());
-        assertTrue(result.generatedTargets().contains("Server/PatchworkSelfTest/ordinary.json"));
+        assertTrue(result.generatedTargets().contains("Server/PatchworkSelfTest/replace.json"));
         assertTrue(result.generatedTargets().contains("Server/PatchworkSelfTest/condition.json"));
+    }
+
+    @Test void standardPackVerifiesEveryBuiltInPatchOperation() {
+        PatchworkSelfTestResult result = new PatchworkSelfTestRunner(new GeneratedPackLayout(temporary)).run(PatchworkSelfTestPack.standard());
+
+        assertTrue(result.completed(), result.diagnostic());
+        assertEquals(Set.of(
+                "Server/PatchworkSelfTest/add.json",
+                "Server/PatchworkSelfTest/merge.json",
+                "Server/PatchworkSelfTest/replace.json",
+                "Server/PatchworkSelfTest/remove.json",
+                "Server/PatchworkSelfTest/insert.json",
+                "Server/PatchworkSelfTest/replace-matching.json",
+                "Server/PatchworkSelfTest/remove-matching.json",
+                "Server/PatchworkSelfTest/move-matching.json",
+                "Server/PatchworkSelfTest/condition.json"),
+                result.caseOutcomes().stream().map(PatchworkSelfTestResult.CaseOutcome::target).collect(java.util.stream.Collectors.toSet()));
+        assertTrue(result.caseOutcomes().stream().allMatch(PatchworkSelfTestResult.CaseOutcome::passed), result.diagnostic());
     }
 
     @Test void falseConditionFailsWithoutChangingProductionOutput() throws Exception {
