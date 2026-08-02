@@ -158,8 +158,27 @@ public final class PatchOperation {
                 allowed = Set.of("Op", "Path", "Match", "Id", "Required", "Position", "Find");
                 required = Set.of("Op", "Path", "Match");
             }
+            case "Add", "Merge", "Replace" -> {
+                allowed = Set.of("Op", "Path", "Value", "Id", "Required");
+                required = Set.of("Op", "Path", "Value");
+            }
+            case "Remove" -> {
+                allowed = Set.of("Op", "Path", "Id", "Required");
+                required = Set.of("Op", "Path");
+            }
+            case "Insert" -> {
+                allowed = Set.of("Op", "Path", "Position", "Find", "Existing", "Value", "Id", "Required");
+                required = Set.of("Op", "Path", "Value");
+            }
+            case "Macro" -> {
+                allowed = Set.of("Op", "Macro", "Options", "Id", "Required");
+                required = Set.of("Op", "Macro");
+            }
             default -> {
-                return;
+                if ("RequireFormat".equalsIgnoreCase(op)) {
+                    throw structural(patchId, index, "Op must use exact spelling RequireFormat.");
+                }
+                throw structural(patchId, index, "unsupported operation '" + op + "'.");
             }
         }
         for (String name : operation.keySet()) {
@@ -182,13 +201,28 @@ public final class PatchOperation {
             }
             return;
         }
-        if (!operation.get("Path").isJsonPrimitive()
-                || !operation.getAsJsonPrimitive("Path").isString()
-                || operation.get("Path").getAsString().isBlank()) {
-            throw structural(patchId, index, "Path must be a non-empty string.");
+        if (Set.of("Add", "Merge", "Replace", "Remove", "Insert", "ReplaceMatching", "RemoveMatching", "MoveMatching")
+                .contains(op)) {
+            validatePath(operation, patchId, index);
         }
-        if (!operation.get("Match").isJsonObject()) {
+        if (Set.of("ReplaceMatching", "RemoveMatching", "MoveMatching").contains(op)
+                && !operation.get("Match").isJsonObject()) {
             throw structural(patchId, index, "Match must be an object.");
+        }
+        if ("Merge".equals(op) && !operation.get("Value").isJsonObject()) {
+            throw structural(patchId, index, "Merge Value must be an object.");
+        }
+        if ("Macro".equals(op)) {
+            String macro = strictString(operation, "Macro", patchId + " operation " + index);
+            if (macro.isBlank()) throw structural(patchId, index, "Macro must be a non-empty string.");
+            if (operation.has("Options") && !operation.get("Options").isJsonObject()) {
+                throw structural(patchId, index, "Options must be an object.");
+            }
+            return;
+        }
+        if ("Insert".equals(op)) {
+            validateInsert(operation, patchId, index);
+            return;
         }
         if (operation.has("MatchPolicy")) {
             String policy = strictString(operation, "MatchPolicy", patchId + " operation " + index);
@@ -213,6 +247,37 @@ public final class PatchOperation {
                         ? "Position " + position + " requires Find."
                         : "Find is only allowed with Position Before or After.");
             }
+        }
+    }
+
+    private static void validatePath(JsonObject operation, String patchId, int index) {
+        JsonElement path = operation.get("Path");
+        if (path == null || !path.isJsonPrimitive() || !path.getAsJsonPrimitive().isString()
+                || path.getAsString().isBlank()) {
+            throw structural(patchId, index, "Path must be a non-empty string.");
+        }
+    }
+
+    private static void validateInsert(JsonObject operation, String patchId, int index) {
+        String position = operation.has("Position")
+                ? strictString(operation, "Position", patchId + " operation " + index)
+                : "End";
+        String normalized = position.toLowerCase(Locale.ROOT);
+        if (!Set.of("start", "end", "before", "after").contains(normalized)) {
+            throw structural(patchId, index, "Position must be Start, End, Before, or After.");
+        }
+        boolean hasFind = operation.has("Find");
+        if (hasFind && !operation.get("Find").isJsonObject()) {
+            throw structural(patchId, index, "Find must be an object.");
+        }
+        boolean hasExisting = operation.has("Existing");
+        if (hasExisting && !operation.get("Existing").isJsonObject()) {
+            throw structural(patchId, index, "Existing must be an object.");
+        }
+        if (("before".equals(normalized) || "after".equals(normalized)) != hasFind) {
+            throw structural(patchId, index, ("before".equals(normalized) || "after".equals(normalized))
+                    ? "Position " + position + " requires Find."
+                    : "Find is only allowed with Position Before or After.");
         }
     }
 

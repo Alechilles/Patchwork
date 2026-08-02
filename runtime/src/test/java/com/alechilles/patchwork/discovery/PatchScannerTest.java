@@ -165,6 +165,51 @@ final class PatchScannerTest {
         assertEquals(0, result.definitions().size());
     }
 
+    @Test
+    void rejectsDuplicateFormatVersionThatWouldDowngradeFormatTwo() throws Exception {
+        Path source = tempDir.resolve("source");
+        write(source, "Server/Patchwork/Patches/v2.json", """
+                {"FormatVersion":2,"FormatVersion":1,"Id":"v2","Target":"Server/A.json",
+                 "Operations":[]}
+                """);
+
+        PatchScanner.ScanResult result = new PatchScanner().scan(
+                List.of(PatchSource.directory("pack", 1, source)), Set.of());
+
+        assertEquals(1, result.failures().size());
+        assertEquals(0, result.definitions().size());
+    }
+
+    @Test
+    void rejectsLenientSyntaxInFormatTwoDefinition() throws Exception {
+        Path source = tempDir.resolve("source");
+        write(source, "Server/Patchwork/Patches/v2.json", """
+                {"FormatVersion":2,"Id":"v"+"2","Target":"Server/A.json",
+                 "Operations":[{"Op":"RequireFormat","Version":2}]}
+                """);
+
+        PatchScanner.ScanResult result = new PatchScanner().scan(
+                List.of(PatchSource.directory("pack", 1, source)), Set.of());
+
+        assertEquals(1, result.failures().size());
+        assertEquals(0, result.definitions().size());
+    }
+
+    @Test
+    void keepsLegacyGsonLenientSyntaxCompatibility() throws Exception {
+        Path source = tempDir.resolve("source");
+        write(source, "Server/Patchwork/Patches/legacy.json", """
+                // Legacy Patchwork definitions remain Gson-lenient.
+                {Id:'legacy',Target:'Server/A.json',Operations:[]}
+                """);
+
+        PatchScanner.ScanResult result = new PatchScanner().scan(
+                List.of(PatchSource.directory("pack", 1, source)), Set.of());
+
+        assertEquals(List.of("legacy"), result.definitions().stream().map(definition -> definition.id()).toList());
+        assertEquals(List.of(), result.failures());
+    }
+
     private static String patch(String id, String target) {
         return "{ \"Id\": \"" + id + "\", \"Target\": \"" + target + "\", \"Operations\": [] }";
     }

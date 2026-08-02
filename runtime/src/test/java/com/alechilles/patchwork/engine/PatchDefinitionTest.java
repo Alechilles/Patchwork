@@ -92,6 +92,26 @@ final class PatchDefinitionTest {
         assertEquals(2, definition.operations().getFirst().version());
     }
 
+    @Test
+    void rejectsMalformedOptionalLegacyOperationInFormatTwoBeforeApplication() {
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parseAll(object("""
+                { "FormatVersion": 2, "Id": "v2", "Target": "Server/A.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 },
+                  { "Op": "Add", "Required": false }
+                ] }
+                """), "pack", "patch.json"));
+    }
+
+    @Test
+    void rejectsCaseVariantRequireFormatSentinel() {
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parseAll(object("""
+                { "FormatVersion": 2, "Id": "v2", "Target": "Server/A.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 },
+                  { "Op": "requireformat", "Version": 2 }
+                ] }
+                """), "pack", "patch.json"));
+    }
+
     private static JsonObject object(String json) {
         return JsonParser.parseString(json).getAsJsonObject();
     }
