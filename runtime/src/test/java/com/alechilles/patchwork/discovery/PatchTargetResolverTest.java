@@ -41,6 +41,23 @@ final class PatchTargetResolverTest {
     }
 
     @Test
+    void resolvesHighestUnsignedUtf8SourcePackIdOnLoadOrderTie() throws Exception {
+        String privateUsePack = new String(Character.toChars(0xE000)) + "-pack";
+        String supplementaryPack = new String(Character.toChars(0x10000)) + "-pack";
+        Path privateUse = tempDir.resolve("private-use");
+        Path supplementary = tempDir.resolve("supplementary");
+        write(privateUse, "Server/Target.json", "private-use");
+        write(supplementary, "Server/Target.json", "supplementary");
+
+        PatchTargetResolver.ResolvedTarget target = new PatchTargetResolver().resolve(List.of(
+                PatchSource.directory(privateUsePack, 4, privateUse),
+                PatchSource.directory(supplementaryPack, 4, supplementary)), "Server/Target.json").orElseThrow();
+
+        assertEquals(supplementaryPack, target.sourcePackId());
+        assertArrayEquals("supplementary".getBytes(StandardCharsets.UTF_8), target.bytes());
+    }
+
+    @Test
     void resolvesHigherLoadOrderBeforeSourceIdTieBreak() throws Exception {
         Path lower = tempDir.resolve("lower");
         Path higher = tempDir.resolve("higher");

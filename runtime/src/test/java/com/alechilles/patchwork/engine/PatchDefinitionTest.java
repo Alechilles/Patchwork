@@ -40,6 +40,34 @@ final class PatchDefinitionTest {
     }
 
     @Test
+    void appliesLowerUnsignedSourcePackIdFirstWhenOtherOrderingFieldsTie() {
+        PatchDefinition zPack = PatchDefinition.parse(object("""
+                { "Id": "shared", "Target": "Server/A.json", "Priority": 5, "Operations": [] }
+                """), "z-pack", "patches/z.json", 3);
+        PatchDefinition aPack = PatchDefinition.parse(object("""
+                { "Id": "shared", "Target": "Server/A.json", "Priority": 5, "Operations": [] }
+                """), "a-pack", "patches/a.json", 3);
+
+        assertEquals(List.of(aPack, zPack), List.of(zPack, aPack).stream()
+                .sorted(PatchDefinition.ORDERING).toList());
+    }
+
+    @Test
+    void comparesSourcePackIdsByUnsignedUtf8Bytes() {
+        String privateUsePack = new String(Character.toChars(0xE000)) + "-pack";
+        String supplementaryPack = new String(Character.toChars(0x10000)) + "-pack";
+        PatchDefinition privateUse = PatchDefinition.parse(object("""
+                { "Id": "shared", "Target": "Server/A.json", "Priority": 5, "Operations": [] }
+                """), privateUsePack, "patches/private.json", 3);
+        PatchDefinition supplementary = PatchDefinition.parse(object("""
+                { "Id": "shared", "Target": "Server/A.json", "Priority": 5, "Operations": [] }
+                """), supplementaryPack, "patches/supplementary.json", 3);
+
+        assertEquals(List.of(privateUse, supplementary), List.of(supplementary, privateUse).stream()
+                .sorted(PatchDefinition.ORDERING).toList());
+    }
+
+    @Test
     void rejectsBothSingleAndMultipleTargetsWithDeterministicMessage() {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
                 { "Id": "invalid", "Target": "Server/A.json", "Targets": ["Server/B.json"], "Operations": [] }

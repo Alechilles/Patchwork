@@ -3,6 +3,7 @@ package com.alechilles.patchwork.engine;
 import com.alechilles.patchwork.conditions.PatchCondition;
 import com.alechilles.patchwork.conditions.PatchConditionParser;
 import com.alechilles.patchwork.format.PatchFormat;
+import com.alechilles.patchwork.format.Utf8Ordering;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -15,8 +16,11 @@ import java.util.Set;
 
 /** Parsed Patchwork definition associated with one target asset and source location. */
 public final class PatchDefinition {
-    /** Stable definition ordering: priority, patch ID, then contributing pack load order. */
-    public static final Comparator<PatchDefinition> ORDERING=Comparator.comparingInt(PatchDefinition::priority).thenComparing(PatchDefinition::id).thenComparingInt(PatchDefinition::sourcePackLoadOrder);
+    /** Stable definition ordering: priority, patch ID, then contributing pack load order and ID. */
+    public static final Comparator<PatchDefinition> ORDERING=Comparator.comparingInt(PatchDefinition::priority)
+            .thenComparing(PatchDefinition::id, Utf8Ordering.UNSIGNED_BYTES)
+            .thenComparingInt(PatchDefinition::sourcePackLoadOrder)
+            .thenComparing(PatchDefinition::sourcePack, Utf8Ordering.UNSIGNED_BYTES);
     private final String id,target,sourcePack,sourcePath; private final int priority,sourcePackLoadOrder,formatVersion; private final boolean enabled; private final List<PatchOperation> operations; private final PatchCondition condition;
     private PatchDefinition(String id,String target,int priority,boolean enabled,List<PatchOperation> operations,String sourcePack,String sourcePath,int sourcePackLoadOrder,PatchCondition condition,int formatVersion){this.id=id;this.target=target;this.priority=priority;this.enabled=enabled;this.operations=List.copyOf(operations);this.sourcePack=sourcePack;this.sourcePath=sourcePath;this.sourcePackLoadOrder=sourcePackLoadOrder;this.condition=condition;this.formatVersion=formatVersion;}
     /** Parses one target definition, defaulting source pack order to zero. */ public static PatchDefinition parse(JsonObject root,String sourcePack,String sourcePath){return parse(root,sourcePack,sourcePath,0);}

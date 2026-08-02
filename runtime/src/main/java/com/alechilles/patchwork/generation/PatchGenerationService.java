@@ -9,6 +9,7 @@ import com.alechilles.patchwork.discovery.PatchTargetResolver;
 import com.alechilles.patchwork.engine.PatchDefinition;
 import com.alechilles.patchwork.engine.PatchEngine;
 import com.alechilles.patchwork.engine.PatchMacroRegistry;
+import com.alechilles.patchwork.format.Utf8Ordering;
 import com.google.gson.JsonParser;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -58,7 +59,7 @@ public final class PatchGenerationService {
         for (Map.Entry<String, List<PatchDefinition>> group : targets.entrySet()) planTarget(request, group.getKey(), group.getValue(), entries, rejected, skipped);
         GeneratedPackManifest manifest = new GeneratedPackManifest(entries);
         List<String> sourcePackIds = request.sources().stream().map(PatchSource::sourcePackId)
-                .filter(id -> !PatchScanner.GENERATED_PACK_ID.equals(id)).distinct().sorted().toList();
+                .filter(id -> !PatchScanner.GENERATED_PACK_ID.equals(id)).distinct().sorted(Utf8Ordering.UNSIGNED_BYTES).toList();
         return new GenerationPlan(manifest.entries(), new PatchStatusSnapshot(skipped, rejected, scan.failures()), manifest, sourcePackIds);
     }
     private void planTarget(GenerationRequest request, String target, List<PatchDefinition> definitions, List<GeneratedPackManifest.Entry> entries, Map<String, String> rejected, List<String> skipped) {
@@ -102,7 +103,7 @@ public final class PatchGenerationService {
             GeneratedPackManifest canonical = new GeneratedPackManifest(entries);
             if (!sameEntries(canonical.entries(), manifest.entries())) throw new IllegalArgumentException("Plan entries must match the manifest.");
             entries = canonical.entries();
-            sourcePackIds = sourcePackIds.stream().filter(Objects::nonNull).distinct().sorted().toList();
+            sourcePackIds = sourcePackIds.stream().filter(Objects::nonNull).distinct().sorted(Utf8Ordering.UNSIGNED_BYTES).toList();
         }
         private static boolean sameEntries(List<GeneratedPackManifest.Entry> left, List<GeneratedPackManifest.Entry> right) {
             if (left.size() != right.size()) return false;

@@ -204,6 +204,18 @@ final class PatchGenerationServiceTest {
     }
 
     @Test
+    void reportsSourcePackIdsInUnsignedUtf8Order() {
+        String privateUsePack = new String(Character.toChars(0xE000)) + "-pack";
+        String supplementaryPack = new String(Character.toChars(0x10000)) + "-pack";
+        var plan = new PatchGenerationService().generate(new PatchGenerationService.GenerationRequest(
+                List.of(PatchSource.directory(supplementaryPack, 1, temporary.resolve("supplementary")),
+                        PatchSource.directory(privateUsePack, 1, temporary.resolve("private-use"))),
+                Set.of(), Map.of(), "1", resolver()));
+
+        assertEquals(List.of(privateUsePack, supplementaryPack), plan.sourcePackIds());
+    }
+
+    @Test
     void realScannerEvaluatesDefinitionLocalModDataAndLegacyConditionsWithoutIdCollisions() throws Exception {
         Path first = Files.createDirectories(temporary.resolve("first/Server/Patchwork/Patches"));
         Path firstRoot = first.getParent().getParent().getParent();

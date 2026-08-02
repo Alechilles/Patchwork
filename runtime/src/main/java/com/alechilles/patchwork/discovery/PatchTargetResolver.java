@@ -1,5 +1,6 @@
 package com.alechilles.patchwork.discovery;
 
+import com.alechilles.patchwork.format.Utf8Ordering;
 import java.io.IOException;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.DirectoryStream;
@@ -52,7 +53,10 @@ public final class PatchTargetResolver {
         final String normalized;
         try { normalized = PatchScanner.normalizeAssetPath(target); }
         catch (IllegalArgumentException exception) { return new Resolution(Status.FAILED, null, "Unsafe asset path."); }
-        for (PatchSource source : sources.stream().filter(s -> !PatchScanner.GENERATED_PACK_ID.equals(s.sourcePackId())).sorted(Comparator.comparingInt(PatchSource::sourcePackLoadOrder).thenComparing(PatchSource::sourcePackId).reversed()).toList()) {
+        Comparator<PatchSource> ordering = Comparator.comparingInt(PatchSource::sourcePackLoadOrder)
+                .thenComparing(PatchSource::sourcePackId, Utf8Ordering.UNSIGNED_BYTES);
+        for (PatchSource source : sources.stream().filter(s -> !PatchScanner.GENERATED_PACK_ID.equals(s.sourcePackId()))
+                .sorted(ordering.reversed()).toList()) {
             try {
                 byte[] bytes = source.kind() == PatchSource.Kind.DIRECTORY ? readDirectory(source.backingPath(), normalized) : readArchive(source.backingPath(), normalized);
                 if (bytes != null) return new Resolution(Status.FOUND, new ResolvedTarget(source.sourcePackId(), source.sourcePackLoadOrder(), normalized, bytes), "");

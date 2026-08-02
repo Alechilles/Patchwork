@@ -3,6 +3,7 @@ package com.alechilles.patchwork.discovery;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.alechilles.patchwork.engine.PatchDefinition;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,6 +35,23 @@ final class PatchScannerTest {
 
         assertEquals(List.of("a", "z", "b"), result.definitions().stream().map(definition -> definition.id()).toList());
         assertEquals(List.of(), result.failures());
+    }
+
+    @Test
+    void ordersSourcePacksByUnsignedUtf8SourceId() throws Exception {
+        String privateUsePack = new String(Character.toChars(0xE000)) + "-pack";
+        String supplementaryPack = new String(Character.toChars(0x10000)) + "-pack";
+        Path privateUse = tempDir.resolve("private-use");
+        Path supplementary = tempDir.resolve("supplementary");
+        write(privateUse, "Server/Patchwork/Patches/private.json", patch("private", "Server/Private.json"));
+        write(supplementary, "Server/Patchwork/Patches/supplementary.json", patch("supplementary", "Server/Supplementary.json"));
+
+        PatchScanner.ScanResult result = new PatchScanner().scan(List.of(
+                PatchSource.directory(supplementaryPack, 1, supplementary),
+                PatchSource.directory(privateUsePack, 1, privateUse)), Set.of());
+
+        assertEquals(List.of(privateUsePack, supplementaryPack), result.definitions().stream()
+                .map(PatchDefinition::sourcePack).toList());
     }
 
     @Test

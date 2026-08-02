@@ -2,6 +2,7 @@ package com.alechilles.patchwork.discovery;
 
 import com.alechilles.patchwork.engine.PatchDefinition;
 import com.alechilles.patchwork.format.PatchDefinitionReader;
+import com.alechilles.patchwork.format.Utf8Ordering;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -37,7 +38,8 @@ public final class PatchScanner {
         List<String> failures = new ArrayList<>();
         Map<DuplicateKey, PatchRoot> accepted = new HashMap<>();
         List<PatchSource> orderedSources = sources.stream().filter(source -> !GENERATED_PACK_ID.equals(source.sourcePackId()))
-                .sorted(Comparator.comparingInt(PatchSource::sourcePackLoadOrder).thenComparing(PatchSource::sourcePackId)).toList();
+                .sorted(Comparator.comparingInt(PatchSource::sourcePackLoadOrder)
+                        .thenComparing(PatchSource::sourcePackId, Utf8Ordering.UNSIGNED_BYTES)).toList();
         for (PatchRoot root : PatchRoot.activeRoots(Set.copyOf(installedPluginIds))) {
             for (PatchSource source : orderedSources) {
                 scanRoot(source, root, definitions, accepted, skipped, failures);
