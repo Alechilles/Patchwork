@@ -21,10 +21,18 @@ public final class PatchEngine {
         }); return new PatchResult(working,List.copyOf(applied),List.copyOf(skipped));
     }
     private static void apply(JsonObject root,PatchDefinition definition,PatchOperation operation,List<String> applied,List<String> skipped){
-        String label=definition.id()+":"+operation.id(); try {String skip=raw(root,operation);if(skip==null)applied.add(label);else skipped.add(label+" ("+skip+")");}
+        String label=definition.id()+":"+operation.id(); try {String skip=raw(root,definition,operation);if(skip==null)applied.add(label);else skipped.add(label+" ("+skip+")");}
         catch(RuntimeException ex){String message=label+" failed: "+ex.getMessage();if(operation.required())throw new PatchFailureException(message,ex);skipped.add(message);}
     }
-    private static String raw(JsonObject root,PatchOperation operation){return switch(operation.op().toLowerCase(Locale.ROOT)){
+    private static String raw(JsonObject root,PatchDefinition definition,PatchOperation operation){return switch(operation.op().toLowerCase(Locale.ROOT)){
+        case "requireformat" -> {
+            if (definition.formatVersion() == 2 && operation.formatVersion() == 2
+                    && Integer.valueOf(definition.formatVersion()).equals(operation.version())) yield null;
+            if (definition.formatVersion() != 2 || operation.formatVersion() != 2) {
+                throw new IllegalArgumentException("Unsupported operation '" + operation.op() + "'.");
+            }
+            throw new IllegalArgumentException("RequireFormat version does not match definition format version.");
+        }
         case "add" -> {add(root,operation);yield null;} case "merge" -> {merge(root,operation);yield null;} case "replace" -> {replace(root,operation);yield null;} case "remove" -> {remove(root,operation);yield null;} case "insert" -> insert(root,operation); default -> throw new IllegalArgumentException("Unsupported operation '"+operation.op()+"'.");};}
     private static void add(JsonObject root,PatchOperation operation){PathTarget target=parent(root,path(operation),true);JsonElement value=value(operation);if(target.parent().isJsonObject())target.parent().getAsJsonObject().add(target.leaf(),value);else if(target.parent().isJsonArray()){JsonArray array=target.parent().getAsJsonArray();insert(array,arrayIndex(target.leaf(),array.size(),true),value);}else throw new IllegalArgumentException("Add parent is not an object or array at "+operation.path()+".");}
     private static void merge(JsonObject root,PatchOperation operation){JsonElement value=value(operation);if(!value.isJsonObject())throw new IllegalArgumentException("Merge value must be an object.");JsonElement target=resolve(root,path(operation));if(target==null||!target.isJsonObject())throw new IllegalArgumentException("Merge target must exist and be an object at "+operation.path()+".");merge(target.getAsJsonObject(),value.getAsJsonObject());}

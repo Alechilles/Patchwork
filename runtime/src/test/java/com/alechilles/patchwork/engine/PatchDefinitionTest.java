@@ -63,6 +63,35 @@ final class PatchDefinitionTest {
                 """), "pack", "patches/overflow.json"));
     }
 
+    @Test
+    void rejectsFormatTwoDefinitionWithoutCompatibilitySentinel() {
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parseAll(object("""
+                { "FormatVersion": 2, "Id": "v2", "Target": "Server/A.json", "Operations": [] }
+                """), "pack", "patch.json"));
+    }
+
+    @Test
+    void rejectsFormatTwoSentinelRequiredField() {
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parseAll(object("""
+                { "FormatVersion": 2, "Id": "v2", "Target": "Server/A.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2, "Required": false }
+                ] }
+                """), "pack", "patch.json"));
+    }
+
+    @Test
+    void acceptsFormatTwoCompatibilitySentinelAsFirstOperation() {
+        PatchDefinition definition = PatchDefinition.parse(object("""
+                { "FormatVersion": 2, "Id": "v2", "Target": "Server/A.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 }
+                ] }
+                """), "pack", "patch.json");
+
+        assertEquals(2, definition.formatVersion());
+        assertEquals(2, definition.operations().getFirst().formatVersion());
+        assertEquals(2, definition.operations().getFirst().version());
+    }
+
     private static JsonObject object(String json) {
         return JsonParser.parseString(json).getAsJsonObject();
     }

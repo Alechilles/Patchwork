@@ -1,10 +1,8 @@
 package com.alechilles.patchwork.discovery;
 
 import com.alechilles.patchwork.engine.PatchDefinition;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonParser;
+import com.alechilles.patchwork.format.PatchDefinitionReader;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -62,11 +60,8 @@ public final class PatchScanner {
     private void processFile(PatchSource source, PatchRoot root, String assetPath, List<PatchDefinition> definitions,
                              Map<DuplicateKey, PatchRoot> accepted, List<String> skipped, List<String> failures) {
         try {
-            JsonElement element = JsonParser.parseString(new String(reader.read(source, assetPath), StandardCharsets.UTF_8));
-            if (!element.isJsonObject()) {
-                throw new IllegalArgumentException("Patch file must contain a JSON object.");
-            }
-            List<PatchDefinition> parsed = PatchDefinition.parseAll(element.getAsJsonObject(), source.sourcePackId(), assetPath, source.sourcePackLoadOrder())
+            var rootObject = PatchDefinitionReader.parse(reader.read(source, assetPath), source.sourcePackId(), assetPath, source.sourcePackLoadOrder());
+            List<PatchDefinition> parsed = PatchDefinition.parseAll(rootObject, source.sourcePackId(), assetPath, source.sourcePackLoadOrder())
                     .stream().sorted(Comparator.comparing(PatchDefinition::target)).toList();
             validateTargets(parsed);
             List<PatchDefinition> enabled = parsed.stream().filter(PatchDefinition::enabled).toList();

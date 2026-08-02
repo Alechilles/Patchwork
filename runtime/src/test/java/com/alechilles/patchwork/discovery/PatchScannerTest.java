@@ -134,6 +134,37 @@ final class PatchScannerTest {
         assertEquals(List.of("Failed to parse pack:Server/Patchwork/Patches/Bad.json: planned read failure"), result.failures());
     }
 
+    @Test
+    void scansValidFormatTwoSentinelDefinition() throws Exception {
+        Path source = tempDir.resolve("source");
+        write(source, "Server/Patchwork/Patches/v2.json", """
+                {"FormatVersion":2,"Id":"v2","Target":"Server/A.json",
+                 "Operations":[{"Op":"RequireFormat","Version":2}]}
+                """);
+
+        PatchScanner.ScanResult result = new PatchScanner().scan(
+                List.of(PatchSource.directory("pack", 1, source)), Set.of());
+
+        assertEquals(1, result.definitions().size());
+        assertEquals(2, result.definitions().getFirst().formatVersion());
+        assertEquals(List.of(), result.failures());
+    }
+
+    @Test
+    void rejectsDuplicateKeysInFormatTwoDefinitionBytes() throws Exception {
+        Path source = tempDir.resolve("source");
+        write(source, "Server/Patchwork/Patches/v2.json", """
+                {"FormatVersion":2,"Id":"v2","Id":"duplicate","Target":"Server/A.json",
+                 "Operations":[{"Op":"RequireFormat","Version":2}]}
+                """);
+
+        PatchScanner.ScanResult result = new PatchScanner().scan(
+                List.of(PatchSource.directory("pack", 1, source)), Set.of());
+
+        assertEquals(1, result.failures().size());
+        assertEquals(0, result.definitions().size());
+    }
+
     private static String patch(String id, String target) {
         return "{ \"Id\": \"" + id + "\", \"Target\": \"" + target + "\", \"Operations\": [] }";
     }

@@ -2,34 +2,271 @@ package com.alechilles.patchwork.engine;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import java.util.Locale;
+import java.util.Set;
 
 /** One raw or host-expanded operation in a Patchwork definition. */
 public final class PatchOperation {
-    private final String id, op, path, position, macro;
+    private final String id, op, path, position, macro, matchPolicy;
+    private final int formatVersion;
+    private final Integer version;
     private final boolean required;
     private final JsonElement value;
-    private final JsonObject find, existing, options;
-    private PatchOperation(String id, String op, String path, String position, String macro, boolean required, JsonElement value, JsonObject find, JsonObject existing, JsonObject options) {
-        this.id=id; this.op=op; this.path=path; this.position=position; this.macro=macro; this.required=required;
-        this.value=copy(value); this.find=copy(find); this.existing=copy(existing); this.options=copy(options);
+    private final JsonObject find, existing, options, match;
+
+    private PatchOperation(String id, String op, String path, String position, String macro, boolean required,
+                           JsonElement value, JsonObject find, JsonObject existing, JsonObject options,
+                           int formatVersion, Integer version, JsonObject match, String matchPolicy) {
+        this.id = id;
+        this.op = op;
+        this.path = path;
+        this.position = position;
+        this.macro = macro;
+        this.required = required;
+        this.value = copy(value);
+        this.find = copy(find);
+        this.existing = copy(existing);
+        this.options = copy(options);
+        this.formatVersion = formatVersion;
+        this.version = version;
+        this.match = copy(match);
+        this.matchPolicy = matchPolicy;
     }
+
     static PatchOperation parse(JsonObject object, String patchId, int index) {
-        return new PatchOperation(PatchDefinition.readString(object,"Id",patchId+"#"+index), PatchDefinition.readRequiredString(object,"Op",patchId+" operation "+index), PatchDefinition.readString(object,"Path",null), PatchDefinition.readString(object,"Position",null), PatchDefinition.readString(object,"Macro",null), PatchDefinition.readBoolean(object,"Required",true), object.get("Value"), object(object,"Find"), object(object,"Existing"), object(object,"Options"));
+        return parse(object, patchId, index, 1);
     }
+
+    static PatchOperation parse(JsonObject object, String patchId, int index, int formatVersion) {
+        String operation = PatchDefinition.readRequiredString(object, "Op", patchId + " operation " + index);
+        if (formatVersion == 2) {
+            validateV2(object, operation, patchId, index);
+        }
+        Integer version = object.has("Version")
+                ? (formatVersion == 2 ? readVersion(object, patchId, index) : readLegacyVersion(object))
+                : null;
+        JsonObject match = object(object, "Match");
+        String matchPolicy = formatVersion == 2 && object.has("MatchPolicy")
+                ? strictString(object, "MatchPolicy", patchId + " operation " + index)
+                : PatchDefinition.readString(object, "MatchPolicy", null);
+        String position = formatVersion == 2 && object.has("Position")
+                ? strictString(object, "Position", patchId + " operation " + index)
+                : PatchDefinition.readString(object, "Position", null);
+        return new PatchOperation(
+                PatchDefinition.readString(object, "Id", patchId + "#" + index),
+                operation,
+                PatchDefinition.readString(object, "Path", null),
+                position,
+                PatchDefinition.readString(object, "Macro", null),
+                formatVersion == 2 && object.has("Required")
+                        ? strictBoolean(object, "Required", patchId + " operation " + index)
+                        : PatchDefinition.readBoolean(object, "Required", true),
+                object.get("Value"),
+                object(object, "Find"),
+                object(object, "Existing"),
+                object(object, "Options"),
+                formatVersion,
+                version,
+                match,
+                matchPolicy);
+    }
+
     /** Parses a host-expanded operation with a stable synthetic source position. */
-    public static PatchOperation parseHostOperation(JsonObject object, String patchId) { return parse(object, patchId, 0); }
+    public static PatchOperation parseHostOperation(JsonObject object, String patchId) {
+        return parse(object, patchId, 0);
+    }
+
     /** Serializes this operation for the isolated host macro boundary. */
     public JsonObject toJson() {
-        JsonObject object = new JsonObject(); object.addProperty("Id", id); object.addProperty("Op", op);
-        if (path != null) object.addProperty("Path", path); if (position != null) object.addProperty("Position", position); if (macro != null) object.addProperty("Macro", macro);
-        object.addProperty("Required", required); if (value != null) object.add("Value", value()); if (find != null) object.add("Find", find()); if (existing != null) object.add("Existing", existing()); if (options != null) object.add("Options", options()); return object;
+        JsonObject object = new JsonObject();
+        object.addProperty("Id", id);
+        object.addProperty("Op", op);
+        if (version != null) object.addProperty("Version", version);
+        if (path != null) object.addProperty("Path", path);
+        if (position != null) object.addProperty("Position", position);
+        if (macro != null) object.addProperty("Macro", macro);
+        if (!(formatVersion == 2 && "RequireFormat".equals(op))) object.addProperty("Required", required);
+        if (value != null) object.add("Value", value());
+        if (match != null) object.add("Match", match());
+        if (matchPolicy != null) object.addProperty("MatchPolicy", matchPolicy);
+        if (find != null) object.add("Find", find());
+        if (existing != null) object.add("Existing", existing());
+        if (options != null) object.add("Options", options());
+        return object;
     }
+
     /** Creates an explicit non-macro operation. */
-    public static PatchOperation raw(String id, String op, String path, String position, boolean required, JsonElement value, JsonObject find, JsonObject existing) { return new PatchOperation(id,op,path,position,null,required,value,find,existing,null); }
+    public static PatchOperation raw(String id, String op, String path, String position, boolean required,
+                                     JsonElement value, JsonObject find, JsonObject existing) {
+        return new PatchOperation(id, op, path, position, null, required, value, find, existing, null,
+                1, null, null, null);
+    }
+
     /** Returns this operation with the supplied macro identifier. */
-    public PatchOperation withMacro(String macroId) { return new PatchOperation(id,op,path,position,macroId,required,value,find,existing,options); }
-    public String id(){return id;} public String op(){return op;} public String path(){return path;} public String position(){return position;} public String macro(){return macro;} public boolean required(){return required;} public JsonElement value(){return copy(value);} public JsonObject find(){return copy(find);} public JsonObject existing(){return copy(existing);} public JsonObject options(){return copy(options);}
-    public String getId(){return id();} public String getOp(){return op();} public String getPath(){return path();} public String getPosition(){return position();} public String getMacro(){return macro();} public boolean isRequired(){return required();} public JsonElement getValue(){return value();} public JsonObject getFind(){return find();} public JsonObject getExisting(){return existing();} public JsonObject getOptions(){return options();}
-    private static JsonObject object(JsonObject parent,String name) { JsonElement value=parent.get(name); if(value==null||value.isJsonNull())return null; if(!value.isJsonObject())throw new IllegalArgumentException(name+" must be an object."); return value.getAsJsonObject(); }
-    private static JsonElement copy(JsonElement value){return value==null?null:value.deepCopy();} private static JsonObject copy(JsonObject value){return value==null?null:value.deepCopy();}
+    public PatchOperation withMacro(String macroId) {
+        return new PatchOperation(id, op, path, position, macroId, required, value, find, existing, options,
+                formatVersion, version, match, matchPolicy);
+    }
+
+    public String id() { return id; }
+    public String op() { return op; }
+    public String path() { return path; }
+    public String position() { return position; }
+    public String macro() { return macro; }
+    public boolean required() { return required; }
+    public JsonElement value() { return copy(value); }
+    public JsonObject find() { return copy(find); }
+    public JsonObject existing() { return copy(existing); }
+    public JsonObject options() { return copy(options); }
+    public int formatVersion() { return formatVersion; }
+    public Integer version() { return version; }
+    public JsonObject match() { return copy(match); }
+    public String matchPolicy() { return matchPolicy; }
+
+    public String getId() { return id(); }
+    public String getOp() { return op(); }
+    public String getPath() { return path(); }
+    public String getPosition() { return position(); }
+    public String getMacro() { return macro(); }
+    public boolean isRequired() { return required(); }
+    public JsonElement getValue() { return value(); }
+    public JsonObject getFind() { return find(); }
+    public JsonObject getExisting() { return existing(); }
+    public JsonObject getOptions() { return options(); }
+    public int getFormatVersion() { return formatVersion(); }
+    public Integer getVersion() { return version(); }
+    public JsonObject getMatch() { return match(); }
+    public String getMatchPolicy() { return matchPolicy(); }
+
+    private static void validateV2(JsonObject operation, String op, String patchId, int index) {
+        Set<String> allowed;
+        Set<String> required;
+        switch (op) {
+            case "RequireFormat" -> {
+                allowed = Set.of("Op", "Version", "Id");
+                required = Set.of("Op", "Version");
+            }
+            case "ReplaceMatching" -> {
+                allowed = Set.of("Op", "Path", "Match", "Value", "Id", "Required", "MatchPolicy");
+                required = Set.of("Op", "Path", "Match", "Value");
+            }
+            case "RemoveMatching" -> {
+                allowed = Set.of("Op", "Path", "Match", "Id", "Required", "MatchPolicy");
+                required = Set.of("Op", "Path", "Match");
+            }
+            case "MoveMatching" -> {
+                allowed = Set.of("Op", "Path", "Match", "Id", "Required", "Position", "Find");
+                required = Set.of("Op", "Path", "Match");
+            }
+            default -> {
+                return;
+            }
+        }
+        for (String name : operation.keySet()) {
+            if (!allowed.contains(name)) {
+                throw structural(patchId, index, "field '" + name + "' is not allowed for " + op + ".");
+            }
+        }
+        for (String name : required) {
+            if (!operation.has(name)) {
+                throw structural(patchId, index, "must define " + name + ".");
+            }
+        }
+        if (operation.has("Id")) {
+            strictString(operation, "Id", patchId + " operation " + index);
+        }
+        if ("RequireFormat".equals(op)) {
+            int version = readVersion(operation, patchId, index);
+            if (version <= 0) {
+                throw structural(patchId, index, "Version must be a positive integer.");
+            }
+            return;
+        }
+        if (!operation.get("Path").isJsonPrimitive()
+                || !operation.getAsJsonPrimitive("Path").isString()
+                || operation.get("Path").getAsString().isBlank()) {
+            throw structural(patchId, index, "Path must be a non-empty string.");
+        }
+        if (!operation.get("Match").isJsonObject()) {
+            throw structural(patchId, index, "Match must be an object.");
+        }
+        if (operation.has("MatchPolicy")) {
+            String policy = strictString(operation, "MatchPolicy", patchId + " operation " + index);
+            if (!Set.of("exactlyone", "first", "last", "all").contains(policy.toLowerCase(Locale.ROOT))) {
+                throw structural(patchId, index, "MatchPolicy must be ExactlyOne, First, Last, or All.");
+            }
+        }
+        if ("MoveMatching".equals(op)) {
+            String position = operation.has("Position")
+                    ? strictString(operation, "Position", patchId + " operation " + index)
+                    : "End";
+            String normalized = position.toLowerCase(Locale.ROOT);
+            if (!Set.of("start", "end", "before", "after").contains(normalized)) {
+                throw structural(patchId, index, "Position must be Start, End, Before, or After.");
+            }
+            boolean hasFind = operation.has("Find");
+            if (hasFind && (!operation.get("Find").isJsonObject())) {
+                throw structural(patchId, index, "Find must be an object.");
+            }
+            if (("before".equals(normalized) || "after".equals(normalized)) != hasFind) {
+                throw structural(patchId, index, ("before".equals(normalized) || "after".equals(normalized))
+                        ? "Position " + position + " requires Find."
+                        : "Find is only allowed with Position Before or After.");
+            }
+        }
+    }
+
+    private static Integer readVersion(JsonObject object, String patchId, int index) {
+        try {
+            int value = PatchDefinition.readInt(object, "Version", 0);
+            if (value <= 0) throw structural(patchId, index, "Version must be a positive integer.");
+            return value;
+        } catch (IllegalArgumentException failure) {
+            if (failure.getMessage() != null && failure.getMessage().contains("Version must be a positive integer")) {
+                throw failure;
+            }
+            throw structural(patchId, index, "Version must be a positive integer.");
+        }
+    }
+
+    private static Integer readLegacyVersion(JsonObject object) {
+        try {
+            return PatchDefinition.readInt(object, "Version", 0);
+        } catch (IllegalArgumentException ignored) {
+            // Version was not a legacy field; malformed legacy extension data remains ignored.
+            return null;
+        }
+    }
+
+    private static String strictString(JsonObject object, String name, String context) {
+        JsonElement value = object.get(name);
+        if (value == null || value.isJsonNull() || !value.isJsonPrimitive()
+                || !value.getAsJsonPrimitive().isString()) {
+            throw new IllegalArgumentException(context + " " + name + " must be a string.");
+        }
+        return value.getAsString();
+    }
+
+    private static boolean strictBoolean(JsonObject object, String name, String context) {
+        JsonElement value = object.get(name);
+        if (value == null || value.isJsonNull() || !value.isJsonPrimitive()
+                || !value.getAsJsonPrimitive().isBoolean()) {
+            throw new IllegalArgumentException(context + " " + name + " must be a boolean.");
+        }
+        return value.getAsBoolean();
+    }
+
+    private static IllegalArgumentException structural(String patchId, int index, String message) {
+        return new IllegalArgumentException("Patch '" + patchId + "' operation " + index + " " + message);
+    }
+
+    private static JsonObject object(JsonObject parent, String name) {
+        JsonElement value = parent.get(name);
+        if (value == null || value.isJsonNull()) return null;
+        if (!value.isJsonObject()) throw new IllegalArgumentException(name + " must be an object.");
+        return value.getAsJsonObject();
+    }
+
+    private static JsonElement copy(JsonElement value) { return value == null ? null : value.deepCopy(); }
+    private static JsonObject copy(JsonObject value) { return value == null ? null : value.deepCopy(); }
 }
