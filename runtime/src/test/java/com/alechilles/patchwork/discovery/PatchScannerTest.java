@@ -210,6 +210,21 @@ final class PatchScannerTest {
         assertEquals(List.of(), result.failures());
     }
 
+    @Test
+    void rejectsV2IntentWhenPayloadNumberOverflowsProbeNumberModel() throws Exception {
+        Path source = tempDir.resolve("source");
+        write(source, "Server/Patchwork/Patches/v2.json", """
+                {"FormatVersion":2,"FormatVersion":1,"Id":"v2","Target":"Server/A.json",
+                 "Value":1e2147483649,"Operations":[]}
+                """);
+
+        PatchScanner.ScanResult result = new PatchScanner().scan(
+                List.of(PatchSource.directory("pack", 1, source)), Set.of());
+
+        assertEquals(1, result.failures().size());
+        assertEquals(0, result.definitions().size());
+    }
+
     private static String patch(String id, String target) {
         return "{ \"Id\": \"" + id + "\", \"Target\": \"" + target + "\", \"Operations\": [] }";
     }

@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
+import com.google.gson.internal.LazilyParsedNumber;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
 import java.io.IOException;
@@ -161,7 +162,7 @@ public final class PatchDefinitionReader {
                 case BEGIN_OBJECT -> readObject(root);
                 case BEGIN_ARRAY -> readArray();
                 case STRING -> new ParseResult(new JsonPrimitive(reader.nextString()), false, false);
-                case NUMBER -> new ParseResult(new JsonPrimitive(new BigDecimal(reader.nextString())), false, false);
+                case NUMBER -> new ParseResult(new JsonPrimitive(new LazilyParsedNumber(reader.nextString())), false, false);
                 case BOOLEAN -> new ParseResult(new JsonPrimitive(reader.nextBoolean()), false, false);
                 case NULL -> {
                     reader.nextNull();

@@ -112,6 +112,16 @@ final class PatchDefinitionTest {
                 """), "pack", "patch.json"));
     }
 
+    @Test
+    void rejectsV2OperationPointerBeforeApplication() {
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
+                { "FormatVersion": 2, "Id": "v2", "Target": "Server/A.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 },
+                  { "Op": "Add", "Path": "bad", "Value": 2 }
+                ] }
+                """), "pack", "patch.json"));
+    }
+
     private static JsonObject object(String json) {
         return JsonParser.parseString(json).getAsJsonObject();
     }

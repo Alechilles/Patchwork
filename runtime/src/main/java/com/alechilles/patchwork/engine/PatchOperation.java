@@ -256,6 +256,16 @@ public final class PatchOperation {
                 || path.getAsString().isBlank()) {
             throw structural(patchId, index, "Path must be a non-empty string.");
         }
+        String pointer = path.getAsString();
+        if (!pointer.startsWith("/")) {
+            throw structural(patchId, index, "Path must use JSON pointer syntax and start with '/'.");
+        }
+        for (int i = 0; i < pointer.length(); i++) {
+            if (pointer.charAt(i) == '~' && (i + 1 >= pointer.length()
+                    || (pointer.charAt(i + 1) != '0' && pointer.charAt(i + 1) != '1'))) {
+                throw structural(patchId, index, "Path contains an invalid JSON pointer escape.");
+            }
+        }
     }
 
     private static void validateInsert(JsonObject operation, String patchId, int index) {
