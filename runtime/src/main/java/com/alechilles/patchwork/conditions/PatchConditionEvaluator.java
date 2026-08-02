@@ -23,6 +23,8 @@ public final class PatchConditionEvaluator {
         if (c instanceof PatchCondition.AssetExists v) return asset(v.path(), true, x);
         if (c instanceof PatchCondition.AssetMissing v) return asset(v.path(), false, x);
         if (c instanceof PatchCondition.TargetExists) return x.targetBytes() != null ? matched() : no("Target is missing: " + x.targetPath());
+        if (c instanceof PatchCondition.TargetProvidedBy v) return v.sourcePackId().equals(x.targetSourcePackId())
+                ? matched() : no("Target is not provided by: " + v.sourcePackId());
         if (c instanceof PatchCondition.ModVersion v) return version(x.versions().get(v.modId()), v.matcher()) ? matched() : no("Installed mod version does not match: " + v.modId());
         if (c instanceof PatchCondition.ServerVersion v) return version(x.serverVersion(), v.matcher()) ? matched() : no("Server version does not match.");
         if (c instanceof PatchCondition.JsonPathExists v) return json(v.source(), v.path(), null, false, v.formatVersion(), x);
@@ -112,8 +114,16 @@ public final class PatchConditionEvaluator {
     private record Pointer(boolean present, JsonElement value) { }
     private static Evaluation matched() { return new Evaluation(Status.MATCHED, ""); } private static Evaluation no(String d) { return new Evaluation(Status.NOT_MATCHED, d); } private static Evaluation failed(String d) { return new Evaluation(Status.FAILED, d); } private static Evaluation invert(Evaluation e) { return e.status() == Status.FAILED ? e : e.status() == Status.MATCHED ? no("Not condition matched its child.") : matched(); }
     /** Immutable evaluation inputs; target bytes are defensively copied. */
-    public record EvaluationContext(Set<String> installedIds, Map<String, String> versions, String serverVersion, String targetPath, byte[] targetBytes, ConditionSourceResolver resolver, List<PatchSource> sources) {
-        public EvaluationContext(List<String> installed, Map<String, String> versions, String serverVersion, String targetPath, byte[] targetBytes, ConditionSourceResolver resolver) { this(Set.copyOf(installed), Map.copyOf(versions), serverVersion, targetPath, targetBytes, resolver, List.of()); }
+    public record EvaluationContext(Set<String> installedIds, Map<String, String> versions, String serverVersion, String targetPath, byte[] targetBytes, ConditionSourceResolver resolver, List<PatchSource> sources, String targetSourcePackId) {
+        public EvaluationContext(List<String> installed, Map<String, String> versions, String serverVersion, String targetPath, byte[] targetBytes, ConditionSourceResolver resolver) {
+            this(Set.copyOf(installed), Map.copyOf(versions), serverVersion, targetPath, targetBytes, resolver, List.of(), null);
+        }
+        public EvaluationContext(Set<String> installedIds, Map<String, String> versions, String serverVersion, String targetPath, byte[] targetBytes, ConditionSourceResolver resolver, List<PatchSource> sources) {
+            this(installedIds, versions, serverVersion, targetPath, targetBytes, resolver, sources, null);
+        }
+        public EvaluationContext(List<String> installed, Map<String, String> versions, String serverVersion, String targetPath, byte[] targetBytes, ConditionSourceResolver resolver, List<PatchSource> sources, String targetSourcePackId) {
+            this(Set.copyOf(installed), Map.copyOf(versions), serverVersion, targetPath, targetBytes, resolver, sources, targetSourcePackId);
+        }
         public EvaluationContext { installedIds = Set.copyOf(installedIds); versions = Map.copyOf(versions); targetPath = Objects.requireNonNull(targetPath); targetBytes = targetBytes == null ? null : targetBytes.clone(); resolver = Objects.requireNonNull(resolver); sources = List.copyOf(sources); }
         @Override public byte[] targetBytes() { return targetBytes == null ? null : targetBytes.clone(); }
     }

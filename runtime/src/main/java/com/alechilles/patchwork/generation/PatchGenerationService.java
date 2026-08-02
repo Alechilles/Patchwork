@@ -36,9 +36,9 @@ public final class PatchGenerationService {
     PatchGenerationService(PatchScanner scanner, PatchTargetResolver targetResolver, PatchEngine patchEngine) {
         this(request -> scanner.scan(request.sources(), request.installedIds()),
                 (request, target) -> targetResolver.resolveDetailed(request.sources(), target),
-                (definition, request, target, bytes) -> new PatchConditionEvaluator().evaluate(
+                (definition, request, resolved) -> new PatchConditionEvaluator().evaluate(
                         request.conditionsByPatchId().getOrDefault(definition.id(), definition.condition()),
-                        new PatchConditionEvaluator.EvaluationContext(request.installedIds(), request.versions(), request.serverVersion(), target, bytes, request.conditionResolver(), request.sources())),
+                        new PatchConditionEvaluator.EvaluationContext(request.installedIds(), request.versions(), request.serverVersion(), resolved.target(), resolved.bytes(), request.conditionResolver(), request.sources(), resolved.sourcePackId())),
                 patchEngine::apply);
     }
     PatchGenerationService(ScanStage scanner, ResolveStage targetResolver, EvaluateStage conditionEvaluator, ApplyStage patchEngine) {
@@ -65,19 +65,20 @@ public final class PatchGenerationService {
         PatchTargetResolver.Resolution resolved = targetResolver.resolve(request, target);
         if (resolved.status() != PatchTargetResolver.Status.FOUND) { rejected.put(target, resolved.diagnostic()); return; }
         try {
-            var parsed = JsonParser.parseString(new String(resolved.resolvedTarget().bytes(), StandardCharsets.UTF_8));
+            PatchTargetResolver.ResolvedTarget resolvedTarget = resolved.resolvedTarget();
+            var parsed = JsonParser.parseString(new String(resolvedTarget.bytes(), StandardCharsets.UTF_8));
             if (!parsed.isJsonObject()) throw new IllegalArgumentException("Target JSON must be an object.");
-            List<PatchDefinition> eligible = eligibleDefinitions(request, target, resolved.resolvedTarget().bytes(), definitions, skipped);
+            List<PatchDefinition> eligible = eligibleDefinitions(request, resolvedTarget, definitions, skipped);
             if (eligible.isEmpty()) return;
             PatchEngine.PatchResult result = patchEngine.apply(parsed.getAsJsonObject(), eligible);
             skipped.addAll(result.skipped());
             entries.add(new GeneratedPackManifest.Entry(target, result.patched().toString().getBytes(StandardCharsets.UTF_8)));
         } catch (RuntimeException failure) { rejected.put(target, safeMessage(failure)); }
     }
-    private List<PatchDefinition> eligibleDefinitions(GenerationRequest request, String target, byte[] bytes, List<PatchDefinition> definitions, List<String> skipped) {
+    private List<PatchDefinition> eligibleDefinitions(GenerationRequest request, PatchTargetResolver.ResolvedTarget resolvedTarget, List<PatchDefinition> definitions, List<String> skipped) {
         List<PatchDefinition> eligible = new ArrayList<>();
         for (PatchDefinition definition : definitions) {
-            PatchConditionEvaluator.Evaluation evaluation = conditionEvaluator.evaluate(definition, request, target, bytes);
+            PatchConditionEvaluator.Evaluation evaluation = conditionEvaluator.evaluate(definition, request, resolvedTarget);
             if (evaluation.status() == PatchConditionEvaluator.Status.FAILED) throw new IllegalArgumentException("Condition failed for " + definition.id() + ": " + evaluation.diagnostic());
             if (evaluation.matched()) eligible.add(definition); else skipped.add(definition.id() + " skipped: " + evaluation.diagnostic());
         }
@@ -86,7 +87,7 @@ public final class PatchGenerationService {
     private static String safeMessage(RuntimeException failure) { return failure.getMessage() == null ? "Patch application failed." : failure.getMessage(); }
     @FunctionalInterface interface ScanStage { PatchScanner.ScanResult scan(GenerationRequest request); }
     @FunctionalInterface interface ResolveStage { PatchTargetResolver.Resolution resolve(GenerationRequest request, String target); }
-    @FunctionalInterface interface EvaluateStage { PatchConditionEvaluator.Evaluation evaluate(PatchDefinition definition, GenerationRequest request, String target, byte[] bytes); }
+    @FunctionalInterface interface EvaluateStage { PatchConditionEvaluator.Evaluation evaluate(PatchDefinition definition, GenerationRequest request, PatchTargetResolver.ResolvedTarget resolvedTarget); }
     @FunctionalInterface interface ApplyStage { PatchEngine.PatchResult apply(com.google.gson.JsonObject source, List<PatchDefinition> definitions); }
     /** Immutable generation inputs; the resolver/cache instance is deliberately shared for the entire pass. */
     public record GenerationRequest(List<PatchSource> sources, Set<String> installedIds, Map<String, String> versions, String serverVersion, ConditionSourceResolver conditionResolver, Map<String, PatchCondition> conditionsByPatchId) {

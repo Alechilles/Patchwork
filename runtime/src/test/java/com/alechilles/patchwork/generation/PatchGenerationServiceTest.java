@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.alechilles.patchwork.conditions.ConditionDocumentCache;
@@ -79,10 +80,31 @@ final class PatchGenerationServiceTest {
                 request -> { order.add("scan"); return new com.alechilles.patchwork.discovery.PatchScanner.ScanResult(List.of(definition), List.of(), List.of()); },
                 (request, target) -> { order.add("resolve"); return new PatchTargetResolver.Resolution(PatchTargetResolver.Status.FOUND,
                         new PatchTargetResolver.ResolvedTarget("Test:Pack", 0, target, "{\"value\":1}".getBytes()), ""); },
-                (patch, request, target, bytes) -> { order.add("condition"); return new com.alechilles.patchwork.conditions.PatchConditionEvaluator.Evaluation(com.alechilles.patchwork.conditions.PatchConditionEvaluator.Status.MATCHED, ""); },
+                (patch, request, resolved) -> { order.add("condition"); return new com.alechilles.patchwork.conditions.PatchConditionEvaluator.Evaluation(com.alechilles.patchwork.conditions.PatchConditionEvaluator.Status.MATCHED, ""); },
                 (source, definitions) -> { order.add("apply"); return new PatchEngine().apply(source, definitions); });
         service.generate(new PatchGenerationService.GenerationRequest(List.of(), Set.of(), Map.of(), "1", resolver()));
         assertEquals(List.of("scan", "resolve", "condition", "apply"), order);
+    }
+
+    @Test
+    void passesTheWinningResolvedTargetSnapshotToConditionStage() {
+        PatchDefinition definition = PatchDefinition.parse(JsonParser.parseString("""
+                {"Id":"provider","Target":"Server/Test.json","Operations":[{"Op":"Replace","Path":"/value","Value":2}]}
+                """).getAsJsonObject(), "Test:Pack", "patch.json");
+        byte[] bytes = "{\"value\":1}".getBytes();
+        PatchTargetResolver.ResolvedTarget winning = new PatchTargetResolver.ResolvedTarget("Example:Dragons", 4, "Server/Test.json", bytes);
+        PatchGenerationService service = new PatchGenerationService(
+                request -> new PatchScanner.ScanResult(List.of(definition), List.of(), List.of()),
+                (request, target) -> new PatchTargetResolver.Resolution(PatchTargetResolver.Status.FOUND, winning, ""),
+                (patch, request, resolved) -> {
+                    assertSame(winning, resolved);
+                    return new PatchConditionEvaluator.Evaluation(PatchConditionEvaluator.Status.MATCHED, "");
+                },
+                new PatchEngine()::apply);
+
+        assertEquals(List.of("Server/Test.json"), service.generate(new PatchGenerationService.GenerationRequest(
+                List.of(), Set.of(), Map.of(), "1", resolver())).entries().stream()
+                .map(GeneratedPackManifest.Entry::target).toList());
     }
 
     @Test
@@ -101,9 +123,11 @@ final class PatchGenerationServiceTest {
         PatchGenerationService service = new PatchGenerationService(
                 request -> new PatchScanner().scan(request.sources(), request.installedIds()),
                 (request, target) -> new PatchTargetResolver().resolveDetailed(request.sources(), target),
-                (definition, request, target, bytes) -> {
+                (definition, request, resolved) -> {
+                    String target = resolved.target();
+                    byte[] bytes = resolved.bytes();
                     var outcome = real.evaluate(request.conditionsByPatchId().get(definition.id()),
-                            new PatchConditionEvaluator.EvaluationContext(request.installedIds(), request.versions(), request.serverVersion(), target, bytes, request.conditionResolver(), request.sources()));
+                            new PatchConditionEvaluator.EvaluationContext(request.installedIds(), request.versions(), request.serverVersion(), target, bytes, request.conditionResolver(), request.sources(), resolved.sourcePackId()));
                     if (mutated.compareAndSet(false, true)) {
                         try { Files.writeString(pack.resolve("Server/Condition.json"), "{\"enabled\":false}"); }
                         catch (java.io.IOException failed) { throw new IllegalStateException(failed); }
@@ -157,7 +181,7 @@ final class PatchGenerationServiceTest {
         PatchGenerationService service = new PatchGenerationService(
                 request -> new PatchScanner.ScanResult(List.of(bad, good), List.of(), List.of()),
                 (request, target) -> new PatchTargetResolver.Resolution(PatchTargetResolver.Status.FOUND, new PatchTargetResolver.ResolvedTarget("test", 0, target, "{\"value\":1}".getBytes()), ""),
-                (definition, request, target, bytes) -> new PatchConditionEvaluator.Evaluation(PatchConditionEvaluator.Status.MATCHED, ""), new PatchEngine()::apply);
+                (definition, request, resolved) -> new PatchConditionEvaluator.Evaluation(PatchConditionEvaluator.Status.MATCHED, ""), new PatchEngine()::apply);
         var plan = service.generate(request());
         assertEquals(List.of("Server/B.json"), plan.entries().stream().map(GeneratedPackManifest.Entry::target).toList());
         assertTrue(plan.status().rejectedTargets().containsKey("Server/A.json"));
@@ -222,7 +246,7 @@ final class PatchGenerationServiceTest {
     private PatchGenerationService testService(List<PatchDefinition> definitions, PatchConditionEvaluator.Status status) {
         return new PatchGenerationService(request -> new PatchScanner.ScanResult(definitions, List.of(), List.of()),
                 (request, target) -> new PatchTargetResolver.Resolution(PatchTargetResolver.Status.FOUND, new PatchTargetResolver.ResolvedTarget("test", 0, target, "{\"value\":1}".getBytes()), ""),
-                (definition, request, target, bytes) -> new PatchConditionEvaluator.Evaluation(status, "condition"), new PatchEngine()::apply);
+                (definition, request, resolved) -> new PatchConditionEvaluator.Evaluation(status, "condition"), new PatchEngine()::apply);
     }
 
     private static PatchDefinition definition(String id, String target, String path) {

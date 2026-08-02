@@ -8,12 +8,14 @@ import java.util.Objects;
 /** Immutable parsed condition tree; JSON compatibility is owned by {@link PatchConditionParser}. */
 public sealed interface PatchCondition permits PatchCondition.Always, PatchCondition.ModInstalled, PatchCondition.AssetExists,
         PatchCondition.AssetMissing, PatchCondition.TargetExists, PatchCondition.ModVersion, PatchCondition.ServerVersion,
-        PatchCondition.JsonPathExists, PatchCondition.JsonPathEquals, PatchCondition.All, PatchCondition.Any, PatchCondition.Not {
+        PatchCondition.TargetProvidedBy, PatchCondition.JsonPathExists, PatchCondition.JsonPathEquals, PatchCondition.All,
+        PatchCondition.Any, PatchCondition.Not {
     record Always() implements PatchCondition { }
     record ModInstalled(String modId) implements PatchCondition { public ModInstalled { modId = required(modId); } }
     record AssetExists(String path) implements PatchCondition { public AssetExists { path = required(path); } }
     record AssetMissing(String path) implements PatchCondition { public AssetMissing { path = required(path); } }
     record TargetExists() implements PatchCondition { }
+    record TargetProvidedBy(String sourcePackId) implements PatchCondition { public TargetProvidedBy { sourcePackId = required(sourcePackId); } }
     record ModVersion(String modId, VersionMatcher matcher) implements PatchCondition { public ModVersion { modId = required(modId); matcher = Objects.requireNonNull(matcher); } }
     record ServerVersion(VersionMatcher matcher) implements PatchCondition { public ServerVersion { matcher = Objects.requireNonNull(matcher); } }
     record JsonPathExists(ConditionSource source, String path, int formatVersion) implements PatchCondition {

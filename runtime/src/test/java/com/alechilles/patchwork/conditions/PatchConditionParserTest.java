@@ -136,4 +136,15 @@ final class PatchConditionParserTest {
         assertEquals("items/0", condition.path());
         assertEquals(1, condition.formatVersion());
     }
+
+    @Test
+    void parsesExactCaseTargetProviderCondition() {
+        PatchCondition.TargetProvidedBy condition = assertInstanceOf(PatchCondition.TargetProvidedBy.class,
+                parser.parse(JsonParser.parseString("{\"TargetProvidedBy\":\"Example:Dragons\"}").getAsJsonObject()));
+
+        assertEquals("Example:Dragons", condition.sourcePackId());
+        assertThrows(IllegalArgumentException.class, () -> parser.parse(JsonParser.parseString(
+                "{\"targetProvidedBy\":\"Example:Dragons\"}"
+        ).getAsJsonObject()));
+    }
 }

@@ -289,4 +289,25 @@ final class PatchConditionEvaluatorTest {
 
         assertEquals(PatchConditionEvaluator.Status.NOT_MATCHED, new PatchConditionEvaluator().evaluate(condition, context).status());
     }
+
+    @Test
+    void matchesTargetProviderByExactSourcePackId() {
+        PatchCondition condition = new PatchConditionParser().parse(JsonParser.parseString(
+                "{\"TargetProvidedBy\":\"Example:Dragons\"}"
+        ).getAsJsonObject());
+
+        assertTrue(new PatchConditionEvaluator().evaluate(condition, contextWithProvider("Example:Dragons")).matched());
+        assertEquals(PatchConditionEvaluator.Status.NOT_MATCHED,
+                new PatchConditionEvaluator().evaluate(condition, contextWithProvider("example:dragons")).status());
+        assertEquals(PatchConditionEvaluator.Status.NOT_MATCHED,
+                new PatchConditionEvaluator().evaluate(condition, contextWithProvider(null)).status());
+    }
+
+    private PatchConditionEvaluator.EvaluationContext contextWithProvider(String sourcePackId) {
+        ConditionSourceResolver resolver = new ConditionSourceResolver(
+                new PatchTargetResolver(), new ModDataRootRegistry(Map.of()), new ConditionDocumentCache());
+        return new PatchConditionEvaluator.EvaluationContext(
+                List.of(), Map.of(), "1.0", "Server/Target.json", "{}".getBytes(StandardCharsets.UTF_8),
+                resolver, List.of(), sourcePackId);
+    }
 }

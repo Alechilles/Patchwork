@@ -44,6 +44,7 @@ public final class PatchConditionParser {
                 if (!value.isJsonPrimitive() || !value.getAsBoolean()) throw bad("TargetExists must be true.");
                 yield new PatchCondition.TargetExists();
             }
+            case "TargetProvidedBy" -> new PatchCondition.TargetProvidedBy(text(value, key));
             case "ModVersion" -> {
                 JsonObject c = object(value, key);
                 yield new PatchCondition.ModVersion(field(c, key, "Mod"), matcher(c, key));
