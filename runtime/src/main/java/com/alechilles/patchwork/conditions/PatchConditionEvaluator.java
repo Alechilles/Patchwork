@@ -37,23 +37,23 @@ public final class PatchConditionEvaluator {
         ConditionSourceResolver.Result result = x.resolver().resolve(source, x.targetPath(), x.targetBytes(), x.sources());
         if (result.status() == ConditionSourceResolver.ResultStatus.FAILED) return failed(result.diagnostic());
         if (result.status() == ConditionSourceResolver.ResultStatus.MISSING) return no(result.diagnostic());
+        if (!PatchFormat.isVersion2(formatVersion)) {
+            Pointer value = legacyPointer(result.document(), pointer);
+            if (!value.present()) return no("JSON pointer did not resolve.");
+            if (!equals) return matched();
+            return value.value().equals(expected) ? matched() : no("JSON value did not match.");
+        }
         final List<String> tokens;
         try {
-            // The old evaluator treated '/' as an empty-property token while the
-            // engine's legacy tokenizer treated it as the document root. Keep
-            // that condition compatibility quirk isolated to format 1.
-            tokens = !PatchFormat.isVersion2(formatVersion) && "/".equals(pointer)
-                    ? List.of("") : JsonPointer.tokens(pointer, formatVersion, false);
+            tokens = JsonPointer.tokens(pointer, formatVersion, false);
         } catch (IllegalArgumentException failure) {
-            return PatchFormat.isVersion2(formatVersion)
-                    ? failed("JSON pointer is invalid.") : no("JSON pointer did not resolve.");
+            return failed("JSON pointer is invalid.");
         }
         Pointer value;
         try {
             value = pointer(result.document(), tokens, formatVersion);
         } catch (IllegalArgumentException failure) {
-            return PatchFormat.isVersion2(formatVersion)
-                    ? failed("JSON pointer is invalid.") : no("JSON pointer did not resolve.");
+            return failed("JSON pointer is invalid.");
         }
         if (!value.present()) return no("JSON pointer did not resolve.");
         if (!equals) return matched();
@@ -64,6 +64,31 @@ public final class PatchConditionEvaluator {
                     ? matched() : no("JSON value did not match.");
         }
         return value.value().equals(expected) ? matched() : no("JSON value did not match.");
+    }
+
+    private static Pointer legacyPointer(JsonElement doc, String path) {
+        if (path.isEmpty()) return new Pointer(true, doc);
+        if (!path.startsWith("/")) return new Pointer(false, null);
+        JsonElement value = doc;
+        for (String raw : path.substring(1).split("/", -1)) {
+            String part = raw.replace("~1", "/").replace("~0", "~");
+            if (value instanceof JsonObject object) {
+                if (!object.has(part)) return new Pointer(false, null);
+                value = object.get(part);
+            } else if (value instanceof JsonArray array && part.matches("0|[1-9]\\d*")) {
+                final int index;
+                try {
+                    index = Integer.parseInt(part);
+                } catch (NumberFormatException failure) {
+                    return new Pointer(false, null);
+                }
+                if (index >= array.size()) return new Pointer(false, null);
+                value = array.get(index);
+            } else {
+                return new Pointer(false, null);
+            }
+        }
+        return new Pointer(true, value);
     }
 
     private static Pointer pointer(JsonElement doc, List<String> tokens, int formatVersion) {

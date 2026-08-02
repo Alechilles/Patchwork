@@ -205,6 +205,24 @@ final class PatchEngineTest {
         assertEquals("changed", result.patched().getAsJsonArray("items").get(1).getAsString());
     }
 
+    @Test
+    void rejectsMalformedV2InsertMatchersDuringParsingEvenWhenOptional() {
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
+                { "FormatVersion": 2, "Id": "bad-find", "Target": "Server/Test.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 },
+                  { "Op": "Insert", "Path": "/items", "Position": "Before", "Find": {},
+                    "Value": { "id": "new" }, "Required": false }
+                ] }
+                """), "test-pack", "patches/bad-find.json"));
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
+                { "FormatVersion": 2, "Id": "bad-existing", "Target": "Server/Test.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 },
+                  { "Op": "Insert", "Path": "/items", "Existing": {},
+                    "Value": { "id": "new" }, "Required": false }
+                ] }
+                """), "test-pack", "patches/bad-existing.json"));
+    }
+
     private static PatchDefinition definition(String json) {
         return PatchDefinition.parse(object(json), "test-pack", "patches/test.json");
     }

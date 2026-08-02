@@ -1,5 +1,6 @@
 package com.alechilles.patchwork.engine;
 
+import com.alechilles.patchwork.format.JsonMatcher;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.util.Locale;
@@ -205,9 +206,11 @@ public final class PatchOperation {
                 .contains(op)) {
             validatePath(operation, patchId, index);
         }
-        if (Set.of("ReplaceMatching", "RemoveMatching", "MoveMatching").contains(op)
-                && !operation.get("Match").isJsonObject()) {
-            throw structural(patchId, index, "Match must be an object.");
+        if (Set.of("ReplaceMatching", "RemoveMatching", "MoveMatching").contains(op)) {
+            if (!operation.get("Match").isJsonObject()) {
+                throw structural(patchId, index, "Match must be an object.");
+            }
+            validateMatcher(operation.get("Match"), "Match", patchId, index);
         }
         if ("Merge".equals(op) && !operation.get("Value").isJsonObject()) {
             throw structural(patchId, index, "Merge Value must be an object.");
@@ -242,6 +245,7 @@ public final class PatchOperation {
             if (hasFind && (!operation.get("Find").isJsonObject())) {
                 throw structural(patchId, index, "Find must be an object.");
             }
+            if (hasFind) validateMatcher(operation.get("Find"), "Find", patchId, index);
             if (("before".equals(normalized) || "after".equals(normalized)) != hasFind) {
                 throw structural(patchId, index, ("before".equals(normalized) || "after".equals(normalized))
                         ? "Position " + position + " requires Find."
@@ -280,14 +284,24 @@ public final class PatchOperation {
         if (hasFind && !operation.get("Find").isJsonObject()) {
             throw structural(patchId, index, "Find must be an object.");
         }
+        if (hasFind) validateMatcher(operation.get("Find"), "Find", patchId, index);
         boolean hasExisting = operation.has("Existing");
         if (hasExisting && !operation.get("Existing").isJsonObject()) {
             throw structural(patchId, index, "Existing must be an object.");
         }
+        if (hasExisting) validateMatcher(operation.get("Existing"), "Existing", patchId, index);
         if (("before".equals(normalized) || "after".equals(normalized)) != hasFind) {
             throw structural(patchId, index, ("before".equals(normalized) || "after".equals(normalized))
                     ? "Position " + position + " requires Find."
                     : "Find is only allowed with Position Before or After.");
+        }
+    }
+
+    private static void validateMatcher(JsonElement value, String name, String patchId, int index) {
+        try {
+            JsonMatcher.validateV2(value.getAsJsonObject());
+        } catch (IllegalArgumentException failure) {
+            throw structural(patchId, index, name + " is not a valid format 2 matcher.");
         }
     }
 

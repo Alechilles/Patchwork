@@ -21,8 +21,8 @@ public sealed interface PatchCondition permits PatchCondition.Always, PatchCondi
         public JsonPathExists(ConditionSource source, int formatVersion, String path) { this(source, path, formatVersion); }
         public JsonPathExists {
             source = Objects.requireNonNull(source);
-            path = pointer(path);
             formatVersion = format(formatVersion);
+            path = pointer(path, formatVersion);
         }
     }
     record JsonPathEquals(ConditionSource source, String path, JsonElement expected, int formatVersion) implements PatchCondition {
@@ -34,9 +34,9 @@ public sealed interface PatchCondition permits PatchCondition.Always, PatchCondi
         }
         public JsonPathEquals {
             source = Objects.requireNonNull(source);
-            path = pointer(path);
             expected = Objects.requireNonNull(expected).deepCopy();
             formatVersion = format(formatVersion);
+            path = pointer(path, formatVersion);
         }
         @Override public JsonElement expected() { return expected.deepCopy(); }
     }
@@ -45,7 +45,11 @@ public sealed interface PatchCondition permits PatchCondition.Always, PatchCondi
     record Not(PatchCondition child) implements PatchCondition { public Not { child = Objects.requireNonNull(child); } }
     record VersionMatcher(String equals, String atLeast, String atMost, String above, String below) { }
     private static String required(String value) { if (value == null || value.trim().isEmpty()) throw new IllegalArgumentException("Condition text must not be blank."); return value.trim(); }
-    private static String pointer(String value) { if (value == null) throw new IllegalArgumentException("JSON pointer must not be null."); return value.isEmpty() ? "" : required(value); }
+    private static String pointer(String value, int formatVersion) {
+        if (value == null) throw new IllegalArgumentException("JSON pointer must not be null.");
+        if (value.isEmpty()) return "";
+        return PatchFormat.isVersion2(formatVersion) ? value : required(value);
+    }
     private static int format(int version) {
         if (version != PatchFormat.LEGACY_VERSION && version != PatchFormat.FORMAT_VERSION_2) {
             throw new IllegalArgumentException("Unsupported Patchwork format version: " + version + ".");

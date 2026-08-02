@@ -118,4 +118,22 @@ final class PatchConditionParserTest {
                 "{\"JsonPathExists\":{\"Path\":\"/a~2b\"}}"
         ).getAsJsonObject(), 2));
     }
+
+    @Test
+    void preservesStrictPointerWhitespaceWithoutTrimmingOrNormalizing() {
+        PatchCondition.JsonPathExists tokenWithTrailingSpace = assertInstanceOf(PatchCondition.JsonPathExists.class,
+                parser.parse(JsonParser.parseString("{\"JsonPathExists\":{\"Path\":\"/name \"}}").getAsJsonObject(), 2));
+        assertEquals("/name ", tokenWithTrailingSpace.path());
+        assertThrows(IllegalArgumentException.class, () -> parser.parse(JsonParser.parseString(
+                "{\"JsonPathExists\":{\"Path\":\" /name\"}}"
+        ).getAsJsonObject(), 2));
+    }
+
+    @Test
+    void retainsNonSlashLegacyConditionPointersForEvaluation() {
+        PatchCondition.JsonPathExists condition = assertInstanceOf(PatchCondition.JsonPathExists.class,
+                parser.parse(JsonParser.parseString("{\"JsonPathExists\":{\"Path\":\"items/0\"}}").getAsJsonObject()));
+        assertEquals("items/0", condition.path());
+        assertEquals(1, condition.formatVersion());
+    }
 }

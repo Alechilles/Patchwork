@@ -264,4 +264,29 @@ final class PatchConditionEvaluatorTest {
 
         assertTrue(new PatchConditionEvaluator().evaluate(condition, context).matched());
     }
+
+    @Test
+    void rejectsLegacyArrayIndexesThatAreNotCanonicalDecimalTokens() {
+        ConditionSourceResolver resolver = new ConditionSourceResolver(
+                new PatchTargetResolver(), new ModDataRootRegistry(Map.of()), new ConditionDocumentCache());
+        PatchConditionEvaluator.EvaluationContext context = new PatchConditionEvaluator.EvaluationContext(
+                List.of(), Map.of(), null, "Target.json", "{\"items\":[\"zero\",\"one\"]}".getBytes(StandardCharsets.UTF_8), resolver);
+        PatchConditionEvaluator evaluator = new PatchConditionEvaluator();
+
+        assertFalse(evaluator.evaluate(new PatchCondition.JsonPathExists(new ConditionSource.Target(), "/items/01"), context).matched());
+        assertFalse(evaluator.evaluate(new PatchCondition.JsonPathExists(new ConditionSource.Target(), "/items/+1"), context).matched());
+    }
+
+    @Test
+    void treatsNonSlashLegacyConditionPointersAsNotMatched() {
+        ConditionSourceResolver resolver = new ConditionSourceResolver(
+                new PatchTargetResolver(), new ModDataRootRegistry(Map.of()), new ConditionDocumentCache());
+        PatchConditionEvaluator.EvaluationContext context = new PatchConditionEvaluator.EvaluationContext(
+                List.of(), Map.of(), null, "Target.json", "{\"items\":[\"zero\"]}".getBytes(StandardCharsets.UTF_8), resolver);
+        PatchCondition condition = new PatchConditionParser().parse(JsonParser.parseString(
+                "{\"JsonPathExists\":{\"Path\":\"items/0\"}}"
+        ).getAsJsonObject());
+
+        assertEquals(PatchConditionEvaluator.Status.NOT_MATCHED, new PatchConditionEvaluator().evaluate(condition, context).status());
+    }
 }

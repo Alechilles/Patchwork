@@ -147,8 +147,11 @@ public final class PatchConditionParser {
             JsonPointer.tokens(path, formatVersion, false);
             return "";
         }
+        if (PatchFormat.isVersion2(formatVersion)) {
+            JsonPointer.tokens(path, formatVersion, false);
+            return path;
+        }
         String normalized = text(value, name + ".Path");
-        JsonPointer.tokens(normalized, formatVersion, false);
         return normalized;
     }
 
