@@ -8,7 +8,9 @@
 
 HyCreator will provide a complete visual authoring environment for Patchwork definitions. The default journey is deliberately only three actions: open any asset, choose **Patch this**, edit through HyCreator's existing Form or Nodes interface, and choose **Save Patch**. HyCreator stores the resulting definition below `Server/Patchwork/Patches` in the active writable workspace without requiring raw JSON, a destination wizard, a permanent draft sidebar, or a mandatory review screen.
 
-The target asset and the patch owner are separate concepts. HyCreator never copies or overwrites the target merely because it is being patched, and it never edits Patchwork's generated pack. The portable Patchwork definition remains independent of HyCreator metadata; exact evaluation can still depend on target packs, environment data, ModData documents, and macro providers. Optional HyCreator sidecar data preserves authoring history and visual layout without changing runtime semantics.
+The target asset and the patch owner are separate concepts. HyCreator never copies or overwrites the target merely because it is being patched, and it never edits Patchwork's generated pack. Patch definitions are first-class documents: opening one defaults to a dedicated definition editor, with the full target-overlay editor available through **Edit target visually**. Patchwork also registers definitions as a native Hytale asset type so Hytale's Asset Editor can discover, validate, create, and structurally edit the same portable files.
+
+The portable Patchwork definition remains independent of HyCreator metadata; exact evaluation can still depend on target packs, environment data, ModData documents, and macro providers. Optional HyCreator sidecar data preserves authoring history and visual layout without changing runtime semantics. HyCreator's responsibility ends after an atomic save. It does not initiate patch generation or live application, interpret runtime reload state, or tell the user whether a restart is required.
 
 HyCreator infers safe operation details, target identity, and destination automatically. Conditions, provider pinning, priority, multi-target behavior, ambiguity resolution, and source-drift repair appear only when the user requests them or when a real problem requires a decision.
 
@@ -19,9 +21,10 @@ This is the complete product scope. The delivery slices at the end organize impl
 - Make every standard Patchwork operation authorable without raw JSON.
 - Let a patch target an asset from any resolved pack while storing the definition in the user's own mod.
 - Reuse HyCreator's schema-aware Form and Nodes editors instead of introducing a second content editor.
-- Explain operations, conditions, compatibility, and runtime outcomes in user language.
+- Explain operations, conditions, and compatibility in user language.
 - Support complex object graphs, NPC interaction chains, arrays, and multiple targets.
 - Detect upstream target changes and help users rebase affected operations.
+- Make patch definitions first-class editable documents in HyCreator and Hytale's native Asset Editor.
 - Keep HyCreator's implementation native to its Tauri/Rust architecture.
 - Establish a versioned, language-neutral Patchwork authoring contract shared by Java and Rust tests.
 
@@ -31,6 +34,7 @@ This is the complete product scope. The delivery slices at the end organize impl
 - HyCreator does not write into `Alechilles:Patchwork_GeneratedPatches`.
 - Patchwork does not own HyCreator-specific visual state.
 - Connected-server deployment is not required to create, edit, validate, or save a definition.
+- HyCreator does not trigger generation, apply patches to a running server, report reload outcomes, or prescribe restarts.
 - Raw JSON is never required for ordinary authoring, though an optional technical preview may be offered to advanced users.
 
 ## Terminology
@@ -54,7 +58,7 @@ This is the complete product scope. The delivery slices at the end organize impl
 6. **Preserve the source.** Patch Mode never mutates the baseline asset.
 7. **Fail closed.** Ambiguous matches, missing anchors, invalid results, and unsafe paths block only the affected action or save, with the repair presented at the relevant content.
 8. **Validate continuously.** Background validation and simulation inform inline states; they are not mandatory workflow stages.
-9. **Report runtime truth.** Saved, generated on disk, live-reloaded, and restart-required are distinct outcomes.
+9. **Save means save.** HyCreator validates and writes the definition, then reports ordinary save success or failure. Runtime application is outside the authoring UI.
 10. **Remain independent of HyCreator metadata.** The definition does not depend on a HyCreator sidecar. Exact runtime evaluation may additionally depend on target packs, pack order, environment data, ModData documents, and macro providers.
 
 ## End-to-end workflow
@@ -133,21 +137,21 @@ Composed preview uses Patchwork's discovery contract for neutral and eligible le
 
 ### 5. Save
 
-**Save Patch** serializes a portable Patchwork definition and writes it atomically to the active owner workspace. It never writes source assets or generated output. There is no mandatory review screen. A small confirmation toast reports where the patch was saved and any truthful runtime requirement, such as `restart required`.
+**Save Patch** serializes a portable Patchwork definition and writes it atomically to the active owner workspace. It never writes source assets or generated output. There is no mandatory review screen. The normal confirmation reports only that the definition was saved, or explains a write failure. HyCreator does not add an Apply action, initiate a reload, or present restart guidance.
 
 ### 6. Reopen and maintain
 
-Definitions appear as first-class documents in a **Patches** section of the owning workspace. Opening one resolves the current Patchwork baseline, loads all known co-targeting definitions, replaces the saved current definition with the editable draft, and restores the target-plus-overlay experience. If the exact source inventory, order, macro provider, or condition environment is unavailable, composed preview is marked indeterminate rather than presented as runtime-equivalent.
+Definitions appear as first-class documents in a **Patches** section of the owning workspace. Opening one defaults to a dedicated **Patch Definition** editor built from the same schema-aware field system used by other HyCreator assets. Target, provider guard, priority, enabled state, conditions, targets, and operations are ordinary structured sections. Operations render as typed, expandable cards with operation-specific controls; supported definitions never require raw JSON.
 
-### 7. Deploy and reload
+The definition editor includes **Edit target visually**. That action resolves the current Patchwork baseline, loads all known co-targeting definitions, replaces the saved current definition with the editable draft, and opens the normal full-size Form or Nodes editor with the patch overlaid. Returning to **Patch Definition** preserves the same in-memory draft. If the exact source inventory, order, macro provider, or condition environment is unavailable, composed preview is marked indeterminate rather than presented as runtime-equivalent.
 
-Saving is independent of deployment. When HyCreator is connected and authorized, it may:
+### 7. Native Hytale asset support
 
-1. deploy the owning workspace through its normal deploy flow;
-2. request `/patchwork reload` through a server bridge; and
-3. show Patchwork's actual target outcomes.
+Patchwork registers patch definitions as an actual Hytale asset type backed by a codec and asset store for `Server/Patchwork/Patches`. This registration provides the native Asset Editor with the asset path, `.json` extension, schema, structured fields, validation, and normal create/open/save behavior. Patch files remain ordinary portable Patchwork definitions; the native registration does not introduce an editor-only wrapper format.
 
-`restart-required` means the generated state is committed on disk but is not live. HyCreator must not present it as a live success.
+HyCreator and Hytale's native Asset Editor consume the same format contract. The native editor may provide generic schema-driven editing, while HyCreator adds operation cards, contextual creation, matcher builders, full target overlays, and Form/Nodes graph editing. Patchwork must ensure that native asset discovery and legacy file scanning identify one logical definition rather than applying the same file twice.
+
+Saving through either editor is an ordinary asset save. If an active Hytale server naturally observes that save and Patchwork hot-reloads as part of its own asset lifecycle, that behavior is welcome but outside this HyCreator design. HyCreator neither requests nor reports it.
 
 ## Patch Mode chrome and contextual actions
 
@@ -444,6 +448,8 @@ HyCreator is a Tauri 2 application with a Rust backend and WebView2 frontend. It
 ```text
 HyCreator web frontend
   - Patch Mode presentation
+  - dedicated Patch Definition document editor
+  - typed operation cards and Edit target visually transition
   - compact change pill and optional change list
   - Form/Nodes interactions
   - contextual item/node actions
@@ -555,31 +561,6 @@ Automatic suggestions never save without user confirmation.
 
 Patch health is quiet while all operations remain safe. If source drift breaks an operation, HyCreator opens a small contextual repair choice on the affected field, list, or graph rather than sending the user through a separate rebase workflow. Unaffected operations remain active and editable.
 
-## Server bridge and truthful outcomes
-
-The core authoring feature has no server dependency. A separate `PatchworkServerBridge` may expose:
-
-- capability/status query;
-- authorized reload request;
-- per-target reload result; and
-- generated inventory/epoch summary.
-
-The transport is supplied by HyCreator's existing server integration. Patchwork should provide a machine-readable administration representation rather than requiring HyCreator to parse human command text.
-
-HyCreator maps Patchwork outcomes directly:
-
-- generated;
-- removed;
-- hot-reloaded;
-- adapter-reloaded;
-- restart-required;
-- stale;
-- rollback-failed;
-- skipped; and
-- failed.
-
-Generated file presence alone never means the running server consumed the patch.
-
 ## Diagnostics and error presentation
 
 Diagnostics identify:
@@ -614,6 +595,9 @@ Sensitive mod-data values, expected secret-bearing values, filesystem internals,
 - Target-provider condition tests.
 - Scanner/generation tests proving target-local failure isolation.
 - Schema and fixture publication tests.
+- Native asset-store registration tests proving patch definitions are discoverable through Hytale's asset system.
+- Codec/schema tests proving native editor saves produce portable definitions accepted by the existing reader.
+- Discovery tests proving native asset registration and compatibility scanning cannot apply one definition twice.
 
 ### HyCreator
 
@@ -622,10 +606,11 @@ Sensitive mod-data values, expected secret-bearing values, filesystem internals,
 - Inspect-only tests for unknown format versions and schema-invalid known-version operations/conditions.
 - Indeterminate-state propagation tests for unavailable external ModData and macro expansion.
 - UI behavior tests for Patch this, immediate Patch Mode, operation inference, matcher selection, condition composition, and target/owner labeling.
+- Dedicated Patch Definition document tests covering structured root fields, typed operation cards, and the Edit target visually transition.
 - Multi-target split tests.
 - Create/save/reopen and upstream-change/rebase workflows.
 - Atomic-write failure test proving the previous definition remains intact.
-- Server outcome mapping tests without requiring a live Hytale server.
+- Save-flow tests proving HyCreator performs no apply/reload request and shows only ordinary write success or failure.
 
 ## Delivery slices
 
@@ -633,18 +618,20 @@ These slices allow independent delivery while preserving the complete scope.
 
 1. **Patchwork authoring foundation**
    - Format versioning, JSON Schema, capability document, shared fixtures, `TargetProvidedBy`, and matcher/move operations.
-2. **HyCreator authoring core**
+2. **Native Hytale asset integration**
+   - Patch definition codec, asset-store registration, native schema exposure, and compatibility with existing definition discovery.
+3. **HyCreator authoring core**
    - Rust model/engine, immediate Patch this entry, compact Patch Mode chrome, scalar/object operations, continuous validation, and atomic save.
-3. **Complex structure authoring**
+4. **Dedicated patch document editing**
+   - First-class Patches catalog, schema-built definition form, typed operation cards, and Edit target visually transition.
+5. **Complex structure authoring**
    - Full Form/Nodes operation editing, Insert, matcher operations, move, duplicate guards, and visual match analysis.
-4. **Advanced applicability**
+6. **Advanced applicability**
    - Full condition builder, provider guards, multi-target matrix, and linked definition splitting.
-5. **Interoperability and extensibility**
+7. **Interoperability and extensibility**
    - Opaque round-tripping, macro descriptors, capability negotiation, and technical preview.
-6. **Maintenance lifecycle**
+8. **Maintenance lifecycle**
    - Sidecars, patch health, upstream drift analysis, visual rebasing, and conflict repair.
-7. **Deployment lifecycle**
-   - Server bridge, deploy/reload actions, and truthful per-target runtime outcomes.
 
 ## Acceptance criteria
 
@@ -657,9 +644,11 @@ The endgame is complete when:
 - array entries can be inserted, replaced, removed, and moved using stable visual matchers;
 - matcher and destination details are inferred automatically and ask a contextual question only when genuinely ambiguous;
 - multiple targets are simulated independently and split when semantics diverge;
+- patch definitions appear as first-class documents in HyCreator and as a registered native Hytale asset type;
+- opening a definition defaults to a structured Patch Definition editor with full target-overlay editing one action away;
 - saved and hand-authored definitions reopen without data loss;
 - upstream changes produce actionable patch-health diagnostics and visual rebase tools;
 - Java and Rust pass the same conformance corpus;
 - saving never mutates source or generated packs;
-- local generation and live server application are reported as different states; and
+- saving performs no HyCreator-managed generation, application, reload, or restart-status workflow; and
 - the produced Patchwork definition remains usable without HyCreator metadata.
