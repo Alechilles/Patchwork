@@ -117,7 +117,7 @@ final class PatchDefinitionTest {
         assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
                 { "FormatVersion": 2, "Id": "v2", "Target": "Server/A.json", "Operations": [
                   { "Op": "RequireFormat", "Version": 2 },
-                  { "Op": "Add", "Path": "bad", "Value": 2 }
+                  { "Op": "Add", "Path": "bad", "Value": 2, "Required": false }
                 ] }
                 """), "pack", "patch.json"));
     }

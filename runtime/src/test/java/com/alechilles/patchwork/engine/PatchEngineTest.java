@@ -74,6 +74,34 @@ final class PatchEngineTest {
     }
 
     @Test
+    void permitsV2ObjectPropertyTokenWithLeadingZero() {
+        PatchDefinition definition = definition("""
+                { "FormatVersion": 2, "Id": "leading-zero", "Target": "Server/Test.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 },
+                  { "Op": "Add", "Path": "/01", "Value": 2 }
+                ] }
+                """);
+
+        PatchEngine.PatchResult result = engine.apply(object("{ \"01\": 1 }"), List.of(definition));
+
+        assertEquals(2, result.patched().get("01").getAsInt());
+    }
+
+    @Test
+    void keepsLegacyOptionalMalformedPathAsExecutionTimeSkip() {
+        PatchDefinition definition = definition("""
+                { "Id": "legacy-optional", "Target": "Server/Test.json", "Operations": [
+                  { "Id": "bad-path", "Op": "Add", "Path": "bad", "Value": 2, "Required": false }
+                ] }
+                """);
+
+        PatchEngine.PatchResult result = engine.apply(object("{}"), List.of(definition));
+
+        assertEquals(List.of("legacy-optional:bad-path failed: Path must use JSON pointer syntax and start with '/': bad"), result.skipped());
+        assertFalse(result.patched().has("bad"));
+    }
+
+    @Test
     void addsReplacesAndRemovesArrayEntriesByJsonPointerIndex() {
         PatchEngine.PatchResult result = engine.apply(object("""
                 { "items": ["zero", "one", "two"] }
