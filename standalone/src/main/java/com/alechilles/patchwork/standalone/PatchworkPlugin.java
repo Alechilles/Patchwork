@@ -1,5 +1,6 @@
 package com.alechilles.patchwork.standalone;
 
+import com.alechilles.patchwork.authoring.PatchDefinitionAssetStore;
 import com.alechilles.patchwork.embedded.StandalonePatchworkBootstrap;
 import com.alechilles.patchwork.embedded.StandalonePatchworkService;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
@@ -14,6 +15,7 @@ public final class PatchworkPlugin extends JavaPlugin {
     }
 
     @Override protected synchronized void setup() {
+        getAssetRegistry().register(PatchDefinitionAssetStore.create());
         lifecycle.setup(() -> StandalonePatchworkBootstrap.bootstrapStandalone(this));
     }
 

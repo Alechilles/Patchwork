@@ -14,6 +14,7 @@
 - Added `/patchwork status`, `/patchwork reload`, and `/patchwork selftest` for `patchwork.admin` administrators.
 - Added an isolated self-test that exercises ordinary and mod-data-conditioned generation without changing production output and truthfully reports restart-required for its isolated result.
 - Added Patchwork format 2 support with strict pointer and matcher semantics, `RequireFormat` compatibility guarding, matcher-based array operations, portable target-provider conditions, and a versioned authoring kit; format 1 remains an explicit legacy-compatible mode.
+- Added standalone native Hytale asset registration for `Server/Patchwork/Patches`, including codec-generated definition and operation schemas, lossless portable JSON open/save, and validation through the portable Patchwork parser. The existing scanner remains the sole generation source, preventing duplicate application.
 
 ### Fixed
 

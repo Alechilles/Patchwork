@@ -23,6 +23,12 @@ Definitions can patch one `Target` or several `Targets`, use `Add`, `Merge`, `Re
 
 See [Patch Format](docs/Patch-Format.md) for the complete schema and examples.
 
+## Native asset editing
+
+The standalone Patchwork plugin registers `Server/Patchwork/Patches/**/*.json` as a native Hytale asset type. Hytale's Asset Editor can therefore discover, create, open, structurally edit, validate, and save the same portable definitions consumed by Patchwork. The generated codec schema exposes definition fields and typed operation fields; deliberately free-form patch values, matchers, conditions, and macro options remain JSON-shaped data inside those structured records. Native open/save preserves explicit `null`, precise JSON numbers, and accepted format-1 extension fields.
+
+Native registration is an authoring and validation surface, not a second patch input. The existing `PatchScanner` remains the sole source used for generation, so a definition loaded by Hytale's asset store is still applied exactly once. Saving is an ordinary asset save and does not add a separate Patchwork apply/restart workflow.
+
 ## Administration
 
 The elected runtime registers:
@@ -35,7 +41,7 @@ The elected runtime registers:
 
 All three require `patchwork.admin` and default to the `hytale:Admin` group.
 
-Generation occurs during the early startup asset-load phase and on an authorized `/patchwork reload`. Editing a patch, source asset, or referenced config file does not generate automatically.
+Generation occurs during the early startup asset-load phase and on an authorized `/patchwork reload`. Native Asset Editor registration does not by itself generate or apply a saved definition.
 
 See [Operations](docs/Operations.md) for status fields, reload outcomes, generated paths, quarantine, and recovery guidance.
 
