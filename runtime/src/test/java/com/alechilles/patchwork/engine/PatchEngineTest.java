@@ -104,6 +104,21 @@ final class PatchEngineTest {
     }
 
     @Test
+    void rejectsLegacyMatcherOperationsAsUnsupported() {
+        PatchDefinition definition = definition("""
+                { "Id": "legacy-matcher", "Target": "Server/Test.json", "Operations": [
+                  { "Id": "replace", "Op": "ReplaceMatching", "Path": "/items",
+                    "Match": { "id": "b" }, "Value": { "id": "changed" } }
+                ] }
+                """);
+
+        PatchEngine.PatchFailureException failure = assertThrows(PatchEngine.PatchFailureException.class,
+                () -> engine.apply(object("{ \"items\": [{ \"id\": \"b\" }] }"), List.of(definition)));
+
+        assertEquals("legacy-matcher:replace failed: Unsupported operation 'ReplaceMatching'.", failure.getMessage());
+    }
+
+    @Test
     void addsReplacesAndRemovesArrayEntriesByJsonPointerIndex() {
         PatchEngine.PatchResult result = engine.apply(object("""
                 { "items": ["zero", "one", "two"] }

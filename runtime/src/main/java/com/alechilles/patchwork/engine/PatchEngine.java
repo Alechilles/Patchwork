@@ -81,16 +81,27 @@ public final class PatchEngine {
             }
             case "insert" -> insert(root, operation);
             case "replacematching" -> {
+                requireFormatTwoMatcher(operation);
                 replaceMatching(root, operation);
                 yield null;
             }
             case "removematching" -> {
+                requireFormatTwoMatcher(operation);
                 removeMatching(root, operation);
                 yield null;
             }
-            case "movematching" -> moveMatching(root, operation);
+            case "movematching" -> {
+                requireFormatTwoMatcher(operation);
+                yield moveMatching(root, operation);
+            }
             default -> throw new IllegalArgumentException("Unsupported operation '" + operation.op() + "'.");
         };
+    }
+
+    private static void requireFormatTwoMatcher(PatchOperation operation) {
+        if (operation.formatVersion() != 2) {
+            throw new IllegalArgumentException("Unsupported operation '" + operation.op() + "'.");
+        }
     }
 
     private static void add(JsonObject root, PatchOperation operation) {
