@@ -1,14 +1,16 @@
 # HyCreator × Patchwork Endgame Authoring Design
 
-**Status:** Approved design
+**Status:** Approved simplified design
 **Date:** 2026-08-02
 **Products:** HyCreator and Patchwork
 
 ## Summary
 
-HyCreator will provide a complete visual authoring environment for Patchwork definitions. A user can open an asset supplied by vanilla, another mod, or their own workspace; create a patch owned by a writable workspace; edit the result through HyCreator's existing Form and Nodes interfaces; validate and simulate it; and save the resulting definition below `Server/Patchwork/Patches` without writing raw JSON.
+HyCreator will provide a complete visual authoring environment for Patchwork definitions. The default journey is deliberately only three actions: open any asset, choose **Patch this**, edit through HyCreator's existing Form or Nodes interface, and choose **Save Patch**. HyCreator stores the resulting definition below `Server/Patchwork/Patches` in the active writable workspace without requiring raw JSON, a destination wizard, a permanent draft sidebar, or a mandatory review screen.
 
 The target asset and the patch owner are separate concepts. HyCreator never copies or overwrites the target merely because it is being patched, and it never edits Patchwork's generated pack. The portable Patchwork definition remains independent of HyCreator metadata; exact evaluation can still depend on target packs, environment data, ModData documents, and macro providers. Optional HyCreator sidecar data preserves authoring history and visual layout without changing runtime semantics.
+
+HyCreator infers safe operation details, target identity, and destination automatically. Conditions, provider pinning, priority, multi-target behavior, ambiguity resolution, and source-drift repair appear only when the user requests them or when a real problem requires a decision.
 
 This is the complete product scope. The delivery slices at the end organize implementation but do not exclude later capabilities from the design.
 
@@ -44,13 +46,16 @@ This is the complete product scope. The delivery slices at the end organize impl
 
 ## Product principles
 
-1. **Edit intent, not patch syntax.** Users say “set this field,” “insert after this interaction,” or “replace the item matching this identity.”
-2. **Show both sides.** Target/provider and patch owner/destination remain visible during creation and saving.
-3. **Preserve the source.** Patch Mode never mutates the baseline asset.
-4. **Fail closed.** Ambiguous matches, missing anchors, invalid results, and unsafe paths block saving or application unless an operation is explicitly optional.
-5. **Preview with explicit scope.** Validation distinguishes isolated-draft application from full known runtime-order composition, then validates the resulting asset when all required inputs are available.
-6. **Report runtime truth.** Generated on disk, live-reloaded, and restart-required are distinct outcomes.
-7. **Remain independent of HyCreator metadata.** The definition does not depend on a HyCreator sidecar. Exact runtime evaluation may additionally depend on target packs, pack order, environment data, ModData documents, and macro providers.
+1. **Patch creation should disappear into normal editing.** The default journey is **Patch this → edit normally → Save Patch**.
+2. **Edit intent, not patch syntax.** Users say “set this field,” “insert after this interaction,” or “remove this item.” HyCreator generates pointers, matchers, and operations.
+3. **Infer first; ask only when necessary.** If HyCreator can determine the destination, operation, matcher, or provider safely, it does. If it cannot, it asks one contextual question at the affected content.
+4. **Keep complex content full-size.** Objects, arrays, and behavior graphs remain in the normal Form or Nodes canvas; they are never compressed into a patch sidebar.
+5. **Keep ownership visible but unobtrusive.** A compact Patch Mode pill shows target, active workspace, and change count. The active writable workspace is the default patch owner.
+6. **Preserve the source.** Patch Mode never mutates the baseline asset.
+7. **Fail closed.** Ambiguous matches, missing anchors, invalid results, and unsafe paths block only the affected action or save, with the repair presented at the relevant content.
+8. **Validate continuously.** Background validation and simulation inform inline states; they are not mandatory workflow stages.
+9. **Report runtime truth.** Saved, generated on disk, live-reloaded, and restart-required are distinct outcomes.
+10. **Remain independent of HyCreator metadata.** The definition does not depend on a HyCreator sidecar. Exact runtime evaluation may additionally depend on target packs, pack order, environment data, ModData documents, and macro providers.
 
 ## End-to-end workflow
 
@@ -65,26 +70,26 @@ The user opens any asset visible in HyCreator's resolved catalog. The asset may 
 
 HyCreator shows the normalized asset path, resolved provider ID, provider version when available, and whether the provider is writable.
 
-If HyCreator's general catalog currently shows `Alechilles:Patchwork_GeneratedPatches` as the visible provider, Create Patch resolves and displays the underlying non-generated Patchwork baseline instead. Generated output is never offered as the source provider for a new patch.
+If HyCreator's general catalog currently shows `Alechilles:Patchwork_GeneratedPatches` as the visible provider, **Patch this** resolves and displays the underlying non-generated Patchwork baseline instead. Generated output is never offered as the source provider for a new patch.
 
 ### 2. Create a patch
 
-The primary entry point is **Create Patch** in the asset toolbar. Field and node context menus may also start a draft when none exists.
+The primary entry point is a context action on any field, section, object, list item, graph node, or the whole asset:
 
-The creation dialog asks for:
+- **Patch this field**;
+- **Patch this section**;
+- **Patch this item/node**; or
+- **Patch this asset**.
 
-- friendly patch name;
-- patch owner, defaulting to the active writable workspace;
-- generated stable ID, editable in an advanced section;
-- definition path, defaulting below `Server/Patchwork/Patches`;
-- priority, default `0`;
-- enabled state, default `true`; and
-- a recommended provider guard when the target comes from another mod.
+The action immediately enters Patch Mode. There is no creation wizard in the default journey. HyCreator:
 
-The dialog separately labels:
+- uses the active writable workspace as the patch owner;
+- generates a friendly name, stable ID, and definition path below `Server/Patchwork/Patches`;
+- defaults priority to `0`, enabled to `true`, and applicability to always;
+- retains the currently resolved non-generated provider as the baseline; and
+- seeds the first operation from the selected content when possible.
 
-- **Target asset** — read-only source/provider and asset path.
-- **Patch owner** — writable workspace and destination definition path.
+A compact top-bar pill shows the patch owner and change count, for example `Patch • My Dragon Mod • 2 changes`. **Patch settings** exposes owner, name, ID, path, priority, enabled state, provider guard, conditions, and multi-target controls when the user explicitly needs them. If the active workspace is not writable, HyCreator asks only for a writable destination before entering Patch Mode.
 
 Creating the patch does not copy the target into the owner.
 
@@ -94,19 +99,30 @@ Patch Mode opens the target with:
 
 - the baseline held read-only;
 - the patched result editable through Form or Nodes;
-- owned, inherited/unset, draft-modified, and conflicted values visually distinguished; and
-- a compact right-hand Patch Draft navigator.
+- owned, inherited/unset, patch-modified, and conflicted values visually distinguished;
+- the compact Patch Mode pill in the existing top bar; and
+- **Save Patch** in place of the normal save action.
 
-Small scalar operations can be edited directly in the sidebar. Objects, arrays, and graphs appear as summaries and open in the full central Form or Nodes canvas. The sidebar remains a table of contents, not a compressed graph editor.
+There is no permanent Patch Draft sidebar. Scalars, objects, arrays, and graphs all remain in HyCreator's normal full-size editor. A changed field or node receives a subtle patch highlight. Selecting complex content exposes direct actions beside it:
 
-### 4. Validate and simulate
+- update;
+- add before or after;
+- replace;
+- remove; and
+- move.
 
-HyCreator provides two explicit previews:
+HyCreator records the ordered operation model behind the scenes. Clicking the Patch Mode pill opens a lightweight change list for navigation, undo, reordering, or removal; it never becomes a second editor and never reduces the main canvas.
+
+### 4. Validate continuously
+
+HyCreator validates and simulates changes continuously while the user edits. The default flow does not contain a Validate or Review step. Success is quiet; actionable problems appear inline at the affected field, item, node, or Save Patch action.
+
+When the user explicitly opens technical preview, HyCreator can show two scopes:
 
 - **Isolated draft** applies only the current draft to the Patchwork baseline.
 - **Composed runtime-order** replaces definitions originating from the edited owner and relative definition path with the draft, then applies every known eligible definition for the target using the total comparator: priority ascending, patch ID ascending by unsigned UTF-8 bytes, source-pack load order ascending, then source-pack ID ascending by unsigned UTF-8 bytes.
 
-Composed preview uses Patchwork's discovery contract for neutral and eligible legacy roots, enabled definitions, neutral shadowing, duplicate rejection, and generated-pack exclusion. The Patchwork baseline excludes `Alechilles:Patchwork_GeneratedPatches`, even if HyCreator's general asset catalog currently displays that generated pack as the winning visible asset. Source resolution must use Patchwork's exact descending ordering: source-pack load order, then unsigned UTF-8 source-pack ID bytes as the deterministic tie-break. HyCreator shows:
+Composed preview uses Patchwork's discovery contract for neutral and eligible legacy roots, enabled definitions, neutral shadowing, duplicate rejection, and generated-pack exclusion. The Patchwork baseline excludes `Alechilles:Patchwork_GeneratedPatches`, even if HyCreator's general asset catalog currently displays that generated pack as the winning visible asset. Source resolution must use Patchwork's exact descending ordering: source-pack load order, then unsigned UTF-8 source-pack ID bytes as the deterministic tie-break. The optional preview can show:
 
 - plain-English operation summaries;
 - before/after values;
@@ -117,7 +133,7 @@ Composed preview uses Patchwork's discovery contract for neutral and eligible le
 
 ### 5. Save
 
-HyCreator serializes a portable Patchwork definition and writes it atomically to the owner workspace. It never writes source assets or generated output.
+**Save Patch** serializes a portable Patchwork definition and writes it atomically to the active owner workspace. It never writes source assets or generated output. There is no mandatory review screen. A small confirmation toast reports where the patch was saved and any truthful runtime requirement, such as `restart required`.
 
 ### 6. Reopen and maintain
 
@@ -133,20 +149,18 @@ Saving is independent of deployment. When HyCreator is connected and authorized,
 
 `restart-required` means the generated state is committed on disk but is not live. HyCreator must not present it as a live success.
 
-## Patch Draft interface
+## Patch Mode chrome and contextual actions
 
-Each draft card contains:
+The persistent interface consists only of:
 
-- operation icon and plain-language name;
-- affected field, section, array, or graph;
-- concise before/after or match summary;
-- validation state;
-- required/optional state in advanced controls;
-- open-in-Form or open-in-Nodes action for complex values;
-- reorder handle, because operation order is semantic; and
-- remove/disable action.
+- a compact top-bar pill containing owner and change count;
+- subtle highlights on changed content;
+- **Save Patch**; and
+- **Patch settings** in the normal secondary-action area.
 
-The draft header contains patch name, target count, health, undo/redo, settings, and Save Patch. The full editor offers **Compare with source**, **Preview result**, and **Return to target**.
+Clicking the pill opens an optional lightweight list of changed fields, items, and nodes. Each row contains a plain-language summary, navigation action, undo/remove action, and reorder handle when ordering is semantic. Complex values are never edited in this list.
+
+Field, item, and node context menus expose the operation appropriate to the selected content. HyCreator chooses safe defaults and displays a small identity result such as `Identified automatically • 1 match`. Technical matcher construction appears only if the automatic identity is ambiguous or the user opens advanced controls.
 
 ## Automatic operation inference
 
@@ -171,23 +185,23 @@ Inference is based on the raw baseline, not only the effective inherited view.
 
 ### Context menus
 
-Context menus expose intent only where automatic inference would be ambiguous:
+Context menus are the main authoring surface and expose plain-language intent:
 
 - Patch this field or section.
 - Set/override value.
 - Remove owned value.
-- Insert at start/end/before/after.
-- Replace matching item.
-- Remove matching item.
-- Move matching item.
-- Choose stable identity fields.
-- Mark operation optional.
+- Add at start/end/before/after.
+- Replace this item/node.
+- Remove this item/node.
+- Move this item/branch.
 
-Users select array entries and anchors visually. HyCreator generates JSON Pointer escaping, recursive matchers, duplicate guards, and operation values.
+Users select array entries, graph nodes, and anchors visually. HyCreator generates JSON Pointer escaping, recursive matchers, duplicate guards, operation values, and stable identity fields. **Choose identity fields** and **Mark operation optional** live in contextual advanced controls and appear automatically only when safe inference fails.
 
 ## Array matcher experience
 
-When creating a matcher operation, HyCreator proposes stable identity fields such as `Id`, `Type`, `Name`, or another schema-recognized key. The user sees a rule builder and current match count.
+When creating a matcher operation, HyCreator first selects stable identity fields such as `Id`, `Type`, `Name`, or another schema-recognized key automatically. The normal UI shows only a short result such as `Identified automatically • 1 match`.
+
+If zero or multiple candidates remain, HyCreator opens one small contextual chooser at the selected content. It explains why identity is ambiguous and lets the user choose the intended current entry. The full matcher rule builder and match policy remain available from advanced controls, but they are not part of the default path.
 
 Format version 2 defines a strict, language-neutral matcher grammar. Every matcher is a non-empty JSON object; `{}` is structurally invalid. A matcher is exactly one of:
 
@@ -221,7 +235,7 @@ The default match policy is **Exactly one**:
 
 ## Conditions
 
-The Advanced Conditions panel renders conditions as readable nested cards:
+Conditions live in optional **Patch settings** and render as readable nested cards:
 
 - installed mod;
 - mod version;
@@ -241,7 +255,7 @@ When the target comes from another mod, HyCreator recommends `TargetProvidedBy` 
 
 ## Multi-target authoring
 
-Users can select compatible targets from the catalog or add them to an existing draft. HyCreator simulates every operation independently for every target and displays a matrix containing:
+Users can select compatible targets from optional **Patch settings** or add them to an existing patch. HyCreator simulates every operation independently for every target and displays a matrix containing:
 
 - target path and resolved provider;
 - condition result;
@@ -430,9 +444,10 @@ HyCreator is a Tauri 2 application with a Rust backend and WebView2 frontend. It
 ```text
 HyCreator web frontend
   - Patch Mode presentation
-  - draft navigator
+  - compact change pill and optional change list
   - Form/Nodes interactions
-  - condition and matcher builders
+  - contextual item/node actions
+  - optional condition and matcher builders
           |
           | typed draft commands/results
           v
@@ -491,7 +506,7 @@ The sidecar is excluded from deployed asset content. If it is missing, HyCreator
 
 ## Validation pipeline
 
-Validation runs before save and can also run continuously:
+Validation runs continuously and is checked again before the atomic save:
 
 1. **Schema validation:** Definition shape, field types, supported format, and condition structure.
 2. **Path safety:** Normalized forward-slash target and definition paths; safe JSON Pointers.
@@ -512,7 +527,7 @@ Validation reports one of three top-level semantic states:
 
 Condition `NOT_MATCHED` is a valid, non-applicable result for the selected environment and causes the definition to be previewed as skipped; it is not `Invalid`. Condition `FAILED` is `Invalid` when available evidence proves an evaluation error, or `Indeterminate` when HyCreator lacks an external input needed to reproduce the runtime evaluation.
 
-Structural errors always prevent the atomic write. Proven semantic errors prevent save unless the user returns to the draft and resolves or explicitly makes the relevant operation optional. An indeterminate definition may be saved after clear acknowledgement, but HyCreator never labels it locally validated or runtime-equivalent. Save uses a temporary sibling file and replacement/rename so a failed write does not truncate the previous definition.
+Structural errors always prevent the atomic write. Proven semantic errors prevent save until the user resolves the contextual issue or explicitly makes the relevant operation optional. There is no mandatory validation screen: the error is attached to the affected content and summarized beside **Save Patch**. An indeterminate definition may be saved after one clear acknowledgement, but HyCreator never labels it locally validated or runtime-equivalent. Save uses a temporary sibling file and replacement/rename so a failed write does not truncate the previous definition.
 
 ## Patch health and rebasing
 
@@ -537,6 +552,8 @@ Conflict actions include:
 - keep the conflict unresolved without rewriting the file.
 
 Automatic suggestions never save without user confirmation.
+
+Patch health is quiet while all operations remain safe. If source drift breaks an operation, HyCreator opens a small contextual repair choice on the affected field, list, or graph rather than sending the user through a separate rebase workflow. Unaffected operations remain active and editable.
 
 ## Server bridge and truthful outcomes
 
@@ -604,7 +621,7 @@ Sensitive mod-data values, expected secret-bearing values, filesystem internals,
 - Golden tests for deterministic definition output and opaque-field preservation.
 - Inspect-only tests for unknown format versions and schema-invalid known-version operations/conditions.
 - Indeterminate-state propagation tests for unavailable external ModData and macro expansion.
-- UI behavior tests for Create Patch, operation inference, matcher selection, condition composition, and target/owner labeling.
+- UI behavior tests for Patch this, immediate Patch Mode, operation inference, matcher selection, condition composition, and target/owner labeling.
 - Multi-target split tests.
 - Create/save/reopen and upstream-change/rebase workflows.
 - Atomic-write failure test proving the previous definition remains intact.
@@ -617,7 +634,7 @@ These slices allow independent delivery while preserving the complete scope.
 1. **Patchwork authoring foundation**
    - Format versioning, JSON Schema, capability document, shared fixtures, `TargetProvidedBy`, and matcher/move operations.
 2. **HyCreator authoring core**
-   - Rust model/engine, target-versus-owner creation flow, Patch Mode, draft sidebar, scalar/object operations, validation, and atomic save.
+   - Rust model/engine, immediate Patch this entry, compact Patch Mode chrome, scalar/object operations, continuous validation, and atomic save.
 3. **Complex structure authoring**
    - Full Form/Nodes operation editing, Insert, matcher operations, move, duplicate guards, and visual match analysis.
 4. **Advanced applicability**
@@ -633,10 +650,12 @@ These slices allow independent delivery while preserving the complete scope.
 
 The endgame is complete when:
 
+- the default journey is **Patch this → edit normally → Save Patch** with no mandatory wizard, review, or validation screen;
 - a user can patch a vanilla or third-party asset into their own workspace without copying the source;
 - every supported operation and condition can be authored visually;
 - large graphs use the full Form/Nodes workspace rather than a cramped sidebar;
 - array entries can be inserted, replaced, removed, and moved using stable visual matchers;
+- matcher and destination details are inferred automatically and ask a contextual question only when genuinely ambiguous;
 - multiple targets are simulated independently and split when semantics diverge;
 - saved and hand-authored definitions reopen without data loss;
 - upstream changes produce actionable patch-health diagnostics and visual rebase tools;
