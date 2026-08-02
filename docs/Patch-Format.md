@@ -24,7 +24,7 @@ Definitions without `FormatVersion` use legacy format 1. Format 2 definitions se
 { "Op": "RequireFormat", "Version": 2 }
 ```
 
-The sentinel must be operation index zero, its `Version` must equal the root `FormatVersion`, and it cannot define `Required` or any other operation fields. A second or differently-cased `RequireFormat` is invalid. Format 1 remains supported explicitly; it does not acquire format-2 pointer or matcher semantics by inference.
+The sentinel must be operation index zero, its `Version` must equal the root `FormatVersion`, and its only optional field is `Id`; `Required` and every other operation field are forbidden. A second or differently-cased `RequireFormat` is invalid. Format 1 remains supported explicitly; it does not acquire format-2 pointer or matcher semantics by inference.
 
 ## Definition fields
 
@@ -74,7 +74,7 @@ Paths use JSON Pointer syntax. `/A/B/0` addresses an array entry; `~1` represent
 
 Format 2 applies RFC 6901 pointer semantics before an operation can run:
 
-- the empty pointer addresses the document root and `/` addresses an empty property name;
+- condition checks may use the empty pointer to inspect the document root, while mutation operations require a non-empty `/...` path and never mutate the root itself; `/` addresses an empty property name;
 - only `~0` and `~1` escapes are valid;
 - array indexes are `0` or non-zero digits without a leading zero, and must fit a non-negative 32-bit integer; and
 - `-` is accepted only as the final `Add` token for array append.
@@ -92,7 +92,7 @@ Format-2 matchers are non-empty objects. Ordinary keys recursively require the d
 
 ### Matcher-based array operations
 
-Format 2 adds three portable operations. Every operation requires an existing array at `Path` and a `Match` object. `MatchPolicy` defaults to `ExactlyOne` and is case-insensitive:
+Format 2 adds three portable operations. Every operation requires an existing array at `Path` and a `Match` object. `MatchPolicy` and `Position` are case-insensitive and default to `ExactlyOne` and `End`, respectively:
 
 | Policy | Selection |
 | --- | --- |
@@ -101,7 +101,7 @@ Format 2 adds three portable operations. Every operation requires an existing ar
 | `Last` | the highest matching index; zero matches fail |
 | `All` | every matching index; zero matches fail |
 
-`ReplaceMatching` additionally requires `Value` and deep-copies it into each selected entry. `RemoveMatching` removes selected entries from highest index to lowest. `MoveMatching` always selects exactly one entry, then moves it to `Start`, `End`, or immediately `Before`/`After` one `Find` anchor. `Before` and `After` require a `Find` matcher; `Start` and `End` forbid one. A self-anchor or an ambiguous/missing anchor fails the operation. Applicability failures follow `Required`: required failures reject the target, while optional failures are reported as skipped.
+`ReplaceMatching` additionally requires `Value` and deep-copies it into each selected entry. `RemoveMatching` removes selected entries from highest index to lowest. `MoveMatching` always selects exactly one entry, then moves it to `Start`, `End`, or immediately `Before`/`After` one `Find` anchor. `Before` and `After` require a `Find` matcher; `Start` and `End` forbid one. An omitted `Position` follows the `End` default and therefore cannot be paired with `Find`. A self-anchor or an ambiguous/missing anchor fails the operation. Applicability failures follow `Required`: required failures reject the target, while optional failures are reported as skipped.
 
 ### Add
 

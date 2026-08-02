@@ -1,0 +1,22 @@
+{
+  "FormatVersion": 2,
+  "Id": "unknown-mod-data-source-field",
+  "Target": "Server/Test.json",
+  "When": {
+    "JsonPathExists": {
+      "Path": "/enabled",
+      "Source": {
+        "Type": "ModData",
+        "Mod": "Example:Mod",
+        "Path": "settings.json",
+        "Unexpected": true
+      }
+    }
+  },
+  "Operations": [
+    {
+      "Op": "RequireFormat",
+      "Version": 2
+    }
+  ]
+}

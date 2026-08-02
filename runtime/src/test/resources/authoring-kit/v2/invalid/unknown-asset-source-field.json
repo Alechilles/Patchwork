@@ -1,0 +1,21 @@
+{
+  "FormatVersion": 2,
+  "Id": "unknown-asset-source-field",
+  "Target": "Server/Test.json",
+  "When": {
+    "JsonPathExists": {
+      "Path": "/enabled",
+      "Source": {
+        "Type": "Asset",
+        "Path": "Server/A.json",
+        "Unexpected": true
+      }
+    }
+  },
+  "Operations": [
+    {
+      "Op": "RequireFormat",
+      "Version": 2
+    }
+  ]
+}

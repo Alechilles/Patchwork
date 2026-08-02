@@ -1,0 +1,17 @@
+{
+  "FormatVersion": 2,
+  "Id": "unknown-condition-field",
+  "Target": "Server/Test.json",
+  "When": {
+    "AssetExists": {
+      "Asset": "Server/A.json",
+      "Unexpected": true
+    }
+  },
+  "Operations": [
+    {
+      "Op": "RequireFormat",
+      "Version": 2
+    }
+  ]
+}

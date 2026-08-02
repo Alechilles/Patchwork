@@ -48,7 +48,16 @@
         }
       ],
       "items": {
-        "$ref": "#/$defs/operation"
+        "allOf": [
+          {
+            "$ref": "#/$defs/operation"
+          },
+          {
+            "not": {
+              "$ref": "#/$defs/requireFormat"
+            }
+          }
+        ]
       }
     }
   },
@@ -111,12 +120,72 @@
       }
     },
     "matcher": {
-      "type": "object",
-      "minProperties": 1,
-      "description": "Matcher data is intentionally an open JSON object. Format 2 reserves $Equals and $Contains as single-key operators; runtime validation enforces their strict recursive semantics.",
-      "additionalProperties": {
-        "$ref": "#/$defs/jsonValue"
-      }
+      "description": "Format 2 matchers are recursive sole-key $Equals/$Contains operators or non-empty ordinary objects without reserved-$ property names.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "$Equals"
+          ],
+          "maxProperties": 1,
+          "properties": {
+            "$Equals": {
+              "$ref": "#/$defs/jsonValue"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "$Contains"
+          ],
+          "maxProperties": 1,
+          "properties": {
+            "$Contains": {
+              "$ref": "#/$defs/matcher"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "not": {
+              "pattern": "^\\$"
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/matcherValue"
+          }
+        }
+      ]
+    },
+    "matcherValue": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        {
+          "$ref": "#/$defs/matcher"
+        }
+      ]
     },
     "path": {
       "type": "string",
@@ -128,20 +197,52 @@
     },
     "matchPolicy": {
       "type": "string",
-      "enum": [
-        "ExactlyOne",
-        "First",
-        "Last",
-        "All"
+      "anyOf": [
+        {
+          "pattern": "^[Ee][Xx][Aa][Cc][Tt][Ll][Yy][Oo][Nn][Ee]$"
+        },
+        {
+          "pattern": "^[Ff][Ii][Rr][Ss][Tt]$"
+        },
+        {
+          "pattern": "^[Ll][Aa][Ss][Tt]$"
+        },
+        {
+          "pattern": "^[Aa][Ll][Ll]$"
+        }
       ]
     },
     "position": {
       "type": "string",
-      "enum": [
-        "Start",
-        "End",
-        "Before",
-        "After"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/startEndPosition"
+        },
+        {
+          "$ref": "#/$defs/beforeAfterPosition"
+        }
+      ]
+    },
+    "beforeAfterPosition": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[Bb][Ee][Ff][Oo][Rr][Ee]$"
+        },
+        {
+          "pattern": "^[Aa][Ff][Tt][Ee][Rr]$"
+        }
+      ]
+    },
+    "startEndPosition": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[Ss][Tt][Aa][Rr][Tt]$"
+        },
+        {
+          "pattern": "^[Ee][Nn][Dd]$"
+        }
       ]
     },
     "requireFormat": {
@@ -269,22 +370,19 @@
             ],
             "properties": {
               "Position": {
-                "enum": [
-                  "Before",
-                  "After"
-                ]
+                "$ref": "#/$defs/beforeAfterPosition"
               }
             }
           }
         },
         {
           "if": {
+            "required": [
+              "Position"
+            ],
             "properties": {
               "Position": {
-                "enum": [
-                  "Before",
-                  "After"
-                ]
+                "$ref": "#/$defs/beforeAfterPosition"
               }
             }
           },
@@ -296,12 +394,12 @@
         },
         {
           "if": {
+            "required": [
+              "Position"
+            ],
             "properties": {
               "Position": {
-                "enum": [
-                  "Start",
-                  "End"
-                ]
+                "$ref": "#/$defs/startEndPosition"
               }
             }
           },
@@ -462,22 +560,19 @@
             ],
             "properties": {
               "Position": {
-                "enum": [
-                  "Before",
-                  "After"
-                ]
+                "$ref": "#/$defs/beforeAfterPosition"
               }
             }
           }
         },
         {
           "if": {
+            "required": [
+              "Position"
+            ],
             "properties": {
               "Position": {
-                "enum": [
-                  "Before",
-                  "After"
-                ]
+                "$ref": "#/$defs/beforeAfterPosition"
               }
             }
           },
@@ -489,12 +584,12 @@
         },
         {
           "if": {
+            "required": [
+              "Position"
+            ],
             "properties": {
               "Position": {
-                "enum": [
-                  "Start",
-                  "End"
-                ]
+                "$ref": "#/$defs/startEndPosition"
               }
             }
           },

@@ -6,6 +6,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /** Parses the stable Patchwork condition JSON grammar into immutable condition trees. */
 public final class PatchConditionParser {
@@ -27,6 +28,9 @@ public final class PatchConditionParser {
 
     /** Parses exactly one condition key using the enclosing definition format. */
     public PatchCondition parse(JsonObject object, int formatVersion) {
+        if (PatchFormat.isVersion2(formatVersion)) {
+            validateV2Shape(object);
+        }
         String key = null;
         JsonElement value = null;
         for (var entry : object.entrySet()) {
@@ -61,13 +65,13 @@ public final class PatchConditionParser {
     }
 
     private PatchCondition jsonExists(JsonObject condition, int formatVersion) {
-        return new PatchCondition.JsonPathExists(source(condition), pointer(condition, "JsonPathExists", formatVersion), formatVersion);
+        return new PatchCondition.JsonPathExists(source(condition, formatVersion), pointer(condition, "JsonPathExists", formatVersion), formatVersion);
     }
 
     private PatchCondition jsonEquals(JsonObject condition, int formatVersion) {
         JsonElement expected = condition.has("Value") ? condition.get("Value") : condition.get("Equals");
         if (expected == null) throw bad("JsonPathEquals must define Value or Equals.");
-        return new PatchCondition.JsonPathEquals(source(condition), pointer(condition, "JsonPathEquals", formatVersion), expected, formatVersion);
+        return new PatchCondition.JsonPathEquals(source(condition, formatVersion), pointer(condition, "JsonPathEquals", formatVersion), expected, formatVersion);
     }
 
     private PatchCondition composite(JsonElement value, boolean all, int formatVersion) {
@@ -81,7 +85,7 @@ public final class PatchConditionParser {
         return all ? new PatchCondition.All(children) : new PatchCondition.Any(children);
     }
 
-    private ConditionSource source(JsonObject condition) {
+    private ConditionSource source(JsonObject condition, int formatVersion) {
         if (condition.has("Source") && condition.has("Asset")) {
             throw bad("Source and legacy Asset are mutually exclusive.");
         }
@@ -90,6 +94,9 @@ public final class PatchConditionParser {
             return "$Target".equals(legacy) ? new ConditionSource.Target() : new ConditionSource.Asset(legacy);
         }
         JsonObject source = object(condition.get("Source"), "Source");
+        if (PatchFormat.isVersion2(formatVersion)) {
+            validateV2Source(source);
+        }
         String type = field(source, "Source", "Type");
         return switch (type) {
             case "Target" -> {
@@ -166,5 +173,67 @@ public final class PatchConditionParser {
 
     private static IllegalArgumentException bad(String message) {
         return new IllegalArgumentException(message);
+    }
+
+    private static void validateV2Shape(JsonObject condition) {
+        if (condition == null) throw bad("Condition must be an object.");
+        String key = null;
+        for (var entry : condition.entrySet()) {
+            if ("$Comment".equals(entry.getKey())) {
+                if (!entry.getValue().isJsonPrimitive() || !entry.getValue().getAsJsonPrimitive().isString()) {
+                    throw bad("$Comment must be a string.");
+                }
+                continue;
+            }
+            if (key != null) throw bad("Condition object must define exactly one condition key.");
+            key = entry.getKey();
+        }
+        if (key == null) throw bad("Condition object must define exactly one condition key.");
+        JsonElement value = condition.get(key);
+        switch (key) {
+            case "AssetExists", "AssetMissing" -> validateAssetShape(value, key);
+            case "ModVersion" -> validateKeys(object(value, key), Set.of("Mod", "Equals", "AtLeast", "AtMost", "Above", "Below"), key);
+            case "GameVersion", "ServerVersion" -> validateKeys(object(value, key),
+                    Set.of("Equals", "AtLeast", "AtMost", "Above", "Below"), key);
+            case "JsonPathExists" -> validateJsonShape(object(value, key), key, false);
+            case "JsonPathEquals" -> validateJsonShape(object(value, key), key, true);
+            case "Source" -> throw bad("Unsupported condition key: Source");
+            default -> {
+                // Scalar conditions and composite conditions have no nested descriptor
+                // fields to close here; their existing parsing validates their values and
+                // recursively validates child condition objects.
+            }
+        }
+    }
+
+    private static void validateAssetShape(JsonElement value, String name) {
+        if (value != null && value.isJsonObject()) {
+            validateKeys(value.getAsJsonObject(), Set.of("Asset"), name);
+        }
+    }
+
+    private static void validateJsonShape(JsonObject condition, String name, boolean equals) {
+        Set<String> allowed = equals
+                ? Set.of("Path", "Asset", "Source", "Value", "Equals")
+                : Set.of("Path", "Asset", "Source");
+        validateKeys(condition, allowed, name);
+        if (condition.has("Source")) validateV2Source(object(condition.get("Source"), "Source"));
+    }
+
+    private static void validateV2Source(JsonObject source) {
+        String type = field(source, "Source", "Type");
+        Set<String> allowed = switch (type) {
+            case "Target" -> Set.of("Type");
+            case "Asset" -> Set.of("Type", "Path");
+            case "ModData" -> Set.of("Type", "Mod", "Path");
+            default -> Set.of("Type");
+        };
+        validateKeys(source, allowed, "Source");
+    }
+
+    private static void validateKeys(JsonObject object, Set<String> allowed, String name) {
+        for (String field : object.keySet()) {
+            if (!allowed.contains(field)) throw bad(name + " contains unknown field: " + field + ".");
+        }
     }
 }

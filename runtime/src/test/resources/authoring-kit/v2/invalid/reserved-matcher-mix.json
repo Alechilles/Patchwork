@@ -1,0 +1,23 @@
+{
+  "FormatVersion": 2,
+  "Id": "reserved-matcher-mix",
+  "Target": "Server/Test.json",
+  "Operations": [
+    {
+      "Op": "RequireFormat",
+      "Version": 2
+    },
+    {
+      "Id": "replace",
+      "Op": "ReplaceMatching",
+      "Path": "/items",
+      "Match": {
+        "$Equals": 1,
+        "id": 1
+      },
+      "Value": {
+        "id": "changed"
+      }
+    }
+  ]
+}

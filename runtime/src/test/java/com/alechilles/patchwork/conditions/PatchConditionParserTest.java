@@ -147,4 +147,17 @@ final class PatchConditionParserTest {
                 "{\"targetProvidedBy\":\"Example:Dragons\"}"
         ).getAsJsonObject()));
     }
+
+    @Test
+    void rejectsUnknownNestedConditionAndSourceFieldsInFormatTwo() {
+        assertThrows(IllegalArgumentException.class, () -> parser.parse(JsonParser.parseString(
+                "{\"AssetExists\":{\"Asset\":\"Server/A.json\",\"Unexpected\":true}}"
+        ).getAsJsonObject(), 2));
+        assertThrows(IllegalArgumentException.class, () -> parser.parse(JsonParser.parseString(
+                "{\"JsonPathExists\":{\"Path\":\"/enabled\",\"Source\":{\"Type\":\"Asset\",\"Path\":\"Server/A.json\",\"Unexpected\":true}}}"
+        ).getAsJsonObject(), 2));
+        assertThrows(IllegalArgumentException.class, () -> parser.parse(JsonParser.parseString(
+                "{\"JsonPathExists\":{\"Path\":\"/enabled\",\"Source\":{\"Type\":\"ModData\",\"Mod\":\"Example:Mod\",\"Path\":\"settings.json\",\"Unexpected\":true}}}"
+        ).getAsJsonObject(), 2));
+    }
 }
