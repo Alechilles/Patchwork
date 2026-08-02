@@ -205,6 +205,19 @@ final class PatchworkAdministrationServiceTest {
         assertTrue(join(service.selfTest()).getFirst().contains("completed"));
     }
 
+    @Test void selfTestReportsEachCompletedFixtureOutcome() {
+        PatchworkAdministrationService service = new PatchworkAdministrationService(() -> plan("a.json", "a"), () -> request -> outcome(7, List.of()), () -> pack ->
+                new com.alechilles.patchwork.selftest.PatchworkSelfTestResult(java.nio.file.Path.of("run"), true, true, true, List.of(), "", false, false,
+                        com.alechilles.patchwork.selftest.PatchworkSelfTestResult.GenerationOutcome.FAILED,
+                        PatchworkSelfTestReloadHandle.ReloadOutcome.RESTART_REQUIRED, List.of(), List.of(
+                                new com.alechilles.patchwork.selftest.PatchworkSelfTestResult.CaseOutcome("Server/PatchworkSelfTest/add.json", true, true, List.of(), ""),
+                                new com.alechilles.patchwork.selftest.PatchworkSelfTestResult.CaseOutcome("Server/PatchworkSelfTest/condition.json", true, false, List.of(), ""))));
+
+        service.activate(7);
+
+        assertEquals(List.of("Patchwork self-test: failed (reload restart-required)", "Add: passed", "Condition (ModData): failed", "Cleanup: complete"), join(service.selfTest()));
+    }
+
     @Test void fenceCancelsAnActualRunnerBlockedAtReloadAndDrainsWithoutStaleWork() throws Exception {
         CountDownLatch entered = new CountDownLatch(1); CountDownLatch released = new CountDownLatch(1);
         GeneratedPackLayout layout = new GeneratedPackLayout(temporary); java.nio.file.Path production = java.nio.file.Files.createDirectories(layout.generatedRoot()); java.nio.file.Files.writeString(production.resolve("manifest.json"), "production");

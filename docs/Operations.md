@@ -97,6 +97,8 @@ If current generated inventory cannot be safely scanned, status explicitly repor
 
 `/patchwork selftest` creates one UUID-named run below Patchwork's self-test root. It writes isolated source, generated, and mod-data fixtures, runs the real generation engine, verifies expected JSON pointers for every built-in patch operation (`Add`, `Merge`, `Replace`, `Remove`, `Insert`, `ReplaceMatching`, `RemoveMatching`, and `MoveMatching`), and cleans only that exact run. Host macros are not included because their behavior is supplied by an embedding plugin.
 
+The command reports the pass/fail result of each completed fixture in-game, followed by the overall reload category and cleanup result. If generation fails before any fixture completes, it reports that explicitly.
+
 The production generated pack is not modified. Production 1.0.0 does not supply the self-test with a live reload handle, so a successful isolated generation truthfully reports `restart-required`; the command validates generation and conditions, not live Hytale reload. A cancelled or failed test reports truthful generation and cleanup state. Cleanup failure retains the exact run as evidence.
 
 ## Recovery checklist

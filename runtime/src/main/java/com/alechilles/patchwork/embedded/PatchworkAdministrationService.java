@@ -162,9 +162,7 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
             synchronized (gate) { activeSelfTest = executor; }
             if (!stillActive(admittedEpoch)) executor.cancel();
             PatchworkSelfTestResult result = executor.run(PatchworkSelfTestPack.standard());
-            String state = result.completed() ? "completed" : result.cancelled() ? "cancelled" : "failed";
-            String category = result.reloadOutcome().name().toLowerCase().replace('_', '-');
-            return CompletableFuture.completedFuture(List.of("Patchwork self-test: " + state + " (reload " + category + ")", "Cleanup: " + (result.cleanupSucceeded() ? "complete" : "incomplete")));
+            return CompletableFuture.completedFuture(selfTestLines(result));
         } catch (RuntimeException failure) {
             return CompletableFuture.completedFuture(List.of("Patchwork self-test failed; inspect server diagnostics."));
         } finally { synchronized (gate) { activeSelfTest = null; } release(); }
@@ -196,6 +194,22 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
                 .limit(32).forEach(target -> lines.add(target.target() + ": " + target.state()));
         if (!outcome.diagnostic().isBlank()) lines.add("Reload reported a diagnostic; inspect server logs.");
         return List.copyOf(lines);
+    }
+    private static List<String> selfTestLines(PatchworkSelfTestResult result) {
+        String state = result.completed() ? "completed" : result.cancelled() ? "cancelled" : "failed";
+        String category = result.reloadOutcome().name().toLowerCase().replace('_', '-');
+        List<String> lines = new ArrayList<>();
+        lines.add("Patchwork self-test: " + state + " (reload " + category + ")");
+        result.caseOutcomes().forEach(outcome -> lines.add(selfTestCaseLabel(outcome.target()) + ": " + (outcome.passed() ? "passed" : "failed")));
+        if (!result.completed() && result.caseOutcomes().isEmpty()) lines.add("Fixtures: none completed");
+        lines.add("Cleanup: " + (result.cleanupSucceeded() ? "complete" : "incomplete"));
+        return List.copyOf(lines);
+    }
+    private static String selfTestCaseLabel(String target) {
+        String name = target.substring(target.lastIndexOf('/') + 1);
+        if (name.endsWith(".json")) name = name.substring(0, name.length() - ".json".length());
+        if ("condition".equals(name)) return "Condition (ModData)";
+        return Character.toUpperCase(name.charAt(0)) + name.substring(1).replace('-', ' ');
     }
 
     /** Narrow synchronous executor seam; production delegates directly to one reload coordinator. */

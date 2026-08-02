@@ -12,7 +12,7 @@
 - Added startup publication with last-known-good quarantine, deterministic generated manifests, and recovery evidence.
 - Added target-local reload transactions with host-adapter reload, restart-required, stale, rollback-failed, skipped, and failed outcomes. Standalone 1.0.0 conservatively requires restart because it does not provide a built-in live target route.
 - Added `/patchwork status`, `/patchwork reload`, and `/patchwork selftest` for `patchwork.admin` administrators.
-- Added an isolated self-test that exercises every built-in patch operation and mod-data-conditioned generation without changing production output and truthfully reports restart-required for its isolated result.
+- Added an isolated self-test that exercises every built-in patch operation and mod-data-conditioned generation without changing production output, reports each completed fixture's in-game pass/fail result, and truthfully reports restart-required for its isolated result.
 - Added Patchwork format 2 support with strict pointer and matcher semantics, `RequireFormat` compatibility guarding, matcher-based array operations, portable target-provider conditions, and a versioned authoring kit; format 1 remains an explicit legacy-compatible mode.
 - Added standalone native Hytale asset registration for `Server/Patchwork/Patches`, including codec-generated definition and operation schemas, lossless portable JSON open/save, and validation through the portable Patchwork parser. The existing scanner remains the sole generation source, preventing duplicate application.
 
