@@ -1,5 +1,6 @@
 package com.alechilles.patchwork.discovery;
 
+import com.alechilles.patchwork.format.Utf8Ordering;
 import java.nio.file.Path;
 import java.util.Objects;
 
@@ -11,6 +12,7 @@ public record PatchSource(String sourcePackId, int sourcePackLoadOrder, Path bac
     /** Validates and normalizes a filesystem source descriptor. */
     public PatchSource {
         sourcePackId = requireText(sourcePackId, "sourcePackId");
+        Utf8Ordering.requireValid(sourcePackId, "sourcePackId");
         backingPath = Objects.requireNonNull(backingPath, "backingPath").toAbsolutePath().normalize();
         kind = Objects.requireNonNull(kind, "kind");
     }

@@ -71,6 +71,27 @@ final class PatchTargetResolverTest {
     }
 
     @Test
+    void rejectsUnpairedSurrogateSourcePackIdForSingleSource() throws Exception {
+        Path source = tempDir.resolve("single-surrogate");
+        write(source, "Server/Target.json", "single");
+
+        assertThrows(IllegalArgumentException.class, () -> new PatchTargetResolver().resolve(
+                List.of(PatchSource.directory("\uD800", 4, source)), "Server/Target.json"));
+    }
+
+    @Test
+    void rejectsUnpairedSurrogateSourcePackIdBeforeUnequalLoadOrderSelection() throws Exception {
+        Path valid = tempDir.resolve("valid-load-order");
+        Path malformed = tempDir.resolve("malformed-load-order");
+        write(valid, "Server/Target.json", "valid");
+        write(malformed, "Server/Target.json", "malformed");
+
+        assertThrows(IllegalArgumentException.class, () -> new PatchTargetResolver().resolve(List.of(
+                PatchSource.directory("valid", 1, valid),
+                PatchSource.directory("\uD800", 2, malformed)), "Server/Target.json"));
+    }
+
+    @Test
     void resolvesHigherLoadOrderBeforeSourceIdTieBreak() throws Exception {
         Path lower = tempDir.resolve("lower");
         Path higher = tempDir.resolve("higher");
