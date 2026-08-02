@@ -55,7 +55,7 @@ Patchwork owns this directory. Do not edit generated files by hand or place patc
 
 Startup generation is staged under a unique sibling directory and verified before activation. If a previous generated pack exists, Patchwork preserves it as last-known-good until the replacement is proven active.
 
-Diagnostic names include unique staging, prior, and failed-new directories. A successful replacement normally retains the previous generated root under `Diagnostics/GeneratedPatches-prior-*` as last-known-good evidence, so a prior directory alone does not indicate failure. A failed-new directory or a prior directory referenced by an unresolved publication result is failure evidence. Patchwork 1.0.0 has no automatic evidence-pruning command; preserve evidence while diagnosing, and remove an old successful prior copy only during an offline maintenance window after the active pack has been verified.
+Diagnostic names include unique staging, prior, and failed-new directories. A successful replacement normally retains the previous generated root under `Diagnostics/GeneratedPatches-prior-*` as last-known-good evidence, so a prior directory alone does not indicate failure. A failed-new directory or a prior directory referenced by an unresolved publication result is failure evidence. Patchwork 1.1.0 has no automatic evidence-pruning command; preserve evidence while diagnosing, and remove an old successful prior copy only during an offline maintenance window after the active pack has been verified.
 
 A target can be rejected without blocking unrelated valid targets. Patchwork reports scan failures and rejected targets while publishing only a verified generated pack.
 
@@ -63,7 +63,7 @@ A target can be rejected without blocking unrelated valid targets. Patchwork rep
 
 `/patchwork reload` admits only one administration operation at a time. It rescans current generated output, takes a fresh input snapshot, creates a new plan, writes the exact generated manifest, and applies target-local transactions.
 
-Patchwork never invokes a generic Hytale asset reload. Standalone Patchwork 1.0.0 does not wire a built-in live target route, so its changed targets are conservatively reported as restart-required. An embedding plugin can contribute an explicit host adapter; targets accepted and confirmed by that adapter can be reported as adapter-reloaded.
+Patchwork never invokes a generic Hytale asset reload. Standalone Patchwork 1.1.0 does not wire a built-in live target route, so its changed targets are conservatively reported as restart-required. An embedding plugin can contribute an explicit host adapter; targets accepted and confirmed by that adapter can be reported as adapter-reloaded.
 
 Target outcomes:
 
@@ -71,7 +71,7 @@ Target outcomes:
 | --- | --- |
 | `generated` | Target is present in the current generated inventory. |
 | `removed` | Previously generated target was intentionally removed and confirmed. |
-| `hot-reloaded` | Reserved status category for a composed built-in route. Stock standalone 1.0.0 does not produce this outcome. |
+| `hot-reloaded` | Reserved status category for a composed built-in route. Stock standalone 1.1.0 does not produce this outcome. |
 | `adapter-reloaded` | A host contribution reloaded and confirmed the target. |
 | `restart-required` | The desired generated state—replacement bytes or removal—is committed on disk, but it cannot be safely applied live. Restart the server to consume it. |
 | `stale` | The live target could not be confirmed at the expected state. |
@@ -99,7 +99,7 @@ If current generated inventory cannot be safely scanned, status explicitly repor
 
 The command reports the pass/fail result of each completed fixture in-game, followed by the overall reload category and cleanup result. If generation fails before any fixture completes, it reports that explicitly.
 
-The production generated pack is not modified. Production 1.0.0 does not supply the self-test with a live reload handle, so a successful isolated generation truthfully reports `restart-required`; the command validates generation and conditions, not live Hytale reload. A cancelled or failed test reports truthful generation and cleanup state. Cleanup failure retains the exact run as evidence.
+The production generated pack is not modified. Production 1.1.0 does not supply the self-test with a live reload handle, so a successful isolated generation truthfully reports `restart-required`; the command validates generation and conditions, not live Hytale reload. A cancelled or failed test reports truthful generation and cleanup state. Cleanup failure retains the exact run as evidence.
 
 ## Recovery checklist
 

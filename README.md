@@ -165,10 +165,10 @@ These tools provide patch status, diagnostics, explicit regeneration, and self-t
 
 The standalone plugin registers `Server/Patchwork/Patches/**/*.json` as a native Hytale asset type. Hytale’s Asset Editor can discover, create, structurally edit, validate, and save the same portable definitions consumed by Patchwork.
 
-Patchwork 1.0.0 supports these installation modes:
+Patchwork 1.1.0 supports these installation modes:
 
-*   Install `patchwork-standalone-1.0.0.jar` as a Hytale server mod.
-*   Embed `com.alechilles:patchwork-runtime:1.0.0` in another Java plugin.
+*   Install `patchwork-standalone-1.1.0.jar` as a Hytale server mod.
+*   Embed `com.alechilles:patchwork-runtime:1.1.0` in another Java plugin.
 
 Read the [patch format](docs/Patch-Format.md), [operations guide](docs/Operations.md), [embedding contract](docs/Embedding.md), and [runtime election notes](docs/Runtime-Election.md) for the complete technical details.
 

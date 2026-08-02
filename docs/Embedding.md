@@ -8,7 +8,7 @@ Patchwork can be shaded into another Hytale Java plugin. Embedded and standalone
 <dependency>
   <groupId>com.alechilles</groupId>
   <artifactId>patchwork-runtime</artifactId>
-  <version>1.0.0</version>
+  <version>1.1.0</version>
 </dependency>
 ```
 
@@ -58,7 +58,7 @@ Retain the exact returned handles. Close contributions before the service. A lif
 
 ## Stable API surface
 
-Patchwork 1.0.0 exposes these host-facing contracts from `com.alechilles.patchwork.embedded`:
+Patchwork 1.1.0 exposes these host-facing contracts from `com.alechilles.patchwork.embedded`:
 
 ```java
 public final class EmbeddedPatchworkBootstrap {
@@ -104,7 +104,7 @@ public record PatchworkReloadObservation(long epoch, String adapterId, String ta
 public enum PatchworkObservationOutcome { LOADED, REMOVED, FAILED }
 ```
 
-In 1.0.0, each adapter invocation contains exactly one `PatchworkTargetExpectation`, even though the request type uses a list for forward compatibility. Implementations must handle the current singleton contract and must not assume unrelated targets are batched together.
+In 1.1.0, each adapter invocation contains exactly one `PatchworkTargetExpectation`, even though the request type uses a list for forward compatibility. Implementations must handle the current singleton contract and must not assume unrelated targets are batched together.
 
 ## Contributions
 
@@ -113,7 +113,7 @@ A contribution declares stable macro and target-adapter IDs:
 ```java
 public final class ExampleContribution implements PatchworkHostContribution {
     @Override public String hostPluginIdentifier() { return "Example:Mod"; }
-    @Override public String contributionVersion() { return "1.0.0"; }
+    @Override public String contributionVersion() { return "1.1.0"; }
     @Override public List<PatchworkMacroProvider> macroProviders() {
         return List.of(new ExampleMacro());
     }
@@ -172,7 +172,7 @@ public final class ExampleAdapter implements PatchworkTargetAdapter {
 }
 ```
 
-Each request carries one coordinator epoch and one immutable target expectation in 1.0.0. Return exact reloaded, restart-required, and failed target lists.
+Each request carries one coordinator epoch and one immutable target expectation in 1.1.0. Return exact reloaded, restart-required, and failed target lists.
 
 For live confirmation, record only observations correlated to a pending expectation supplied by Patchwork:
 

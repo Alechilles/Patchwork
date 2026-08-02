@@ -10,12 +10,12 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.jar.JarFile;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Verifies that the runtime and standalone artifacts retain their intended
@@ -60,15 +60,13 @@ class StandalonePackagingIT {
     private static Path standaloneJar() throws Exception { return artifact(Path.of("target"), "patchwork-standalone"); }
 
     private static Path artifact(Path directory, String prefix) throws Exception {
-        try (var files = Files.list(directory)) {
-            List<Path> matches = files.filter(path -> path.getFileName().toString().startsWith(prefix + "-")
-                            && path.getFileName().toString().endsWith(".jar")
-                            && !path.getFileName().toString().startsWith("original-")
-                            && !path.getFileName().toString().endsWith("-shaded.jar"))
-                    .toList();
-            assertEquals(1, matches.size(), "Expected one final " + prefix + " artifact in " + directory);
-            return matches.getFirst();
-        }
+        Path artifact = directory.resolve(prefix + "-" + projectVersion() + ".jar");
+        assertTrue(Files.isRegularFile(artifact), "Expected the current " + prefix + " artifact in " + directory);
+        return artifact;
+    }
+    private static String projectVersion() throws Exception {
+        return DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(PARENT_POM.toFile())
+                .getDocumentElement().getElementsByTagName("version").item(0).getTextContent();
     }
 
     private static int shadePluginCount(Path pom) throws Exception {

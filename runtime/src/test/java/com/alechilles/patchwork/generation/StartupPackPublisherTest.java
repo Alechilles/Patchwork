@@ -67,7 +67,7 @@ final class StartupPackPublisherTest {
         var root = JsonParser.parseString(Files.readString(layout.generatedRoot().resolve("manifest.json"))).getAsJsonObject();
         assertEquals("Alechilles", root.get("Group").getAsString());
         assertEquals("Patchwork_GeneratedPatches", root.get("Name").getAsString());
-        assertEquals("1.0.0", root.get("Version").getAsString());
+        assertEquals("1.1.0", root.get("Version").getAsString());
         assertEquals("*", root.get("ServerVersion").getAsString());
         assertEquals(List.of("Alpha:Pack", "Zulu:Pack"), root.getAsJsonObject("Dependencies").keySet().stream().toList());
     }
