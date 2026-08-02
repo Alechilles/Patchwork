@@ -5,8 +5,15 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.stream.Stream;
 
+import com.alechilles.patchwork.format.PatchDefinitionReader;
 import com.alechilles.patchwork.format.JsonMatcher;
 import com.alechilles.patchwork.format.JsonPointer;
 import com.google.gson.JsonObject;
@@ -375,6 +382,82 @@ final class PatchEngineTest {
         PatchEngine.PatchResult noOpResult = engine.apply(object("{\"items\":[{\"id\":\"a\"},{\"id\":\"b\"},{\"id\":\"c\"}]}"), List.of(noOp));
         assertEquals(List.of("v2:noop (already in requested position)"), noOpResult.skipped());
         assertEquals(List.of("v2:v2#0"), noOpResult.applied());
+    }
+
+    @Test
+    void appliesEveryShippedFormatTwoValidAuthoringFixtureToItsPortableSource() throws Exception {
+        for (String name : fixtureNames("authoring-kit/v2/valid")) {
+            JsonObject parsed = PatchDefinitionReader.parse(fixtureBytes("authoring-kit/v2/valid/" + name),
+                    "Fixture:Authoring", name, 0);
+            PatchDefinition definition = PatchDefinition.parse(parsed, "Fixture:Authoring", name, 0);
+
+            PatchEngine.PatchResult result = engine.apply(sourceFor(name), List.of(definition));
+
+            assertEquals(expectedFor(name), result.patched(), name);
+            assertTrue(result.applied().contains(definition.id() + ":" + definition.id() + "#0"), name);
+        }
+    }
+
+    @Test
+    void ambiguousExactlyOneFixtureFailsDuringEngineApplication() throws Exception {
+        String name = "ambiguous-match.json";
+        PatchDefinition definition = PatchDefinition.parse(
+                PatchDefinitionReader.parse(fixtureBytes("authoring-kit/v2/invalid/" + name),
+                        "Fixture:Authoring", name, 0),
+                "Fixture:Authoring", name, 0);
+
+        PatchEngine.PatchFailureException failure = assertThrows(PatchEngine.PatchFailureException.class,
+                () -> engine.apply(object("{\"items\":[{\"id\":\"duplicate\"},{\"id\":\"duplicate\"}]}"),
+                        List.of(definition)));
+
+        assertEquals("ambiguous-match:replace failed: ReplaceMatching found multiple matching entries for replace.",
+                failure.getMessage());
+    }
+
+    private static JsonObject sourceFor(String name) {
+        return switch (name) {
+            case "replace-matching.json" -> object("{\"items\":[{\"id\":\"a\"},{\"id\":\"b\"},{\"id\":\"b\"}]}" );
+            case "move-matching.json" -> object("{\"items\":[{\"id\":\"a\"},{\"id\":\"b\"},{\"id\":\"c\"},{\"id\":\"d\"}]}" );
+            case "remove-matching.json" -> object("{\"items\":[{\"id\":\"keep\"},{\"id\":\"remove\"},{\"id\":\"remove\"},{\"id\":\"tail\"}]}" );
+            case "strict-equals.json" -> object("{\"items\":[{\"id\":\"a\",\"rank\":1},{\"id\":\"b\",\"rank\":1},{\"id\":\"b\",\"rank\":2}]}" );
+            case "strict-contains.json" -> object("{\"items\":[{\"id\":\"one\",\"tags\":[\"x\",\"needle\"]},{\"id\":\"two\",\"tags\":[\"x\"]}]}" );
+            case "target-provided-by.json" -> object("{\"items\":[{\"id\":\"gone\"},{\"id\":\"stay\"}]}" );
+            default -> throw new IllegalArgumentException("No source fixture mapping for " + name);
+        };
+    }
+
+    private static JsonObject expectedFor(String name) {
+        return switch (name) {
+            case "replace-matching.json" -> object("{\"items\":[{\"id\":\"a\"},{\"id\":\"changed\"},{\"id\":\"changed\"}]}" );
+            case "move-matching.json" -> object("{\"items\":[{\"id\":\"a\"},{\"id\":\"c\"},{\"id\":\"b\"},{\"id\":\"d\"}]}" );
+            case "remove-matching.json" -> object("{\"items\":[{\"id\":\"keep\"},{\"id\":\"tail\"}]}" );
+            case "strict-equals.json" -> object("{\"items\":[{\"id\":\"a\",\"rank\":1},{\"id\":\"exact\"},{\"id\":\"b\",\"rank\":2}]}" );
+            case "strict-contains.json" -> object("{\"items\":[{\"id\":\"two\",\"tags\":[\"x\"]}]}" );
+            case "target-provided-by.json" -> object("{\"items\":[{\"id\":\"stay\"}]}" );
+            default -> throw new IllegalArgumentException("No expected fixture mapping for " + name);
+        };
+    }
+
+    private static List<String> fixtureNames(String directory) throws IOException, URISyntaxException {
+        var resource = PatchEngineTest.class.getClassLoader().getResource(directory);
+        if (resource == null) {
+            throw new AssertionError("Missing fixture directory: " + directory);
+        }
+        try (Stream<Path> paths = Files.list(Path.of(resource.toURI()))) {
+            return paths.filter(path -> path.getFileName().toString().endsWith(".json"))
+                    .map(path -> path.getFileName().toString())
+                    .sorted()
+                    .toList();
+        }
+    }
+
+    private static byte[] fixtureBytes(String resource) throws IOException {
+        try (InputStream stream = PatchEngineTest.class.getClassLoader().getResourceAsStream(resource)) {
+            if (stream == null) {
+                throw new AssertionError("Missing fixture: " + resource);
+            }
+            return stream.readAllBytes();
+        }
     }
 
     private static PatchDefinition definition(String json) {

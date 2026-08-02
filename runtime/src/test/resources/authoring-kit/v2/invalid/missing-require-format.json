@@ -1,0 +1,18 @@
+{
+  "FormatVersion": 2,
+  "Id": "missing-require-format",
+  "Target": "Server/Test.json",
+  "Operations": [
+    {
+      "Id": "replace",
+      "Op": "ReplaceMatching",
+      "Path": "/items",
+      "Match": {
+        "id": "b"
+      },
+      "Value": {
+        "id": "changed"
+      }
+    }
+  ]
+}

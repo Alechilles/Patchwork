@@ -1,0 +1,22 @@
+{
+  "FormatVersion": 2,
+  "Id": "invalid-pointer-escape",
+  "Target": "Server/Test.json",
+  "Operations": [
+    {
+      "Op": "RequireFormat",
+      "Version": 2
+    },
+    {
+      "Id": "replace",
+      "Op": "ReplaceMatching",
+      "Path": "/items/~2id",
+      "Match": {
+        "id": "b"
+      },
+      "Value": {
+        "id": "changed"
+      }
+    }
+  ]
+}

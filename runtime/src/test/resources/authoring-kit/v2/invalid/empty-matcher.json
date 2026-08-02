@@ -1,0 +1,17 @@
+{
+  "FormatVersion": 2,
+  "Id": "empty-matcher",
+  "Target": "Server/Test.json",
+  "Operations": [
+    {
+      "Op": "RequireFormat",
+      "Version": 2
+    },
+    {
+      "Id": "remove",
+      "Op": "RemoveMatching",
+      "Path": "/items",
+      "Match": {}
+    }
+  ]
+}

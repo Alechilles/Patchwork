@@ -1,0 +1,1084 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchwork.alecchilles.com/authoring-kit/v2/patch-definition.schema.json",
+  "title": "Patchwork format 2 patch definition",
+  "description": "Closed descriptor schema for the portable Patchwork format 2 contract. Runtime semantics (matching, pointers, ordering, and requiredness) are defined by Patchwork.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "FormatVersion",
+    "Operations"
+  ],
+  "properties": {
+    "FormatVersion": {
+      "const": 2
+    },
+    "Id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "Target": {
+      "type": "string",
+      "minLength": 1
+    },
+    "Targets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "Priority": {
+      "type": "integer"
+    },
+    "Enabled": {
+      "type": "boolean"
+    },
+    "When": {
+      "$ref": "#/$defs/condition"
+    },
+    "Operations": {
+      "type": "array",
+      "minItems": 1,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/requireFormat"
+        }
+      ],
+      "items": {
+        "$ref": "#/$defs/operation"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "oneOf": [
+        {
+          "required": [
+            "Target"
+          ],
+          "not": {
+            "required": [
+              "Targets"
+            ]
+          }
+        },
+        {
+          "required": [
+            "Targets"
+          ],
+          "not": {
+            "required": [
+              "Target"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "$defs": {
+    "jsonValue": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        {
+          "$ref": "#/$defs/jsonObject"
+        }
+      ]
+    },
+    "jsonObject": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/jsonValue"
+      }
+    },
+    "matcher": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Matcher data is intentionally an open JSON object. Format 2 reserves $Equals and $Contains as single-key operators; runtime validation enforces their strict recursive semantics.",
+      "additionalProperties": {
+        "$ref": "#/$defs/jsonValue"
+      }
+    },
+    "path": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "operationId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "matchPolicy": {
+      "type": "string",
+      "enum": [
+        "ExactlyOne",
+        "First",
+        "Last",
+        "All"
+      ]
+    },
+    "position": {
+      "type": "string",
+      "enum": [
+        "Start",
+        "End",
+        "Before",
+        "After"
+      ]
+    },
+    "requireFormat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Op",
+        "Version"
+      ],
+      "properties": {
+        "Op": {
+          "const": "RequireFormat"
+        },
+        "Version": {
+          "const": 2
+        },
+        "Id": {
+          "$ref": "#/$defs/operationId"
+        }
+      }
+    },
+    "replaceMatching": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Op",
+        "Path",
+        "Match",
+        "Value"
+      ],
+      "properties": {
+        "Op": {
+          "const": "ReplaceMatching"
+        },
+        "Path": {
+          "$ref": "#/$defs/path"
+        },
+        "Match": {
+          "$ref": "#/$defs/matcher"
+        },
+        "Value": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "Id": {
+          "$ref": "#/$defs/operationId"
+        },
+        "Required": {
+          "type": "boolean"
+        },
+        "MatchPolicy": {
+          "$ref": "#/$defs/matchPolicy"
+        }
+      }
+    },
+    "removeMatching": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Op",
+        "Path",
+        "Match"
+      ],
+      "properties": {
+        "Op": {
+          "const": "RemoveMatching"
+        },
+        "Path": {
+          "$ref": "#/$defs/path"
+        },
+        "Match": {
+          "$ref": "#/$defs/matcher"
+        },
+        "Id": {
+          "$ref": "#/$defs/operationId"
+        },
+        "Required": {
+          "type": "boolean"
+        },
+        "MatchPolicy": {
+          "$ref": "#/$defs/matchPolicy"
+        }
+      }
+    },
+    "moveMatching": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Op",
+        "Path",
+        "Match"
+      ],
+      "properties": {
+        "Op": {
+          "const": "MoveMatching"
+        },
+        "Path": {
+          "$ref": "#/$defs/path"
+        },
+        "Match": {
+          "$ref": "#/$defs/matcher"
+        },
+        "Id": {
+          "$ref": "#/$defs/operationId"
+        },
+        "Required": {
+          "type": "boolean"
+        },
+        "Position": {
+          "$ref": "#/$defs/position"
+        },
+        "Find": {
+          "$ref": "#/$defs/matcher"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "Find"
+            ]
+          },
+          "then": {
+            "required": [
+              "Position"
+            ],
+            "properties": {
+              "Position": {
+                "enum": [
+                  "Before",
+                  "After"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Position": {
+                "enum": [
+                  "Before",
+                  "After"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "Find"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Position": {
+                "enum": [
+                  "Start",
+                  "End"
+                ]
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "Find"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "add": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Op",
+        "Path",
+        "Value"
+      ],
+      "properties": {
+        "Op": {
+          "const": "Add"
+        },
+        "Path": {
+          "$ref": "#/$defs/path"
+        },
+        "Value": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "Id": {
+          "$ref": "#/$defs/operationId"
+        },
+        "Required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "merge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Op",
+        "Path",
+        "Value"
+      ],
+      "properties": {
+        "Op": {
+          "const": "Merge"
+        },
+        "Path": {
+          "$ref": "#/$defs/path"
+        },
+        "Value": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "Id": {
+          "$ref": "#/$defs/operationId"
+        },
+        "Required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "replace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Op",
+        "Path",
+        "Value"
+      ],
+      "properties": {
+        "Op": {
+          "const": "Replace"
+        },
+        "Path": {
+          "$ref": "#/$defs/path"
+        },
+        "Value": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "Id": {
+          "$ref": "#/$defs/operationId"
+        },
+        "Required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "remove": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Op",
+        "Path"
+      ],
+      "properties": {
+        "Op": {
+          "const": "Remove"
+        },
+        "Path": {
+          "$ref": "#/$defs/path"
+        },
+        "Id": {
+          "$ref": "#/$defs/operationId"
+        },
+        "Required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "insert": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Op",
+        "Path",
+        "Value"
+      ],
+      "properties": {
+        "Op": {
+          "const": "Insert"
+        },
+        "Path": {
+          "$ref": "#/$defs/path"
+        },
+        "Position": {
+          "$ref": "#/$defs/position"
+        },
+        "Find": {
+          "$ref": "#/$defs/matcher"
+        },
+        "Existing": {
+          "$ref": "#/$defs/matcher"
+        },
+        "Value": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "Id": {
+          "$ref": "#/$defs/operationId"
+        },
+        "Required": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "Find"
+            ]
+          },
+          "then": {
+            "required": [
+              "Position"
+            ],
+            "properties": {
+              "Position": {
+                "enum": [
+                  "Before",
+                  "After"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Position": {
+                "enum": [
+                  "Before",
+                  "After"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "Find"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Position": {
+                "enum": [
+                  "Start",
+                  "End"
+                ]
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "Find"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "macro": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Op",
+        "Macro"
+      ],
+      "properties": {
+        "Op": {
+          "const": "Macro"
+        },
+        "Macro": {
+          "type": "string",
+          "minLength": 1
+        },
+        "Options": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "Id": {
+          "$ref": "#/$defs/operationId"
+        },
+        "Required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "operation": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/requireFormat"
+        },
+        {
+          "$ref": "#/$defs/replaceMatching"
+        },
+        {
+          "$ref": "#/$defs/removeMatching"
+        },
+        {
+          "$ref": "#/$defs/moveMatching"
+        },
+        {
+          "$ref": "#/$defs/add"
+        },
+        {
+          "$ref": "#/$defs/merge"
+        },
+        {
+          "$ref": "#/$defs/replace"
+        },
+        {
+          "$ref": "#/$defs/remove"
+        },
+        {
+          "$ref": "#/$defs/insert"
+        },
+        {
+          "$ref": "#/$defs/macro"
+        }
+      ]
+    },
+    "comment": {
+      "type": "string"
+    },
+    "condition": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/modInstalled"
+        },
+        {
+          "$ref": "#/$defs/assetExists"
+        },
+        {
+          "$ref": "#/$defs/assetMissing"
+        },
+        {
+          "$ref": "#/$defs/targetExists"
+        },
+        {
+          "$ref": "#/$defs/targetProvidedBy"
+        },
+        {
+          "$ref": "#/$defs/modVersionCondition"
+        },
+        {
+          "$ref": "#/$defs/serverVersionCondition"
+        },
+        {
+          "$ref": "#/$defs/gameVersionCondition"
+        },
+        {
+          "$ref": "#/$defs/jsonPathExists"
+        },
+        {
+          "$ref": "#/$defs/jsonPathEquals"
+        },
+        {
+          "$ref": "#/$defs/allCondition"
+        },
+        {
+          "$ref": "#/$defs/anyCondition"
+        },
+        {
+          "$ref": "#/$defs/notCondition"
+        }
+      ]
+    },
+    "modInstalled": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ModInstalled"
+      ],
+      "properties": {
+        "ModInstalled": {
+          "type": "string",
+          "minLength": 1
+        },
+        "$Comment": {
+          "$ref": "#/$defs/comment"
+        }
+      }
+    },
+    "assetRef": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "Asset"
+          ],
+          "properties": {
+            "Asset": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "assetExists": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "AssetExists"
+      ],
+      "properties": {
+        "AssetExists": {
+          "$ref": "#/$defs/assetRef"
+        },
+        "$Comment": {
+          "$ref": "#/$defs/comment"
+        }
+      }
+    },
+    "assetMissing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "AssetMissing"
+      ],
+      "properties": {
+        "AssetMissing": {
+          "$ref": "#/$defs/assetRef"
+        },
+        "$Comment": {
+          "$ref": "#/$defs/comment"
+        }
+      }
+    },
+    "targetExists": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "TargetExists"
+      ],
+      "properties": {
+        "TargetExists": {
+          "const": true
+        },
+        "$Comment": {
+          "$ref": "#/$defs/comment"
+        }
+      }
+    },
+    "targetProvidedBy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "TargetProvidedBy"
+      ],
+      "properties": {
+        "TargetProvidedBy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "$Comment": {
+          "$ref": "#/$defs/comment"
+        }
+      }
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+(?:\\.[0-9]+)*$"
+    },
+    "modVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Mod"
+      ],
+      "properties": {
+        "Mod": {
+          "type": "string",
+          "minLength": 1
+        },
+        "Equals": {
+          "$ref": "#/$defs/version"
+        },
+        "AtLeast": {
+          "$ref": "#/$defs/version"
+        },
+        "AtMost": {
+          "$ref": "#/$defs/version"
+        },
+        "Above": {
+          "$ref": "#/$defs/version"
+        },
+        "Below": {
+          "$ref": "#/$defs/version"
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "Equals"
+          ]
+        },
+        {
+          "required": [
+            "AtLeast"
+          ]
+        },
+        {
+          "required": [
+            "AtMost"
+          ]
+        },
+        {
+          "required": [
+            "Above"
+          ]
+        },
+        {
+          "required": [
+            "Below"
+          ]
+        }
+      ]
+    },
+    "serverVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "Equals": {
+          "$ref": "#/$defs/version"
+        },
+        "AtLeast": {
+          "$ref": "#/$defs/version"
+        },
+        "AtMost": {
+          "$ref": "#/$defs/version"
+        },
+        "Above": {
+          "$ref": "#/$defs/version"
+        },
+        "Below": {
+          "$ref": "#/$defs/version"
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "Equals"
+          ]
+        },
+        {
+          "required": [
+            "AtLeast"
+          ]
+        },
+        {
+          "required": [
+            "AtMost"
+          ]
+        },
+        {
+          "required": [
+            "Above"
+          ]
+        },
+        {
+          "required": [
+            "Below"
+          ]
+        }
+      ]
+    },
+    "modVersionCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ModVersion"
+      ],
+      "properties": {
+        "ModVersion": {
+          "$ref": "#/$defs/modVersion"
+        },
+        "$Comment": {
+          "$ref": "#/$defs/comment"
+        }
+      }
+    },
+    "serverVersionCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ServerVersion"
+      ],
+      "properties": {
+        "ServerVersion": {
+          "$ref": "#/$defs/serverVersion"
+        },
+        "$Comment": {
+          "$ref": "#/$defs/comment"
+        }
+      }
+    },
+    "gameVersionCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "GameVersion"
+      ],
+      "properties": {
+        "GameVersion": {
+          "$ref": "#/$defs/serverVersion"
+        },
+        "$Comment": {
+          "$ref": "#/$defs/comment"
+        }
+      }
+    },
+    "source": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "Type"
+          ],
+          "properties": {
+            "Type": {
+              "const": "Target"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "Type",
+            "Path"
+          ],
+          "properties": {
+            "Type": {
+              "const": "Asset"
+            },
+            "Path": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "Type",
+            "Mod",
+            "Path"
+          ],
+          "properties": {
+            "Type": {
+              "const": "ModData"
+            },
+            "Mod": {
+              "type": "string",
+              "minLength": 1
+            },
+            "Path": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "jsonConditionFields": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Path"
+      ],
+      "properties": {
+        "Path": {
+          "type": "string"
+        },
+        "Asset": {
+          "type": "string",
+          "minLength": 1
+        },
+        "Source": {
+          "$ref": "#/$defs/source"
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "Asset",
+              "Source"
+            ]
+          }
+        }
+      ]
+    },
+    "jsonPathExists": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "JsonPathExists"
+      ],
+      "properties": {
+        "JsonPathExists": {
+          "$ref": "#/$defs/jsonConditionFields"
+        },
+        "$Comment": {
+          "$ref": "#/$defs/comment"
+        }
+      }
+    },
+    "jsonPathEqualsFields": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Path"
+      ],
+      "properties": {
+        "Path": {
+          "type": "string"
+        },
+        "Asset": {
+          "type": "string",
+          "minLength": 1
+        },
+        "Source": {
+          "$ref": "#/$defs/source"
+        },
+        "Value": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "Equals": {
+          "$ref": "#/$defs/jsonValue"
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "Asset",
+              "Source"
+            ]
+          }
+        },
+        {
+          "anyOf": [
+            {
+              "required": [
+                "Value"
+              ]
+            },
+            {
+              "required": [
+                "Equals"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "jsonPathEquals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "JsonPathEquals"
+      ],
+      "properties": {
+        "JsonPathEquals": {
+          "$ref": "#/$defs/jsonPathEqualsFields"
+        },
+        "$Comment": {
+          "$ref": "#/$defs/comment"
+        }
+      }
+    },
+    "allCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "All"
+      ],
+      "properties": {
+        "All": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/condition"
+          }
+        },
+        "$Comment": {
+          "$ref": "#/$defs/comment"
+        }
+      }
+    },
+    "anyCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Any"
+      ],
+      "properties": {
+        "Any": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/condition"
+          }
+        },
+        "$Comment": {
+          "$ref": "#/$defs/comment"
+        }
+      }
+    },
+    "notCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Not"
+      ],
+      "properties": {
+        "Not": {
+          "$ref": "#/$defs/condition"
+        },
+        "$Comment": {
+          "$ref": "#/$defs/comment"
+        }
+      }
+    }
+  }
+}

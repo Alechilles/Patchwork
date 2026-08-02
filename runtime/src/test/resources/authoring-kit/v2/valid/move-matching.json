@@ -1,0 +1,23 @@
+{
+  "FormatVersion": 2,
+  "Id": "move-matching",
+  "Target": "Server/Test.json",
+  "Operations": [
+    {
+      "Op": "RequireFormat",
+      "Version": 2
+    },
+    {
+      "Id": "move",
+      "Op": "MoveMatching",
+      "Path": "/items",
+      "Match": {
+        "id": "b"
+      },
+      "Position": "Before",
+      "Find": {
+        "id": "d"
+      }
+    }
+  ]
+}

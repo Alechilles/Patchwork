@@ -1,10 +1,21 @@
 package com.alechilles.patchwork.engine;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Stream;
 
+import com.alechilles.patchwork.conditions.PatchCondition;
+import com.alechilles.patchwork.format.PatchDefinitionReader;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Test;
@@ -172,7 +183,75 @@ final class PatchDefinitionTest {
                   { "Op": "MoveMatching", "Path": "/items", "Match": { "id": "x" },
                     "Position": "Before" }
                 ] }
-                """), "pack", "patch.json"));
+        """), "pack", "patch.json"));
+    }
+
+    @Test
+    void parsesEveryShippedFormatTwoValidAuthoringFixtureThroughTheByteReader() throws Exception {
+        for (String name : fixtureNames("authoring-kit/v2/valid")) {
+            byte[] bytes = fixtureBytes("authoring-kit/v2/valid/" + name);
+            JsonObject root = PatchDefinitionReader.parse(bytes, "Fixture:Authoring", name, 0);
+            List<PatchDefinition> definitions = PatchDefinition.parseAll(root, "Fixture:Authoring", name);
+
+            assertFalse(definitions.isEmpty(), name);
+            assertEquals(2, definitions.getFirst().formatVersion(), name);
+        }
+    }
+
+    @Test
+    void rejectsEveryShippedInvalidAuthoringFixtureBeforeEngineApplication() throws Exception {
+        for (String name : fixtureNames("authoring-kit/v2/invalid")) {
+            if ("ambiguous-match.json".equals(name)) {
+                continue;
+            }
+            byte[] bytes = fixtureBytes("authoring-kit/v2/invalid/" + name);
+            assertThrows(IllegalArgumentException.class, () -> {
+                JsonObject root = PatchDefinitionReader.parse(bytes, "Fixture:Authoring", name, 0);
+                PatchDefinition.parseAll(root, "Fixture:Authoring", name);
+            }, name);
+        }
+    }
+
+    @Test
+    void parsesTargetProvidedByConditionFromAuthoringKitFixture() throws Exception {
+        byte[] bytes = fixtureBytes("authoring-kit/v2/valid/target-provided-by.json");
+        JsonObject root = PatchDefinitionReader.parse(bytes, "Fixture:Authoring", "target-provided-by.json", 0);
+        PatchCondition condition = PatchDefinition.parse(root, "Fixture:Authoring", "target-provided-by.json").condition();
+
+        PatchCondition.TargetProvidedBy provider = assertInstanceOf(PatchCondition.TargetProvidedBy.class, condition);
+        assertEquals("Fixture:Provider", provider.sourcePackId());
+    }
+
+    @Test
+    void duplicateKeyFixtureIsRejectedByByteReaderBeforeDefinitionParsing() throws Exception {
+        byte[] bytes = fixtureBytes("authoring-kit/v2/invalid/duplicate-key.json");
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> PatchDefinitionReader.parse(bytes, "Fixture:Authoring", "duplicate-key.json", 0));
+
+        assertEquals("Format 2 patch definitions must not contain duplicate JSON object keys.", failure.getMessage());
+    }
+
+    private static List<String> fixtureNames(String directory) throws IOException, URISyntaxException {
+        var resource = PatchDefinitionTest.class.getClassLoader().getResource(directory);
+        if (resource == null) {
+            throw new AssertionError("Missing fixture directory: " + directory);
+        }
+        try (Stream<Path> paths = Files.list(Path.of(resource.toURI()))) {
+            return paths.filter(path -> path.getFileName().toString().endsWith(".json"))
+                    .map(path -> path.getFileName().toString())
+                    .sorted(Comparator.naturalOrder())
+                    .toList();
+        }
+    }
+
+    private static byte[] fixtureBytes(String resource) throws IOException {
+        try (InputStream stream = PatchDefinitionTest.class.getClassLoader().getResourceAsStream(resource)) {
+            if (stream == null) {
+                throw new AssertionError("Missing fixture: " + resource);
+            }
+            return stream.readAllBytes();
+        }
     }
 
     private static JsonObject object(String json) {

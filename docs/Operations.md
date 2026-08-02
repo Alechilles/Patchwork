@@ -12,6 +12,16 @@ The elected runtime registers one command tree:
 
 All commands require `patchwork.admin` and default to the `hytale:Admin` group. Passive copies do not register commands.
 
+## Authoring contract
+
+The portable format-2 authoring kit is shipped at `docs/authoring-kit/v2/` in the Patchwork source distribution:
+
+- `patch-definition.schema.json` closes definition, operation, and condition descriptors while leaving JSON data containers opaque;
+- `capabilities.json` is the current capability document (`supportedFormatVersions: [1, 2]`), including matcher operations and the exact `TargetProvidedBy` condition; and
+- the runtime conformance corpus lives under `runtime/src/test/resources/authoring-kit/v2/`.
+
+There is no built-in macro descriptor version. Macro option schemas remain host-provider data; a provider may publish descriptors below `Server/Patchwork/Authoring/Macros/**/*.json`.
+
 ## Generation triggers
 
 Patchwork has exactly two generation triggers:

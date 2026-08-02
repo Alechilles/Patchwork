@@ -1,0 +1,23 @@
+{
+  "FormatVersion": 2,
+  "Id": "unknown-operation-field",
+  "Target": "Server/Test.json",
+  "Operations": [
+    {
+      "Op": "RequireFormat",
+      "Version": 2
+    },
+    {
+      "Id": "replace",
+      "Op": "ReplaceMatching",
+      "Path": "/items",
+      "Match": {
+        "id": "b"
+      },
+      "Value": {
+        "id": "changed"
+      },
+      "Unexpected": true
+    }
+  ]
+}

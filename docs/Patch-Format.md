@@ -16,6 +16,16 @@ Roots are scanned from legacy to neutral. Within a source pack, an enabled neutr
 
 A duplicate enabled key inside the same root rejects the entire later definition file, including any unrelated targets expanded from that file. The generated pack is never scanned as an input.
 
+## Format versions
+
+Definitions without `FormatVersion` use legacy format 1. Format 2 definitions set `"FormatVersion": 2` and are validated with a closed root and operation grammar. A format-2 definition must begin with exactly one compatibility sentinel:
+
+```json
+{ "Op": "RequireFormat", "Version": 2 }
+```
+
+The sentinel must be operation index zero, its `Version` must equal the root `FormatVersion`, and it cannot define `Required` or any other operation fields. A second or differently-cased `RequireFormat` is invalid. Format 1 remains supported explicitly; it does not acquire format-2 pointer or matcher semantics by inference.
+
 ## Definition fields
 
 ```json
@@ -48,7 +58,7 @@ A duplicate enabled key inside the same root rejects the entire later definition
 | `When` | No | One condition object. Missing means always eligible. |
 | `Operations` | Yes | Array of operations, applied in order. |
 
-Definitions for the same target are ordered by `Priority`, then patch `Id`, then contributing pack load order. Each target is generated independently: a failed target does not prevent unrelated valid targets from being generated.
+Definitions for the same target are ordered by `Priority`, then patch `Id` by unsigned UTF-8 bytes, then contributing pack load order, then source-pack ID by unsigned UTF-8 bytes. Strings are compared exactly, without normalization or locale collation. The same total ordering is used when selecting a winning source pack. Each target is generated independently: a failed target does not prevent unrelated valid targets from being generated.
 
 Asset paths use forward-slash form, such as `Server/Item/Items/Foo.json`. Absolute paths, drive-prefixed paths, empty segments, `.` and `..` are rejected.
 
@@ -59,6 +69,39 @@ Every operation requires `Op`. `Id` defaults to `<patch-id>#<operation-index>`, 
 When a required operation fails, that target fails. With `"Required": false`, the operation is reported as skipped and later operations continue.
 
 Paths use JSON Pointer syntax. `/A/B/0` addresses an array entry; `~1` represents `/` and `~0` represents `~` inside a token.
+
+### Format 2 pointers and matchers
+
+Format 2 applies RFC 6901 pointer semantics before an operation can run:
+
+- the empty pointer addresses the document root and `/` addresses an empty property name;
+- only `~0` and `~1` escapes are valid;
+- array indexes are `0` or non-zero digits without a leading zero, and must fit a non-negative 32-bit integer; and
+- `-` is accepted only as the final `Add` token for array append.
+
+Invalid pointer syntax is a structural error, so `Required: false` cannot hide it. Format 1 keeps its existing pointer compatibility behavior.
+
+Format-2 matchers are non-empty objects. Ordinary keys recursively require the declared fields. Reserved operators must be the sole key of their matcher object:
+
+```json
+{ "$Equals": { "Id": "Exact", "Rank": 1 } }
+{ "$Contains": { "$Equals": "needle" } }
+```
+
+`$Equals` performs strict recursive JSON equality (including object keys, array order, and numeric value equality). `$Contains` applies its nested matcher to at least one element of an array. A reserved operator combined with another key, an empty matcher, or malformed operator data is invalid before application.
+
+### Matcher-based array operations
+
+Format 2 adds three portable operations. Every operation requires an existing array at `Path` and a `Match` object. `MatchPolicy` defaults to `ExactlyOne` and is case-insensitive:
+
+| Policy | Selection |
+| --- | --- |
+| `ExactlyOne` | exactly one match; zero or multiple matches fail |
+| `First` | the lowest matching index; zero matches fail |
+| `Last` | the highest matching index; zero matches fail |
+| `All` | every matching index; zero matches fail |
+
+`ReplaceMatching` additionally requires `Value` and deep-copies it into each selected entry. `RemoveMatching` removes selected entries from highest index to lowest. `MoveMatching` always selects exactly one entry, then moves it to `Start`, `End`, or immediately `Before`/`After` one `Find` anchor. `Before` and `After` require a `Find` matcher; `Start` and `End` forbid one. A self-anchor or an ambiguous/missing anchor fails the operation. Applicability failures follow `Required`: required failures reject the target, while optional failures are reported as skipped.
 
 ### Add
 
@@ -184,6 +227,16 @@ A condition object defines exactly one condition key. `$Comment` may accompany t
 ```
 
 `TargetExists` refers to the current definition's target.
+
+### Winning target provider
+
+`TargetProvidedBy` compares an exact, case-sensitive source-pack ID with the provider that won target resolution:
+
+```json
+{ "TargetProvidedBy": "Example:Dragons" }
+```
+
+The condition is evaluated only after the target has resolved. A different or unavailable provider is `NOT_MATCHED`; Patchwork carries the already-resolved target snapshot into condition evaluation and does not perform a second lookup.
 
 ### JSON path checks
 

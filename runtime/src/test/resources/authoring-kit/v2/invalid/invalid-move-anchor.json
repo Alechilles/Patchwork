@@ -1,0 +1,20 @@
+{
+  "FormatVersion": 2,
+  "Id": "invalid-move-anchor",
+  "Target": "Server/Test.json",
+  "Operations": [
+    {
+      "Op": "RequireFormat",
+      "Version": 2
+    },
+    {
+      "Id": "move",
+      "Op": "MoveMatching",
+      "Path": "/items",
+      "Match": {
+        "id": "moving"
+      },
+      "Position": "Before"
+    }
+  ]
+}

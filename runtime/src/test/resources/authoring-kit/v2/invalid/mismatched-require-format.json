@@ -1,0 +1,11 @@
+{
+  "FormatVersion": 2,
+  "Id": "mismatched-require-format",
+  "Target": "Server/Test.json",
+  "Operations": [
+    {
+      "Op": "RequireFormat",
+      "Version": 1
+    }
+  ]
+}

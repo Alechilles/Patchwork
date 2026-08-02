@@ -1,0 +1,22 @@
+{
+  "FormatVersion": 2,
+  "Id": "target-provided-by",
+  "Target": "Server/Test.json",
+  "When": {
+    "TargetProvidedBy": "Fixture:Provider"
+  },
+  "Operations": [
+    {
+      "Op": "RequireFormat",
+      "Version": 2
+    },
+    {
+      "Id": "remove-provider-entry",
+      "Op": "RemoveMatching",
+      "Path": "/items",
+      "Match": {
+        "id": "gone"
+      }
+    }
+  ]
+}

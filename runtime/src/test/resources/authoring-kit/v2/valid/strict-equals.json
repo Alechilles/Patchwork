@@ -1,0 +1,25 @@
+{
+  "FormatVersion": 2,
+  "Id": "strict-equals",
+  "Target": "Server/Test.json",
+  "Operations": [
+    {
+      "Op": "RequireFormat",
+      "Version": 2
+    },
+    {
+      "Id": "exact",
+      "Op": "ReplaceMatching",
+      "Path": "/items",
+      "Match": {
+        "$Equals": {
+          "id": "b",
+          "rank": 1
+        }
+      },
+      "Value": {
+        "id": "exact"
+      }
+    }
+  ]
+}

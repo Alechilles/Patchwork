@@ -1,0 +1,12 @@
+{
+  "FormatVersion": 2,
+  "Id": "duplicate-first",
+  "Id": "duplicate-second",
+  "Target": "Server/Test.json",
+  "Operations": [
+    {
+      "Op": "RequireFormat",
+      "Version": 2
+    }
+  ]
+}

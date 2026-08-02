@@ -1,0 +1,22 @@
+{
+  "FormatVersion": 2,
+  "Id": "ambiguous-match",
+  "Target": "Server/Test.json",
+  "Operations": [
+    {
+      "Op": "RequireFormat",
+      "Version": 2
+    },
+    {
+      "Id": "replace",
+      "Op": "ReplaceMatching",
+      "Path": "/items",
+      "Match": {
+        "id": "duplicate"
+      },
+      "Value": {
+        "id": "changed"
+      }
+    }
+  ]
+}

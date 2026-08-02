@@ -1,0 +1,24 @@
+{
+  "FormatVersion": 2,
+  "Id": "strict-contains",
+  "Target": "Server/Test.json",
+  "Operations": [
+    {
+      "Op": "RequireFormat",
+      "Version": 2
+    },
+    {
+      "Id": "remove-containing",
+      "Op": "RemoveMatching",
+      "Path": "/items",
+      "Match": {
+        "tags": {
+          "$Contains": {
+            "$Equals": "needle"
+          }
+        }
+      },
+      "MatchPolicy": "All"
+    }
+  ]
+}

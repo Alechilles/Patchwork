@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "Patchwork",
+  "contractVersion": 2,
+  "definitionSchema": "./patch-definition.schema.json",
+  "supportedFormatVersions": [
+    1,
+    2
+  ],
+  "macroDescriptorVersion": null,
+  "operations": [
+    "RequireFormat",
+    "Add",
+    "Merge",
+    "Replace",
+    "Remove",
+    "Insert",
+    "ReplaceMatching",
+    "RemoveMatching",
+    "MoveMatching",
+    "Macro"
+  ],
+  "conditions": [
+    "ModInstalled",
+    "AssetExists",
+    "AssetMissing",
+    "TargetExists",
+    "TargetProvidedBy",
+    "ModVersion",
+    "ServerVersion",
+    "GameVersion",
+    "JsonPathExists",
+    "JsonPathEquals",
+    "All",
+    "Any",
+    "Not"
+  ],
+  "TargetProvidedBy": {
+    "conditionKey": "TargetProvidedBy",
+    "value": "winning-source-pack-id",
+    "comparison": "exact-case-sensitive"
+  },
+  "macroDescriptors": {
+    "builtInVersion": null,
+    "hostProvided": true,
+    "location": "Server/Patchwork/Authoring/Macros/**/*.json"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "FormatVersion": 2,
+  "Id": "replace-matching",
+  "Target": "Server/Test.json",
+  "When": {
+    "TargetProvidedBy": "Fixture:Provider"
+  },
+  "Operations": [
+    {
+      "Op": "RequireFormat",
+      "Version": 2
+    },
+    {
+      "Id": "replace",
+      "Op": "ReplaceMatching",
+      "Path": "/items",
+      "Match": {
+        "id": "b"
+      },
+      "MatchPolicy": "All",
+      "Value": {
+        "id": "changed"
+      }
+    }
+  ]
+}
