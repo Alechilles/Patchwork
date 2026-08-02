@@ -1,6 +1,9 @@
 package com.alechilles.patchwork.conditions;
 
 import com.alechilles.patchwork.discovery.PatchSource;
+import com.alechilles.patchwork.format.JsonMatcher;
+import com.alechilles.patchwork.format.JsonPointer;
+import com.alechilles.patchwork.format.PatchFormat;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -22,15 +25,62 @@ public final class PatchConditionEvaluator {
         if (c instanceof PatchCondition.TargetExists) return x.targetBytes() != null ? matched() : no("Target is missing: " + x.targetPath());
         if (c instanceof PatchCondition.ModVersion v) return version(x.versions().get(v.modId()), v.matcher()) ? matched() : no("Installed mod version does not match: " + v.modId());
         if (c instanceof PatchCondition.ServerVersion v) return version(x.serverVersion(), v.matcher()) ? matched() : no("Server version does not match.");
-        if (c instanceof PatchCondition.JsonPathExists v) return json(v.source(), v.path(), null, false, x);
-        if (c instanceof PatchCondition.JsonPathEquals v) return json(v.source(), v.path(), v.expected(), true, x);
+        if (c instanceof PatchCondition.JsonPathExists v) return json(v.source(), v.path(), null, false, v.formatVersion(), x);
+        if (c instanceof PatchCondition.JsonPathEquals v) return json(v.source(), v.path(), v.expected(), true, v.formatVersion(), x);
         if (c instanceof PatchCondition.All v) { for (PatchCondition child : v.children()) { Evaluation e = evaluateNode(child, x); if (e.status() != Status.MATCHED) return e; } return matched(); }
         if (c instanceof PatchCondition.Any v) { Evaluation last = no("No Any condition matched."); for (PatchCondition child : v.children()) { Evaluation e = evaluateNode(child, x); if (e.status() == Status.MATCHED) return e; if (e.status() == Status.FAILED) return e; last = e; } return last; }
         return invert(evaluateNode(((PatchCondition.Not) c).child(), x));
     }
     private Evaluation asset(String path, boolean exists, EvaluationContext x) { var result = x.resolver().assetResolution(x.sources(), path); if (result.status() == com.alechilles.patchwork.discovery.PatchTargetResolver.Status.FAILED) return failed(result.diagnostic()); boolean present = result.status() == com.alechilles.patchwork.discovery.PatchTargetResolver.Status.FOUND; return present == exists ? matched() : no(exists ? "Required asset is missing: " + path : "Asset is present: " + path); }
-    private Evaluation json(ConditionSource source, String pointer, JsonElement expected, boolean equals, EvaluationContext x) { ConditionSourceResolver.Result result = x.resolver().resolve(source, x.targetPath(), x.targetBytes(), x.sources()); if (result.status() == ConditionSourceResolver.ResultStatus.FAILED) return failed(result.diagnostic()); if (result.status() == ConditionSourceResolver.ResultStatus.MISSING) return no(result.diagnostic()); Pointer value = pointer(result.document(), pointer); if (!value.present()) return no("JSON pointer did not resolve."); return !equals || value.value().equals(expected) ? matched() : no("JSON value did not match."); }
-    private static Pointer pointer(JsonElement doc, String path) { if (path.isEmpty()) return new Pointer(true, doc); if (!path.startsWith("/")) return new Pointer(false, null); JsonElement value = doc; for (String raw : path.substring(1).split("/", -1)) { String part = raw.replace("~1", "/").replace("~0", "~"); if (value instanceof JsonObject object) { if (!object.has(part)) return new Pointer(false, null); value = object.get(part); } else if (value instanceof JsonArray array && part.matches("0|[1-9]\\d*")) { int i; try { i = Integer.parseInt(part); } catch (NumberFormatException e) { return new Pointer(false, null); } if (i >= array.size()) return new Pointer(false, null); value = array.get(i); } else return new Pointer(false, null); } return new Pointer(true, value); }
+    private Evaluation json(ConditionSource source, String pointer, JsonElement expected, boolean equals,
+                            int formatVersion, EvaluationContext x) {
+        ConditionSourceResolver.Result result = x.resolver().resolve(source, x.targetPath(), x.targetBytes(), x.sources());
+        if (result.status() == ConditionSourceResolver.ResultStatus.FAILED) return failed(result.diagnostic());
+        if (result.status() == ConditionSourceResolver.ResultStatus.MISSING) return no(result.diagnostic());
+        final List<String> tokens;
+        try {
+            // The old evaluator treated '/' as an empty-property token while the
+            // engine's legacy tokenizer treated it as the document root. Keep
+            // that condition compatibility quirk isolated to format 1.
+            tokens = !PatchFormat.isVersion2(formatVersion) && "/".equals(pointer)
+                    ? List.of("") : JsonPointer.tokens(pointer, formatVersion, false);
+        } catch (IllegalArgumentException failure) {
+            return PatchFormat.isVersion2(formatVersion)
+                    ? failed("JSON pointer is invalid.") : no("JSON pointer did not resolve.");
+        }
+        Pointer value;
+        try {
+            value = pointer(result.document(), tokens, formatVersion);
+        } catch (IllegalArgumentException failure) {
+            return PatchFormat.isVersion2(formatVersion)
+                    ? failed("JSON pointer is invalid.") : no("JSON pointer did not resolve.");
+        }
+        if (!value.present()) return no("JSON pointer did not resolve.");
+        if (!equals) return matched();
+        if (PatchFormat.isVersion2(formatVersion)) {
+            JsonObject exact = new JsonObject();
+            exact.add("$Equals", expected.deepCopy());
+            return JsonMatcher.matches(value.value(), exact, formatVersion)
+                    ? matched() : no("JSON value did not match.");
+        }
+        return value.value().equals(expected) ? matched() : no("JSON value did not match.");
+    }
+
+    private static Pointer pointer(JsonElement doc, List<String> tokens, int formatVersion) {
+        JsonElement value = doc;
+        for (String part : tokens) {
+            if (value instanceof JsonObject object) {
+                if (!object.has(part)) return new Pointer(false, null);
+                value = object.get(part);
+            } else if (value instanceof JsonArray array) {
+                int index = JsonPointer.arrayIndex(part, array.size(), false, formatVersion);
+                value = array.get(index);
+            } else {
+                return new Pointer(false, null);
+            }
+        }
+        return new Pointer(true, value);
+    }
     private static boolean version(String actual, PatchCondition.VersionMatcher m) { if (actual == null || !actual.matches("\\d+(\\.\\d+)*")) return false; return check(actual, m.equals(), 0) && check(actual, m.atLeast(), 1) && check(actual, m.atMost(), -1) && check(actual, m.above(), 2) && check(actual, m.below(), -2); }
     private static boolean check(String actual, String expected, int mode) { if (expected == null) return true; int c = compare(actual, expected); return mode == 0 ? c == 0 : mode == 1 ? c >= 0 : mode == -1 ? c <= 0 : mode == 2 ? c > 0 : c < 0; }
     private static int compare(String a, String b) { String[] x = a.split("\\."), y = b.split("\\."); for (int i = 0; i < Math.max(x.length, y.length); i++) { int c = (i < x.length ? new BigInteger(x[i]) : BigInteger.ZERO).compareTo(i < y.length ? new BigInteger(y[i]) : BigInteger.ZERO); if (c != 0) return c; } return 0; }

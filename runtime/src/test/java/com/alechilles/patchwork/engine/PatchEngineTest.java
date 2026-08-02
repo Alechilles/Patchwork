@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 
+import com.alechilles.patchwork.format.JsonMatcher;
+import com.alechilles.patchwork.format.JsonPointer;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Test;
@@ -170,6 +172,37 @@ final class PatchEngineTest {
         assertEquals("required:anchor failed: Insert anchor not found for anchor.", failure.getMessage());
         PatchEngine.PatchResult optionalResult = engine.apply(object("{ \"items\": [] }"), List.of(optional));
         assertEquals(List.of("optional:anchor failed: Insert anchor not found for anchor."), optionalResult.skipped());
+    }
+
+    @Test
+    void appliesStrictV2MatcherEqualityAndContainsShapes() {
+        assertTrue(JsonMatcher.matches(JsonParser.parseString("1.0"), object("{ \"$Equals\": 1e0 }"), 2));
+        assertTrue(JsonMatcher.matches(JsonParser.parseString("[\"a\", \"b\"]"),
+                object("{ \"$Contains\": { \"$Equals\": \"b\" } }"), 2));
+        assertThrows(IllegalArgumentException.class, () -> JsonMatcher.validateV2(object("{}")));
+        assertThrows(IllegalArgumentException.class,
+                () -> JsonMatcher.validateV2(object("{ \"$Equals\": 1, \"Id\": \"x\" }")));
+    }
+
+    @Test
+    void rejectsStrictPointerIndexesAndDocumentMutationButKeepsLegacyIndexes() {
+        assertThrows(IllegalArgumentException.class, () -> JsonPointer.tokens("", 2, true));
+        PatchDefinition strict = definition("""
+                { "FormatVersion": 2, "Id": "strict-index", "Target": "Server/Test.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 },
+                  { "Op": "Replace", "Path": "/items/01", "Value": "changed" }
+                ] }
+                """);
+        assertThrows(PatchEngine.PatchFailureException.class,
+                () -> engine.apply(object("{ \"items\": [\"zero\", \"one\"] }"), List.of(strict)));
+
+        PatchDefinition legacy = definition("""
+                { "Id": "legacy-index", "Target": "Server/Test.json", "Operations": [
+                  { "Op": "Replace", "Path": "/items/01", "Value": "changed" }
+                ] }
+                """);
+        PatchEngine.PatchResult result = engine.apply(object("{ \"items\": [\"zero\", \"one\"] }"), List.of(legacy));
+        assertEquals("changed", result.patched().getAsJsonArray("items").get(1).getAsString());
     }
 
     private static PatchDefinition definition(String json) {

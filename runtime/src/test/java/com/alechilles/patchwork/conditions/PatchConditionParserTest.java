@@ -101,4 +101,21 @@ final class PatchConditionParserTest {
         assertEquals("", exists.path());
         assertEquals("", equals.path());
     }
+
+    @Test
+    void carriesFormatVersionIntoStrictJsonPathConditions() {
+        PatchCondition.JsonPathExists strict = assertInstanceOf(PatchCondition.JsonPathExists.class,
+                parser.parse(JsonParser.parseString("{\"JsonPathExists\":{\"Path\":\"/enabled\"}}").getAsJsonObject(), 2));
+        assertEquals(2, strict.formatVersion());
+        PatchCondition.JsonPathExists legacy = assertInstanceOf(PatchCondition.JsonPathExists.class,
+                parser.parse(JsonParser.parseString("{\"JsonPathExists\":{\"Path\":\"/enabled\"}}").getAsJsonObject()));
+        assertEquals(1, legacy.formatVersion());
+    }
+
+    @Test
+    void rejectsMalformedStrictJsonPointerEscapes() {
+        assertThrows(IllegalArgumentException.class, () -> parser.parse(JsonParser.parseString(
+                "{\"JsonPathExists\":{\"Path\":\"/a~2b\"}}"
+        ).getAsJsonObject(), 2));
+    }
 }

@@ -251,4 +251,17 @@ final class PatchConditionEvaluatorTest {
         assertEquals(1, resolver.resolve(new ConditionSource.ModData("Example:Mod", "config\\settings.json"), "Target.json", null, List.of()).document().getAsJsonObject().get("v").getAsInt());
         assertEquals(1, resolver.documentCache().snapshotCount());
     }
+
+    @Test
+    void comparesFormatTwoJsonNumbersByExactDecimalValue() {
+        ConditionSourceResolver resolver = new ConditionSourceResolver(
+                new PatchTargetResolver(), new ModDataRootRegistry(Map.of()), new ConditionDocumentCache());
+        PatchConditionEvaluator.EvaluationContext context = new PatchConditionEvaluator.EvaluationContext(
+                List.of(), Map.of(), null, "Target.json", "{\"value\":1.0}".getBytes(StandardCharsets.UTF_8), resolver);
+        PatchCondition condition = new PatchConditionParser().parse(JsonParser.parseString(
+                "{\"JsonPathEquals\":{\"Path\":\"/value\",\"Value\":1e0}}"
+        ).getAsJsonObject(), 2);
+
+        assertTrue(new PatchConditionEvaluator().evaluate(condition, context).matched());
+    }
 }
