@@ -16,6 +16,18 @@ HyCreator infers safe operation details, target identity, and destination automa
 
 This is the complete product scope. The delivery slices at the end organize implementation but do not exclude later capabilities from the design.
 
+## Implemented Patchwork hand-off baseline
+
+Patchwork now ships the format-2 runtime contract that HyCreator can target. The machine-readable sources of truth are [`docs/authoring-kit/v2/patch-definition.schema.json`](../../authoring-kit/v2/patch-definition.schema.json), [`docs/authoring-kit/v2/capabilities.json`](../../authoring-kit/v2/capabilities.json), and the valid/invalid conformance fixtures below `runtime/src/test/resources/authoring-kit/v2`.
+
+Array authoring must emit the dedicated format-2 operations rather than adding matcher fields to legacy `Replace` or `Remove` operations:
+
+- `ReplaceMatching` replaces entries selected by `ExactlyOne`, `First`, `Last`, or `All`.
+- `RemoveMatching` removes entries selected by the same four policies.
+- `MoveMatching` selects exactly one item and moves it to `Start`, `End`, or relative to one distinct `Before`/`After` anchor.
+
+HyCreator generates and hides the required `RequireFormat` sentinel, evaluates item and anchor matches against the pre-operation array snapshot, and presents missing, ambiguous, or self-anchored matches as contextual validation errors. The visual examples described below use this implemented contract.
+
 ## Goals
 
 - Make every standard Patchwork operation authorable without raw JSON.
