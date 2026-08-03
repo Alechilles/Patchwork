@@ -1,0 +1,15 @@
+{
+  "FormatVersion": 2,
+  "Id": "HyCreatorPatchTest_RemoveMatching",
+  "Target": "Server/Item/Recipes/Salvage/Salvage_Weapon_Blowgun_Tribal.json",
+  "Operations": [
+    { "Op": "RequireFormat", "Version": 2 },
+    {
+      "Id": "remove-light-hide-output",
+      "Op": "RemoveMatching",
+      "Path": "/Output",
+      "Match": { "ItemId": "Ingredient_Hide_Light" },
+      "MatchPolicy": "ExactlyOne"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "FormatVersion": 2,
+  "Id": "HyCreatorPatchTest_Add",
+  "Target": "Server/Item/Items/Ingredient/Bar/Ingredient_Bar_Iron.json",
+  "Operations": [
+    { "Op": "RequireFormat", "Version": 2 },
+    {
+      "Id": "add-fixture-tag",
+      "Op": "Add",
+      "Path": "/Tags/PatchworkFixtureAdd",
+      "Value": ["HyCreator"]
+    }
+  ]
+}

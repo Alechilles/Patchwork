@@ -1,0 +1,20 @@
+{
+  "FormatVersion": 2,
+  "Id": "HyCreatorPatchTest_Insert",
+  "Target": "Server/Item/Recipes/Salvage/Salvage_Armor_Wood_Hands.json",
+  "Operations": [
+    { "Op": "RequireFormat", "Version": 2 },
+    {
+      "Id": "insert-tree-sap-after-stick",
+      "Op": "Insert",
+      "Path": "/Output",
+      "Position": "After",
+      "Find": { "ItemId": "Ingredient_Stick" },
+      "Existing": { "ItemId": "Ingredient_Tree_Sap" },
+      "Value": {
+        "ItemId": "Ingredient_Tree_Sap",
+        "Quantity": 1
+      }
+    }
+  ]
+}

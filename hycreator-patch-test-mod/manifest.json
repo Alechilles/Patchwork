@@ -1,0 +1,22 @@
+{
+  "Group": "Alechilles",
+  "Name": "Patchwork HyCreator Test",
+  "Version": "1.0.0",
+  "Description": "Portable Patchwork format-2 fixture for HyCreator authoring tests.",
+  "Authors": [
+    {
+      "Name": "Alec (Alechilles)",
+      "Email": "",
+      "Url": "",
+      "Discord": "alechilles"
+    }
+  ],
+  "Website": "",
+  "ServerVersion": "0.5.x",
+  "Dependencies": {},
+  "OptionalDependencies": {},
+  "LoadBefore": {},
+  "DisabledByDefault": false,
+  "IncludesAssetPack": true,
+  "SubPlugins": []
+}

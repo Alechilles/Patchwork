@@ -1,0 +1,13 @@
+{
+  "FormatVersion": 2,
+  "Id": "HyCreatorPatchTest_Remove",
+  "Target": "Server/Item/Items/Ingredient/Bar/Ingredient_Bar_Iron.json",
+  "Operations": [
+    { "Op": "RequireFormat", "Version": 2 },
+    {
+      "Id": "remove-drop-on-death",
+      "Op": "Remove",
+      "Path": "/DropOnDeath"
+    }
+  ]
+}

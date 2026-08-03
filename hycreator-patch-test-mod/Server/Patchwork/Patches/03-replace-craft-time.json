@@ -1,0 +1,14 @@
+{
+  "FormatVersion": 2,
+  "Id": "HyCreatorPatchTest_Replace",
+  "Target": "Server/Item/Items/Ingredient/Bar/Ingredient_Bar_Iron.json",
+  "Operations": [
+    { "Op": "RequireFormat", "Version": 2 },
+    {
+      "Id": "replace-craft-time",
+      "Op": "Replace",
+      "Path": "/Recipe/TimeSeconds",
+      "Value": 13
+    }
+  ]
+}
