@@ -4,7 +4,6 @@
 
 ### Added
 
-- Centralized the Animal Husbandry, HyDragon, and Tamework compatibility definitions in Patchwork's standalone asset pack. Each definition now activates only when its owning mod is installed.
 - Added deterministic JSON asset patches with single- and multi-target definitions, five built-in operations, host macros, and per-target failure isolation.
 - Added installed-mod, version, asset, target, and composable JSON conditions. JSON sources can read the target, another asset, or JSON under a registered Java mod data directory.
 - Added the neutral `Server/Patchwork/Patches` root and compatibility discovery for `Server/Tamework/Patches` while Alec's Tamework is installed.

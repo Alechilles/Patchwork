@@ -43,7 +43,6 @@
                 <includes>
                     <include>icon-256.png</include>
                     <include>manifest.json</include>
-                    <include>Server/**</include>
                 </includes>
             </resource>
         </resources>
