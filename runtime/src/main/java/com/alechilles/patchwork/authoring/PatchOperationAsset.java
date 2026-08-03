@@ -98,7 +98,7 @@ final class PatchOperationAsset {
                     (operation, value) -> operation.position = value, operation -> operation.position)
             .documentation("Where Insert or MoveMatching places an array entry. Defaults to End. Before and After require Find; Start and End forbid Find.")
             .add()
-            .append(new KeyedCodec<>("Match", Codec.BSON_DOCUMENT),
+            .append(new KeyedCodec<>("Match", PatchMatcherCodec.INSTANCE),
                     (operation, value) -> operation.match = value, operation -> operation.match)
             .documentation("Matcher that selects array entries for ReplaceMatching, RemoveMatching, or MoveMatching. Declare only the fields that must match.")
             .add()
@@ -106,11 +106,11 @@ final class PatchOperationAsset {
                     (operation, value) -> operation.matchPolicy = value, operation -> operation.matchPolicy)
             .documentation("How ReplaceMatching or RemoveMatching chooses among matches. Defaults to ExactlyOne. MoveMatching always requires exactly one match.")
             .add()
-            .append(new KeyedCodec<>("Find", Codec.BSON_DOCUMENT),
+            .append(new KeyedCodec<>("Find", PatchMatcherCodec.INSTANCE),
                     (operation, value) -> operation.find = value, operation -> operation.find)
             .documentation("Anchor matcher used with Position Before or After. Patchwork inserts or moves relative to the first matching array entry.")
             .add()
-            .append(new KeyedCodec<>("Existing", Codec.BSON_DOCUMENT),
+            .append(new KeyedCodec<>("Existing", PatchMatcherCodec.INSTANCE),
                     (operation, value) -> operation.existing = value, operation -> operation.existing)
             .documentation("Optional Insert-only matcher. If an existing array entry matches, Patchwork skips the insertion to avoid a duplicate.")
             .add()
