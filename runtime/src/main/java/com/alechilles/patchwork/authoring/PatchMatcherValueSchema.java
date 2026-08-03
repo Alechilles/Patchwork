@@ -29,7 +29,7 @@ final class PatchMatcherValueSchema implements SchemaConvertable<Void>, NamedSch
         }
         Schema matcherValue = documented(new Schema(), "Matcher value",
                 "Use a literal JSON value, an exact array value, or another nested matcher.");
-        ArraySchema array = documented(new ArraySchema(PatchJsonValueCodec.INSTANCE.toSchema(context)),
+        ArraySchema array = documented(new ArraySchema(context.refDefinition(PatchJsonValueCodec.INSTANCE)),
                 "Array", "An array that must match exactly, including entry order.");
         matcherValue.setOneOf(
                 documented(new NullSchema(), "Null", "Matches JSON null."),

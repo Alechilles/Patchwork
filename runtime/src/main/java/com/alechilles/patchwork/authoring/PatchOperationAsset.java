@@ -118,7 +118,7 @@ final class PatchOperationAsset {
                     (operation, value) -> operation.macro = value, operation -> operation.macro)
             .documentation("ID of the host-provided macro to run when Op is Macro. The embedding mod defines which macro IDs are available.")
             .add()
-            .append(new KeyedCodec<>("Options", Codec.BSON_DOCUMENT),
+            .append(new KeyedCodec<>("Options", PatchJsonObjectCodec.INSTANCE),
                     (operation, value) -> operation.options = value, operation -> operation.options)
             .documentation("Optional object passed to a Macro. The embedding mod that provides the macro defines its available options.")
             .add()

@@ -2,6 +2,7 @@ package com.alechilles.patchwork.authoring;
 
 import com.hypixel.hytale.codec.Codec;
 import com.hypixel.hytale.codec.ExtraInfo;
+import com.hypixel.hytale.codec.codecs.BsonDocumentCodec;
 import com.hypixel.hytale.codec.schema.NamedSchema;
 import com.hypixel.hytale.codec.schema.SchemaContext;
 import com.hypixel.hytale.codec.schema.config.ObjectSchema;
@@ -17,23 +18,24 @@ import org.bson.BsonValue;
 /** Lossless BSON codec with a recursive schema for Patchwork matchers. */
 final class PatchMatcherCodec implements Codec<BsonDocument>, NamedSchema {
     static final PatchMatcherCodec INSTANCE = new PatchMatcherCodec();
+    private static final BsonDocumentCodec DOCUMENT_CODEC = new BsonDocumentCodec();
 
     private PatchMatcherCodec() {
     }
 
     @Override
     public BsonDocument decode(@Nonnull BsonValue value, ExtraInfo extraInfo) {
-        return Codec.BSON_DOCUMENT.decode(value, extraInfo);
+        return DOCUMENT_CODEC.decode(value, extraInfo);
     }
 
     @Override
     public BsonValue encode(BsonDocument value, ExtraInfo extraInfo) {
-        return Codec.BSON_DOCUMENT.encode(value, extraInfo);
+        return DOCUMENT_CODEC.encode(value, extraInfo);
     }
 
     @Override
     public BsonDocument decodeJson(@Nonnull RawJsonReader reader, ExtraInfo extraInfo) throws IOException {
-        return Codec.BSON_DOCUMENT.decodeJson(reader, extraInfo);
+        return DOCUMENT_CODEC.decodeJson(reader, extraInfo);
     }
 
     @Override
@@ -57,7 +59,7 @@ final class PatchMatcherCodec implements Codec<BsonDocument>, NamedSchema {
         ObjectSchema exact = documented(closedObject(), "Exact value",
                 "Matches only when the candidate is exactly equal to the supplied JSON value.");
         exact.setProperties(Map.of("$Equals",
-                documented(PatchJsonValueCodec.INSTANCE.toSchema(context), "Expected JSON value",
+                documented(context.refDefinition(PatchJsonValueCodec.INSTANCE), "Expected JSON value",
                         "The complete value the candidate must equal.")));
         exact.setRequired("$Equals");
         return exact;

@@ -2,6 +2,7 @@ package com.alechilles.patchwork.authoring;
 
 import com.hypixel.hytale.codec.Codec;
 import com.hypixel.hytale.codec.ExtraInfo;
+import com.hypixel.hytale.codec.codecs.BsonDocumentCodec;
 import com.hypixel.hytale.codec.schema.NamedSchema;
 import com.hypixel.hytale.codec.schema.SchemaContext;
 import com.hypixel.hytale.codec.schema.config.ArraySchema;
@@ -19,23 +20,24 @@ import org.bson.BsonValue;
 /** Lossless BSON codec with a beginner-facing schema for Patchwork conditions. */
 final class PatchConditionCodec implements Codec<BsonDocument>, NamedSchema {
     static final PatchConditionCodec INSTANCE = new PatchConditionCodec();
+    private static final BsonDocumentCodec DOCUMENT_CODEC = new BsonDocumentCodec();
 
     private PatchConditionCodec() {
     }
 
     @Override
     public BsonDocument decode(@Nonnull BsonValue value, ExtraInfo extraInfo) {
-        return Codec.BSON_DOCUMENT.decode(value, extraInfo);
+        return DOCUMENT_CODEC.decode(value, extraInfo);
     }
 
     @Override
     public BsonValue encode(BsonDocument value, ExtraInfo extraInfo) {
-        return Codec.BSON_DOCUMENT.encode(value, extraInfo);
+        return DOCUMENT_CODEC.encode(value, extraInfo);
     }
 
     @Override
     public BsonDocument decodeJson(@Nonnull RawJsonReader reader, ExtraInfo extraInfo) throws IOException {
-        return Codec.BSON_DOCUMENT.decodeJson(reader, extraInfo);
+        return DOCUMENT_CODEC.decodeJson(reader, extraInfo);
     }
 
     @Override
@@ -158,9 +160,9 @@ final class PatchConditionCodec implements Codec<BsonDocument>, NamedSchema {
                 "Legacy shorthand for reading another asset. Do not combine it with Source."));
         properties.put("Source", sourceSchema());
         if (includeExpectedValue) {
-            properties.put("Value", documented(PatchJsonValueCodec.INSTANCE.toSchema(context), "Expected value",
+            properties.put("Value", documented(context.refDefinition(PatchJsonValueCodec.INSTANCE), "Expected value",
                     "The JSON value that must be present at Path."));
-            properties.put("Equals", documented(PatchJsonValueCodec.INSTANCE.toSchema(context), "Expected value (legacy)",
+            properties.put("Equals", documented(context.refDefinition(PatchJsonValueCodec.INSTANCE), "Expected value (legacy)",
                     "Accepted legacy alias for Value. Prefer Value in new patches."));
         }
         fields.setProperties(properties);

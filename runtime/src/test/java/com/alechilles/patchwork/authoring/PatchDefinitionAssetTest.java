@@ -11,6 +11,7 @@ import com.hypixel.hytale.codec.schema.config.ObjectSchema;
 import com.hypixel.hytale.codec.schema.config.Schema;
 import com.hypixel.hytale.codec.schema.config.StringSchema;
 import com.hypixel.hytale.codec.util.RawJsonReader;
+import com.google.gson.JsonParser;
 import java.util.Arrays;
 import java.util.Set;
 import org.bson.BsonDocument;
@@ -62,6 +63,51 @@ final class PatchDefinitionAssetTest {
                 operations.get(3).getAsJsonObject().get("Value").getAsString());
         assertTrue(PatchDefinitionAsset.CODEC.encode(asset, EmptyExtraInfo.EMPTY).toString()
                 .contains("0.1234567890123456789"));
+    }
+
+    @Test
+    void nativeCodecPreservesRecursiveAuthoringShapesExactly() throws Exception {
+        String source = """
+                {
+                  "FormatVersion": 2,
+                  "Id": "recursive-authoring",
+                  "Target": "Server/Test.json",
+                  "When": {
+                    "All": [
+                      {"ModInstalled": "Example:Base"},
+                      {"Not": {"JsonPathEquals": {"Path": "/enabled", "Value": false}}}
+                    ]
+                  },
+                  "Operations": [
+                    {"Op": "RequireFormat", "Version": 2},
+                    {
+                      "Op": "ReplaceMatching",
+                      "Path": "/items",
+                      "Match": {"tags": {"$Contains": {"$Equals": "rare"}}},
+                      "MatchPolicy": "All",
+                      "Value": {
+                        "id": "changed",
+                        "meta": {"nullable": null, "ratio": 0.1234567890123456789}
+                      }
+                    },
+                    {
+                      "Op": "Macro",
+                      "Macro": "Example:Configure",
+                      "Options": {
+                        "nested": {"enabled": true},
+                        "values": [1, null, "x"]
+                      }
+                    }
+                  ]
+                }
+                """;
+
+        PatchDefinitionAsset asset = PatchDefinitionAsset.CODEC.decodeJson(
+                RawJsonReader.fromBuffer(source.toCharArray()), EmptyExtraInfo.EMPTY);
+
+        assertEquals(JsonParser.parseString(source), asset.toPortableJson());
+        assertEquals(JsonParser.parseString(source), JsonParser.parseString(
+                PatchDefinitionAsset.CODEC.encode(asset, EmptyExtraInfo.EMPTY).toString()));
     }
 
     @Test

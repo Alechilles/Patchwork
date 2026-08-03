@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.hypixel.hytale.codec.EmptyExtraInfo;
 import com.hypixel.hytale.codec.schema.SchemaContext;
 import com.hypixel.hytale.codec.schema.config.ArraySchema;
 import com.hypixel.hytale.codec.schema.config.ObjectSchema;
@@ -50,6 +51,40 @@ final class PatchNativeAuthoringSchemaTest {
         assertTrue(containsRef(matcher, "other.json#/definitions/PatchMatcher"));
         assertTrue(context.getOtherDefinitions().containsKey("PatchMatcherValue"));
         assertEveryChoiceDocumented(matcher);
+    }
+
+    @Test
+    void valueAndOptionsUseRecursiveJsonSchemasWithoutChangingPortableShape() {
+        SchemaContext context = new SchemaContext();
+        ObjectSchema operation = PatchOperationAsset.CODEC.toSchema(context);
+
+        assertTrue(containsRef(operation.getProperties().get("Value"),
+                "other.json#/definitions/PatchJsonValue"));
+        assertTrue(containsRef(operation.getProperties().get("Options"),
+                "other.json#/definitions/PatchJsonObject"));
+        Schema value = context.getOtherDefinitions().get("PatchJsonValue");
+        assertNotNull(value);
+        assertEquals(Set.of("Null", "Boolean", "Number", "String", "Array", "Object"),
+                variantTitles(value));
+        assertTrue(containsRef(value, "other.json#/definitions/PatchJsonValue"));
+        assertTrue(containsRef(value, "other.json#/definitions/PatchJsonObject"));
+        assertEveryChoiceDocumented(value);
+    }
+
+    @Test
+    void namedRecursiveDefinitionsSerializeAndDocumentEveryExplicitProperty() {
+        SchemaContext context = new SchemaContext();
+        PatchDefinitionAsset.CODEC.toSchema(context);
+        PatchOperationAsset.CODEC.toSchema(context);
+
+        assertEquals(Set.of(
+                        "PatchCondition", "PatchMatcher", "PatchMatcherValue",
+                        "PatchJsonValue", "PatchJsonObject"),
+                context.getOtherDefinitions().keySet());
+        context.getOtherDefinitions().forEach((name, schema) -> {
+            assertNotNull(Schema.CODEC.encode(schema, EmptyExtraInfo.EMPTY), name);
+            assertExplicitPropertiesDocumented(schema);
+        });
     }
 
     private static Set<String> variantTitles(Schema schema) {
@@ -115,6 +150,37 @@ final class PatchNativeAuthoringSchemaTest {
     private static boolean containsProperty(Schema[] schemas, String expected) {
         if (schemas == null) return false;
         return Arrays.stream(schemas).anyMatch(schema -> containsProperty(schema, expected));
+    }
+
+    private static void assertExplicitPropertiesDocumented(Schema schema) {
+        if (schema == null || schema.getRef() != null) return;
+        assertExplicitPropertiesDocumented(schema.getOneOf());
+        assertExplicitPropertiesDocumented(schema.getAnyOf());
+        assertExplicitPropertiesDocumented(schema.getAllOf());
+        if (schema instanceof ObjectSchema object) {
+            if (object.getProperties() != null) {
+                object.getProperties().forEach((name, property) -> {
+                    String documentation = property.getMarkdownDescription() != null
+                            ? property.getMarkdownDescription() : property.getDescription();
+                    assertTrue(documentation != null && !documentation.isBlank(),
+                            name + " must have beginner-facing documentation");
+                    assertExplicitPropertiesDocumented(property);
+                });
+            }
+            if (object.getAdditionalProperties() instanceof Schema additional) {
+                assertExplicitPropertiesDocumented(additional);
+            }
+        }
+        if (schema instanceof ArraySchema array) {
+            Object items = array.getItems();
+            if (items instanceof Schema item) assertExplicitPropertiesDocumented(item);
+            if (items instanceof Schema[] itemArray) assertExplicitPropertiesDocumented(itemArray);
+        }
+    }
+
+    private static void assertExplicitPropertiesDocumented(Schema[] schemas) {
+        if (schemas == null) return;
+        Arrays.stream(schemas).forEach(PatchNativeAuthoringSchemaTest::assertExplicitPropertiesDocumented);
     }
 
     private static boolean containsRef(Schema[] schemas, String expected) {
