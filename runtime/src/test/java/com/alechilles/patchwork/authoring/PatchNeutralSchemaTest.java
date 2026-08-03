@@ -1,6 +1,7 @@
 package com.alechilles.patchwork.authoring;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.alechilles.patchwork.conflict.ConflictPolicy;
@@ -54,6 +55,16 @@ final class PatchNeutralSchemaTest {
                 JsonParser.parseString(text).getAsJsonObject(), "pack", "case-insensitive.json", 0, PatchLanguage.NEUTRAL)
                 .getFirst();
         assertEquals(ConflictPolicy.ALLOW, definition.conflictPolicy());
+    }
+
+    @Test
+    void schemaAndRuntimeRejectTrailingNewlineConflictPolicy() throws IOException {
+        String text = "{\"Id\":\"trailing-newline\",\"Target\":\"Server/Test/Conflict.json\","
+                + "\"ConflictPolicy\":\"Allow\\n\",\"Operations\":[]}";
+        JsonNode document = JSON.readTree(text);
+        assertInvalid(document, "trailing-newline-conflict-policy");
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parseAll(
+                JsonParser.parseString(text).getAsJsonObject(), "pack", "trailing-newline.json", 0, PatchLanguage.NEUTRAL));
     }
 
     @Test
