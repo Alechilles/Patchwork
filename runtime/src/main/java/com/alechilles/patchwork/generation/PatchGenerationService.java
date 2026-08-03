@@ -6,6 +6,9 @@ import com.alechilles.patchwork.conditions.PatchConditionEvaluator;
 import com.alechilles.patchwork.discovery.PatchScanner;
 import com.alechilles.patchwork.discovery.PatchSource;
 import com.alechilles.patchwork.discovery.PatchTargetResolver;
+import com.alechilles.patchwork.discovery.PatchTargetExpander;
+import com.alechilles.patchwork.discovery.PatchTargetSelector;
+import com.alechilles.patchwork.discovery.PatchRoot;
 import com.alechilles.patchwork.engine.PatchDefinition;
 import com.alechilles.patchwork.engine.PatchEngine;
 import com.alechilles.patchwork.engine.PatchMacroRegistry;
@@ -19,6 +22,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.LinkedHashSet;
+import java.util.HashMap;
 
 /** Builds an immutable patch publication plan without mutating the filesystem or runtime state. */
 public final class PatchGenerationService {
@@ -26,6 +31,7 @@ public final class PatchGenerationService {
     private final ResolveStage targetResolver;
     private final EvaluateStage conditionEvaluator;
     private final ApplyStage patchEngine;
+    private final PatchTargetExpander targetExpander;
     /** Creates a service with production discovery, resolution, and JSON application collaborators. */
     public PatchGenerationService() {
         this(new PatchScanner(), new PatchTargetResolver(), new PatchEngine());
@@ -45,21 +51,48 @@ public final class PatchGenerationService {
     PatchGenerationService(ScanStage scanner, ResolveStage targetResolver, EvaluateStage conditionEvaluator, ApplyStage patchEngine) {
         this.scanner = Objects.requireNonNull(scanner); this.targetResolver = Objects.requireNonNull(targetResolver);
         this.conditionEvaluator = Objects.requireNonNull(conditionEvaluator); this.patchEngine = Objects.requireNonNull(patchEngine);
+        this.targetExpander = new PatchTargetExpander();
     }
     /** Scans and applies definitions into a pure, deterministic plan; a rejected target never blocks unrelated targets. */
     public GenerationPlan generate(GenerationRequest request) {
         Objects.requireNonNull(request, "request");
         request.conditionResolver().claimGenerationPass();
         PatchScanner.ScanResult scan = scanner.scan(request);
-        Map<String, List<PatchDefinition>> targets = new java.util.TreeMap<>();
-        for (PatchDefinition definition : scan.definitions()) targets.computeIfAbsent(definition.target(), ignored -> new ArrayList<>()).add(definition);
+        List<String> skipped = new ArrayList<>(scan.skipped());
+        DependencyBuilder dependencyBuilder = new DependencyBuilder(scan.definitionDependencies());
+        Map<String, List<PatchDefinition>> targets = new java.util.TreeMap<>(Utf8Ordering.UNSIGNED_BYTES);
+        Map<ConcreteDefinitionKey, PatchDefinition> concreteDefinitions = new LinkedHashMap<>();
+        for (PatchDefinition definition : scan.definitions()) {
+            PatchTargetSelector selector = definition.targetSelector();
+            if (selector.kind() == PatchTargetSelector.Kind.GLOB) {
+                dependencyBuilder.addGlob(selector);
+            }
+            List<String> expanded = targetExpander.expand(selector, request.assetSnapshot());
+            if (expanded.isEmpty() && selector.kind() == PatchTargetSelector.Kind.GLOB) {
+                skipped.add(definition.id() + " target selector matched no assets: " + selector.expression());
+            }
+            dependencyBuilder.addDefinitionTargets(definition, expanded);
+            for (String concreteTarget : expanded) {
+                PatchDefinition bound = definition.bindTarget(concreteTarget);
+                ConcreteDefinitionKey key = new ConcreteDefinitionKey(bound.sourcePack(), bound.id(), bound.target());
+                PatchDefinition previous = concreteDefinitions.get(key);
+                if (previous == null || prefers(bound, previous)) concreteDefinitions.put(key, bound);
+            }
+        }
+        for (PatchDefinition bound : concreteDefinitions.values()) {
+            targets.computeIfAbsent(bound.target(), ignored -> new ArrayList<>()).add(bound);
+        }
+        for (PatchDefinition definition : scan.definitions()) {
+            for (var operation : definition.operations()) {
+                if (operation.source() != null) dependencyBuilder.addSourceAsset(operation.source());
+            }
+        }
         List<GeneratedPackManifest.Entry> entries = new ArrayList<>();
         Map<String, String> rejected = new LinkedHashMap<>();
-        List<String> skipped = new ArrayList<>(scan.skipped());
         for (Map.Entry<String, List<PatchDefinition>> group : targets.entrySet()) planTarget(request, group.getKey(), group.getValue(), entries, rejected, skipped);
         GeneratedPackManifest manifest = new GeneratedPackManifest(entries);
         return new GenerationPlan(manifest.entries(), new PatchStatusSnapshot(skipped, rejected, scan.failures()), manifest,
-                request.assetSnapshot().sourcePackIds());
+                request.assetSnapshot().sourcePackIds(), dependencyBuilder.build());
     }
     private void planTarget(GenerationRequest request, String target, List<PatchDefinition> definitions, List<GeneratedPackManifest.Entry> entries, Map<String, String> rejected, List<String> skipped) {
         PatchTargetResolver.Resolution resolved = targetResolver.resolve(request, target);
@@ -86,6 +119,11 @@ public final class PatchGenerationService {
         return eligible;
     }
     private static String safeMessage(RuntimeException failure) { return failure.getMessage() == null ? "Patch application failed." : failure.getMessage(); }
+    private static boolean prefers(PatchDefinition candidate, PatchDefinition previous) {
+        boolean candidateNeutral = candidate.sourcePath().startsWith(PatchRoot.NEUTRAL.path() + "/");
+        boolean previousNeutral = previous.sourcePath().startsWith(PatchRoot.NEUTRAL.path() + "/");
+        return candidateNeutral && !previousNeutral;
+    }
     private static PatchTargetResolver.Resolution resolveSnapshot(GenerationAssetSnapshot assets, String target) {
         final String normalized;
         try {
@@ -148,10 +186,31 @@ public final class PatchGenerationService {
         }
     }
     /** Immutable publication payload and its single matching status snapshot. */
-    public record GenerationPlan(List<GeneratedPackManifest.Entry> entries, PatchStatusSnapshot status, GeneratedPackManifest manifest, List<String> sourcePackIds) {
-        public GenerationPlan(List<GeneratedPackManifest.Entry> entries, PatchStatusSnapshot status, GeneratedPackManifest manifest) { this(entries, status, manifest, List.of()); }
+    public record GenerationPlan(
+            List<GeneratedPackManifest.Entry> entries,
+            PatchStatusSnapshot status,
+            GeneratedPackManifest manifest,
+            List<String> sourcePackIds,
+            GenerationDependencyIndex dependencies) {
+        public GenerationPlan(List<GeneratedPackManifest.Entry> entries, PatchStatusSnapshot status, GeneratedPackManifest manifest) {
+            this(entries, status, manifest, List.of(), GenerationDependencyIndex.empty());
+        }
+        public GenerationPlan(List<GeneratedPackManifest.Entry> entries, PatchStatusSnapshot status,
+                              GeneratedPackManifest manifest, List<String> sourcePackIds) {
+            this(entries, status, manifest, sourcePackIds, GenerationDependencyIndex.empty());
+        }
+        public GenerationPlan(List<GeneratedPackManifest.Entry> entries, PatchStatusSnapshot status,
+                              GeneratedPackManifest manifest, GenerationDependencyIndex dependencies) {
+            this(entries, status, manifest, List.of(), dependencies);
+        }
+        public GenerationPlan(List<GeneratedPackManifest.Entry> entries, PatchStatusSnapshot status,
+                              GeneratedPackManifest manifest, GenerationDependencyIndex dependencies,
+                              List<String> sourcePackIds) {
+            this(entries, status, manifest, sourcePackIds, dependencies);
+        }
         public GenerationPlan {
             manifest = Objects.requireNonNull(manifest); status = Objects.requireNonNull(status);
+            dependencies = Objects.requireNonNull(dependencies, "dependencies");
             GeneratedPackManifest canonical = new GeneratedPackManifest(entries);
             if (!sameEntries(canonical.entries(), manifest.entries())) throw new IllegalArgumentException("Plan entries must match the manifest.");
             entries = canonical.entries();
@@ -166,4 +225,49 @@ public final class PatchGenerationService {
             return true;
         }
     }
+
+    private record ConcreteDefinitionKey(String sourcePackId, String patchId, String target) { }
+
+    /** Collects dependency metadata while preserving invalid source-file entries. */
+    private static final class DependencyBuilder {
+        private final Map<DefinitionFileKey, GenerationDependencyIndex.DefinitionDependency> definitions = new HashMap<>();
+        private final Set<String> expandedTargets = new LinkedHashSet<>();
+        private final Set<String> sourceAssets = new LinkedHashSet<>();
+        private final Set<GenerationDependencyIndex.GlobRoot> globRoots = new LinkedHashSet<>();
+
+        private DependencyBuilder(Set<GenerationDependencyIndex.DefinitionDependency> scanned) {
+            for (GenerationDependencyIndex.DefinitionDependency dependency : scanned) {
+                definitions.put(new DefinitionFileKey(dependency.sourcePackId(), dependency.assetPath()), dependency);
+                expandedTargets.addAll(dependency.expandedTargets());
+            }
+        }
+
+        private void addDefinitionTargets(PatchDefinition definition, List<String> targets) {
+            DefinitionFileKey key = new DefinitionFileKey(definition.sourcePack(), definition.sourcePath());
+            GenerationDependencyIndex.DefinitionDependency previous = definitions.get(key);
+            GenerationDependencyIndex.Validity validity = previous == null
+                    ? GenerationDependencyIndex.Validity.VALID : previous.validity();
+            Set<String> merged = new LinkedHashSet<>();
+            if (previous != null) merged.addAll(previous.expandedTargets());
+            merged.addAll(targets);
+            definitions.put(key, new GenerationDependencyIndex.DefinitionDependency(
+                    definition.sourcePack(), definition.sourcePath(), validity, merged));
+            expandedTargets.addAll(targets);
+        }
+
+        private void addSourceAsset(String source) {
+            sourceAssets.add(source);
+        }
+
+        private void addGlob(PatchTargetSelector selector) {
+            globRoots.add(new GenerationDependencyIndex.GlobRoot(selector.expression(), selector.stablePrefix()));
+        }
+
+        private GenerationDependencyIndex build() {
+            return new GenerationDependencyIndex(new LinkedHashSet<>(definitions.values()),
+                    expandedTargets, sourceAssets, globRoots);
+        }
+    }
+
+    private record DefinitionFileKey(String sourcePackId, String assetPath) { }
 }

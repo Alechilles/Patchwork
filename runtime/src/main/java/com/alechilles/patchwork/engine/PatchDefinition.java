@@ -2,6 +2,7 @@ package com.alechilles.patchwork.engine;
 
 import com.alechilles.patchwork.conditions.PatchCondition;
 import com.alechilles.patchwork.conditions.PatchConditionParser;
+import com.alechilles.patchwork.discovery.PatchTargetSelector;
 import com.alechilles.patchwork.format.PatchFormat;
 import com.alechilles.patchwork.format.PatchLanguage;
 import com.alechilles.patchwork.format.Utf8Ordering;
@@ -25,6 +26,7 @@ public final class PatchDefinition {
 
     private final String id;
     private final String target;
+    private final PatchTargetSelector targetSelector;
     private final String sourcePack;
     private final String sourcePath;
     private final int priority;
@@ -46,7 +48,8 @@ public final class PatchDefinition {
             PatchCondition condition,
             PatchLanguage language) {
         this.id = id;
-        this.target = target;
+        this.targetSelector = PatchTargetSelector.parse(target);
+        this.target = this.targetSelector.expression();
         this.priority = priority;
         this.enabled = enabled;
         this.operations = List.copyOf(operations);
@@ -152,6 +155,37 @@ public final class PatchDefinition {
 
     public String id() { return id; }
     public String target() { return target; }
+    /** Parsed exact or explicit-glob selector for this definition. */
+    public PatchTargetSelector targetSelector() { return targetSelector; }
+    /** Short alias for callers that refer to the target as a selector. */
+    public PatchTargetSelector selector() { return targetSelector(); }
+    public PatchTargetSelector getTargetSelector() { return targetSelector(); }
+    public PatchTargetSelector getSelector() { return selector(); }
+    /** Returns whether this definition still needs inventory expansion. */
+    public boolean isGlobTarget() { return targetSelector.kind() == PatchTargetSelector.Kind.GLOB; }
+
+    /**
+     * Binds an expanded concrete path while preserving all definition metadata.
+     * A path that does not match the parsed selector is rejected rather than
+     * silently producing a definition for an unrelated asset.
+     */
+    public PatchDefinition bindTarget(String concreteTarget) {
+        PatchTargetSelector bound = PatchTargetSelector.parse(concreteTarget);
+        if (bound.kind() != PatchTargetSelector.Kind.EXACT || !targetSelector.matches(bound.expression())) {
+            throw new IllegalArgumentException("Concrete target does not match selector " + target + ".");
+        }
+        return new PatchDefinition(
+                id,
+                bound.expression(),
+                priority,
+                enabled,
+                operations,
+                sourcePack,
+                sourcePath,
+                sourcePackLoadOrder,
+                condition,
+                language);
+    }
     public int priority() { return priority; }
     public boolean enabled() { return enabled; }
     public List<PatchOperation> operations() { return operations; }
@@ -293,16 +327,10 @@ public final class PatchDefinition {
     }
 
     private static String normalize(String target, String id) {
-        if (target.isBlank()) throw new IllegalArgumentException("Patch '" + id + "' target must not be blank.");
-        String normalized = target.replace('\\', '/');
-        if (normalized.startsWith("/") || normalized.matches("^[A-Za-z]:.*") || normalized.contains("//")) {
-            throw new IllegalArgumentException("Patch '" + id + "' target is unsafe: " + target);
+        try {
+            return PatchTargetSelector.parse(target).expression();
+        } catch (IllegalArgumentException failure) {
+            throw new IllegalArgumentException("Patch '" + id + "' target is unsafe: " + target, failure);
         }
-        for (String segment : normalized.split("/", -1)) {
-            if (segment.isEmpty() || segment.equals(".") || segment.equals("..")) {
-                throw new IllegalArgumentException("Patch '" + id + "' target is unsafe: " + target);
-            }
-        }
-        return normalized;
     }
 }

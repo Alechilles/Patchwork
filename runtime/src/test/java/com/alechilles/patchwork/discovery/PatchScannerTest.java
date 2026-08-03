@@ -157,6 +157,13 @@ final class PatchScannerTest {
         assertEquals(List.of("Server/Patchwork/Patches/Bad.json", "Server/Patchwork/Patches/Good.json"), reads);
         assertEquals(List.of("good"), result.definitions().stream().map(definition -> definition.id()).toList());
         assertEquals(List.of("Failed to parse pack:Server/Patchwork/Patches/Bad.json: planned read failure"), result.failures());
+        assertEquals(Set.of("Server/Patchwork/Patches/Bad.json", "Server/Patchwork/Patches/Good.json"),
+                result.definitionDependencies().stream().map(dependency -> dependency.assetPath())
+                        .collect(java.util.stream.Collectors.toSet()));
+        assertEquals(Set.of(com.alechilles.patchwork.generation.GenerationDependencyIndex.Validity.INVALID,
+                        com.alechilles.patchwork.generation.GenerationDependencyIndex.Validity.VALID),
+                result.definitionDependencies().stream().map(dependency -> dependency.validity())
+                        .collect(java.util.stream.Collectors.toSet()));
     }
 
     @Test

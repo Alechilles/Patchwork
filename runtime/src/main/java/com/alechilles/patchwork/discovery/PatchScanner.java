@@ -4,6 +4,7 @@ import com.alechilles.patchwork.engine.PatchDefinition;
 import com.alechilles.patchwork.format.PatchDefinitionReader;
 import com.alechilles.patchwork.format.Utf8Ordering;
 import com.alechilles.patchwork.generation.GenerationAssetSnapshot;
+import com.alechilles.patchwork.generation.GenerationDependencyIndex;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,32 +50,39 @@ public final class PatchScanner {
         List<PatchDefinition> definitions = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
         List<String> failures = new ArrayList<>();
+        Map<DefinitionKey, GenerationDependencyIndex.Validity> validity = new HashMap<>();
         Map<DuplicateKey, PatchRoot> accepted = new HashMap<>();
         List<PatchSource> orderedSources = snapshot.sources().stream().filter(source -> !GENERATED_PACK_ID.equals(source.sourcePackId()))
                 .sorted(Comparator.comparingInt(PatchSource::sourcePackLoadOrder)
                         .thenComparing(PatchSource::sourcePackId, Utf8Ordering.UNSIGNED_BYTES)).toList();
         for (PatchRoot root : PatchRoot.activeRoots(Set.copyOf(installedPluginIds))) {
             for (PatchSource source : orderedSources) {
-                scanRoot(snapshot, source, root, definitions, accepted, skipped, failures);
+                    scanRoot(snapshot, source, root, definitions, accepted, skipped, failures, validity);
+                }
             }
-        }
-        return new ScanResult(definitions, skipped, failures);
+        Set<GenerationDependencyIndex.DefinitionDependency> dependencyFiles = new HashSet<>();
+        validity.forEach((key, state) -> dependencyFiles.add(
+                new GenerationDependencyIndex.DefinitionDependency(key.sourcePackId(), key.assetPath(), state, Set.of())));
+        return new ScanResult(definitions, skipped, failures, dependencyFiles);
     }
 
     private void scanRoot(GenerationAssetSnapshot snapshot, PatchSource source, PatchRoot root,
                           List<PatchDefinition> definitions,
-                          Map<DuplicateKey, PatchRoot> accepted, List<String> skipped, List<String> failures) {
+                          Map<DuplicateKey, PatchRoot> accepted, List<String> skipped, List<String> failures,
+                          Map<DefinitionKey, GenerationDependencyIndex.Validity> validity) {
         for (String assetPath : snapshot.definitionPaths(root)) {
             GenerationAssetSnapshot.AssetRecord asset = snapshot.require(assetPath);
             if (!asset.sourcePackId().equals(source.sourcePackId())
                     || asset.sourcePackLoadOrder() != source.sourcePackLoadOrder()) continue;
-            processFile(source, asset, root, assetPath, definitions, accepted, skipped, failures);
+            processFile(source, asset, root, assetPath, definitions, accepted, skipped, failures, validity);
         }
     }
 
     private void processFile(PatchSource source, GenerationAssetSnapshot.AssetRecord asset, PatchRoot root,
                              String assetPath, List<PatchDefinition> definitions,
-                             Map<DuplicateKey, PatchRoot> accepted, List<String> skipped, List<String> failures) {
+                             Map<DuplicateKey, PatchRoot> accepted, List<String> skipped, List<String> failures,
+                             Map<DefinitionKey, GenerationDependencyIndex.Validity> validity) {
+        DefinitionKey definitionKey = new DefinitionKey(source.sourcePackId(), assetPath);
         try {
             byte[] bytes = useSnapshotBytes ? asset.bytes() : reader.read(source, assetPath);
             var rootObject = PatchDefinitionReader.parse(bytes, source.sourcePackId(), assetPath, source.sourcePackLoadOrder());
@@ -84,7 +92,7 @@ public final class PatchScanner {
                             assetPath,
                             source.sourcePackLoadOrder(),
                             root.languageFor(rootObject))
-                    .stream().sorted(Comparator.comparing(PatchDefinition::target)).toList();
+                    .stream().sorted(Comparator.comparing(PatchDefinition::target, Utf8Ordering.UNSIGNED_BYTES)).toList();
             validateTargets(parsed);
             List<PatchDefinition> enabled = parsed.stream().filter(PatchDefinition::enabled).toList();
             for (PatchDefinition definition : parsed) {
@@ -93,6 +101,7 @@ public final class PatchScanner {
                 }
             }
             if (containsSameRootDuplicate(root, enabled, accepted)) {
+                validity.put(definitionKey, GenerationDependencyIndex.Validity.INVALID);
                 failures.add("Duplicate patch key in " + source.sourcePackId() + ":" + assetPath);
                 return;
             }
@@ -103,7 +112,9 @@ public final class PatchScanner {
                 accepted.put(key(definition), root);
                 definitions.add(definition);
             }
+            validity.put(definitionKey, GenerationDependencyIndex.Validity.VALID);
         } catch (Exception exception) {
+            validity.put(definitionKey, GenerationDependencyIndex.Validity.INVALID);
             failures.add("Failed to parse " + source.sourcePackId() + ":" + assetPath + ": " + exception.getMessage());
         }
     }
@@ -196,11 +207,25 @@ public final class PatchScanner {
     }
 
     /** Immutable discovery output, including non-fatal skips and deterministic failures. */
-    public record ScanResult(List<PatchDefinition> definitions, List<String> skipped, List<String> failures) {
-        public ScanResult { definitions = List.copyOf(definitions); skipped = List.copyOf(skipped); failures = List.copyOf(failures); }
+    public record ScanResult(
+            List<PatchDefinition> definitions,
+            List<String> skipped,
+            List<String> failures,
+            Set<GenerationDependencyIndex.DefinitionDependency> definitionDependencies) {
+        public ScanResult(List<PatchDefinition> definitions, List<String> skipped, List<String> failures) {
+            this(definitions, skipped, failures, Set.of());
+        }
+
+        public ScanResult {
+            definitions = List.copyOf(definitions);
+            skipped = List.copyOf(skipped);
+            failures = List.copyOf(failures);
+            definitionDependencies = Set.copyOf(definitionDependencies);
+        }
     }
 
     private record DuplicateKey(String sourcePackId, String patchId, String target) { }
+    private record DefinitionKey(String sourcePackId, String assetPath) { }
     @FunctionalInterface
     interface PatchFileReader { byte[] read(PatchSource source, String assetPath) throws IOException; }
 }

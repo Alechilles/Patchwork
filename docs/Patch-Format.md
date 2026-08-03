@@ -39,7 +39,7 @@ New definitions should omit `FormatVersion` and `RequireFormat`:
 }
 ```
 
-Neutral definitions allow only `Id`, `Target`, `Targets`, `Priority`, `Enabled`, `When`, and `Operations` at the root. Their operations are `Add`, `Merge`, `Replace`, `Remove`, `Insert`, `ReplaceMatching`, `RemoveMatching`, `MoveMatching`, and `Macro`. Unknown root fields, operation fields, and operation names are structural errors before `Required: false` is considered; an older runtime that cannot understand new neutral syntax must be treated as an installation/version error rather than silently skipping it. The machine-readable baseline is published in [`docs/authoring-kit/neutral`](authoring-kit/neutral/patch-definition.schema.json).
+Neutral definitions allow only `Id`, `Target`, `Targets`, `Priority`, `Enabled`, `When`, and `Operations` at the root. Their operations are `Add`, `Merge`, `Replace`, `Remove`, `Insert`, `ReplaceMatching`, `RemoveMatching`, `MoveMatching`, `MergeMatching`, `UpsertMatching`, `OverlayFromAsset`, `MergeObjectFromAsset`, and `Macro`. Unknown root fields, operation fields, and operation names are structural errors before `Required: false` is considered; an older runtime that cannot understand new neutral syntax must be treated as an installation/version error rather than silently skipping it. The machine-readable baseline is published in [`docs/authoring-kit/neutral`](authoring-kit/neutral/patch-definition.schema.json).
 
 The native Hytale Asset Editor hides compatibility-only fields from new neutral authoring. Explicit format 1 or 2 files remain lossless when opened and saved, including their marker and sentinel fields. If the native schema is unavailable after installing the standalone runtime, restart Hytale so the asset registration can load; portable JSON under the neutral root remains the same runtime contract.
 
@@ -68,8 +68,8 @@ The native Hytale Asset Editor hides compatibility-only fields from new neutral 
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `Id` | No | Stable patch ID. Defaults to the source pack and definition path. |
-| `Target` | One target form | One normalized asset path. |
-| `Targets` | One target form | Non-empty array of unique normalized asset paths. Cannot be combined with `Target`. |
+| `Target` | One target form | One exact normalized asset path or an explicit `glob:` selector. |
+| `Targets` | One target form | Non-empty array of unique exact paths or `glob:` selectors. Cannot be combined with `Target`. |
 | `Priority` | No | Integer ordering value; default `0`. Lower values apply first. |
 | `Enabled` | No | Default `true`. Disabled definitions are reported as skipped. |
 | `When` | No | One condition object. Missing means always eligible. |
@@ -78,6 +78,25 @@ The native Hytale Asset Editor hides compatibility-only fields from new neutral 
 Definitions for the same target are ordered by `Priority`, then patch `Id` by unsigned UTF-8 bytes, then contributing pack load order, then source-pack ID by unsigned UTF-8 bytes. Strings are compared exactly, without normalization or locale collation. The same total ordering is used when selecting a winning source pack. Each target is generated independently: a failed target does not prevent unrelated valid targets from being generated.
 
 Asset paths use forward-slash form, such as `Server/Item/Items/Foo.json`. Absolute paths, drive-prefixed paths, empty segments, `.` and `..` are rejected.
+
+### Explicit target selectors
+
+Target fields accept exact paths and explicit glob selectors. A raw `*` or `?` in an exact path is invalid; add the `glob:` prefix when pattern matching is intended:
+
+```json
+{
+  "Target": "glob:Server/NPC/**/*.json",
+  "Operations": [{"Op": "Replace", "Path": "/Enabled", "Value": true}]
+}
+```
+
+Supported glob tokens are:
+
+- `*` — zero or more characters within one path segment;
+- `**` — zero or more path segments; and
+- `?` — exactly one character within one path segment.
+
+Regular expressions and implicit wildcard interpretation are not supported. Expansion reads the immutable inventory captured for the generation pass, never Patchwork's generated pack. Exact and expanded targets are deduplicated and ordered by unsigned UTF-8 path bytes before application. A glob matching no assets emits a warning and produces no target. The generation dependency index retains the selector and its literal stable prefix, including zero-match selectors, for future reload matching.
 
 ## Operation fields
 
@@ -145,6 +164,16 @@ Recursively merges object properties. Both the target and `Value` must be object
 }
 ```
 
+### Cross-asset merges
+
+Neutral definitions can import data from another exact asset in the same immutable generation snapshot:
+
+```json
+{"Op":"OverlayFromAsset","Source":"Server/NPC/Roles/Base.json"}
+```
+
+`OverlayFromAsset` recursively merges the source object into the current target, with source leaves winning while unrelated target fields remain. `MergeObjectFromAsset` accepts the same exact `Source`, a destination `Path`, and an optional `SourcePath` (the source root when omitted). Source fields never accept `glob:` selectors. Missing sources, paths, or incompatible object values follow the operation's `Required` setting.
+
 ### Replace
 
 Replaces an existing object property or array entry.
@@ -186,6 +215,8 @@ Inserts `Value` into an existing array.
 `Existing` is optional. If it matches an entry already in the array, insertion is skipped. Matchers recursively match the fields they declare. Inside a matcher, `"$Contains": { ... }` matches when an array contains an object satisfying the nested matcher.
 
 `Before` and `After` require `Find` and fail if no anchor matches.
+
+`MergeMatching` deep-merges an object `Value` into matching object entries. `UpsertMatching` performs the same merge and inserts one `Value` object at the selected position when no entry matches. Both use the recursive `Match` syntax and optional `MatchPolicy`; these operations are available in marker-free neutral definitions.
 
 ### Host macro
 

@@ -126,6 +126,18 @@ final class PatchNativeAuthoringSchemaTest {
     }
 
     @Test
+    void targetFieldsExplainExactAndExplicitGlobSelectors() {
+        SchemaContext context = new SchemaContext();
+        ObjectSchema definition = (ObjectSchema) PatchDefinitionAsset.CODEC.toSchema(context);
+        for (String field : List.of("Target", "Targets")) {
+            String description = definition.getProperties().get(field).getMarkdownDescription();
+            assertTrue(description != null && description.contains("glob:"), field);
+            assertTrue(description.contains("Server/Item/Items/Example.json"), field);
+            assertTrue(description.contains("Server/NPC/**/*.json"), field);
+        }
+    }
+
+    @Test
     void crossAssetOperationsAreSelectableAndDocumented() {
         SchemaContext context = new SchemaContext();
         ObjectSchema operation = PatchOperationAsset.CODEC.toSchema(context);

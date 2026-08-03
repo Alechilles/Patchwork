@@ -7,6 +7,15 @@
   "versionFieldRequired": false,
   "supportedFormatVersions": [1, 2],
   "macroDescriptorVersion": null,
+  "targetSelectors": {
+    "exact": true,
+    "globPrefix": "glob:",
+    "tokens": {
+      "*": "zero or more characters within one path segment",
+      "**": "zero or more path segments",
+      "?": "one character within one path segment"
+    }
+  },
   "operations": [
     "Add",
     "Merge",

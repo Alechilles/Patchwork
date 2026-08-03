@@ -123,6 +123,22 @@ final class PatchDefinitionTest {
     }
 
     @Test
+    void storesExplicitGlobSelectorAndBindsConcreteExpansion() {
+        PatchDefinition definition = PatchDefinition.parse(object("""
+                { "Id": "glob", "Target": "glob:Server/NPC/**/*.json", "Operations": [] }
+                """), "pack", "patches/glob.json");
+
+        assertEquals(com.alechilles.patchwork.discovery.PatchTargetSelector.Kind.GLOB,
+                definition.targetSelector().kind());
+        assertEquals("Server/NPC/", definition.targetSelector().stablePrefix());
+        PatchDefinition bound = definition.bindTarget("Server/NPC/Wolf.json");
+        assertEquals("Server/NPC/Wolf.json", bound.target());
+        assertEquals(com.alechilles.patchwork.discovery.PatchTargetSelector.Kind.EXACT,
+                bound.targetSelector().kind());
+        assertThrows(IllegalArgumentException.class, () -> definition.bindTarget("Server/Item/Wolf.json"));
+    }
+
+    @Test
     void directParserKeepsMissingMarkerLegacyAndExplicitFormatTwoStrict() {
         PatchDefinition legacy = PatchDefinition.parse(object("""
                 { "Id": "legacy", "Target": "Server/A.json", "Operations": [] }

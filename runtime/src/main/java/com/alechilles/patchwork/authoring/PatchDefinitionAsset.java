@@ -35,11 +35,11 @@ public final class PatchDefinitionAsset
             .add()
             .append(new KeyedCodec<>("Target", Codec.STRING),
                     (asset, value) -> asset.target = value, asset -> asset.target)
-            .documentation("One asset file to patch, using a forward-slash path such as Server/Item/Items/Example.json. Use either Target or Targets, never both.")
+            .documentation("One exact asset path such as Server/Item/Items/Example.json, or an explicit glob such as glob:Server/NPC/**/*.json. Only the glob: prefix enables patterns: * stays within one segment, ** crosses segments, and ? matches one character. Use either Target or Targets, never both.")
             .add()
             .append(new KeyedCodec<>("Targets", Codec.STRING_ARRAY),
                     (asset, value) -> asset.targets = value, asset -> asset.targets)
-            .documentation("Multiple unique asset files that receive this same patch. Use either Targets or Target, never both.")
+            .documentation("Multiple unique exact paths or explicit glob selectors receiving this patch, for example Server/Item/Items/Example.json or glob:Server/NPC/**/*.json. Only the glob: prefix enables patterns; * stays within one segment, ** crosses segments, and ? matches one character. Use either Targets or Target, never both.")
             .add()
             .append(new KeyedCodec<>("Priority", Codec.INTEGER),
                     (asset, value) -> asset.priority = value, asset -> asset.priority)

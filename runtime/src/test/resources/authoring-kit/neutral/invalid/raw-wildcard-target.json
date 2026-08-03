@@ -1,0 +1,7 @@
+{
+  "Id": "raw-wildcard-target",
+  "Target": "Server/NPC/*.json",
+  "Operations": [
+    {"Op": "Replace", "Path": "/Enabled", "Value": true}
+  ]
+}

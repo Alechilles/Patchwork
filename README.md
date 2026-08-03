@@ -42,6 +42,19 @@ This patch changes the cow only when the specified mod is installed. Patchwork r
 
 No bundled override. No manually maintained duplicate. No change when the integration is not needed.
 
+### Exact paths and explicit target globs
+
+`Target` and `Targets` accept an exact asset path or an explicit selector beginning with `glob:`:
+
+```json
+{
+  "Target": "glob:Server/NPC/**/*.json",
+  "Operations": [{"Op": "Replace", "Path": "/Enabled", "Value": true}]
+}
+```
+
+Only prefixed selectors are patterns. `*` matches within one path segment, `**` crosses zero or more segments, and `?` matches one character. Raw wildcards and regular expressions are not interpreted. Expansion uses one immutable original-asset snapshot, excludes Patchwork's generated pack, deduplicates matches, and orders them deterministically. A selector matching nothing produces a warning rather than inventing an asset.
+
 ***
 
 ## Designed for mod integrations
@@ -65,13 +78,14 @@ A patch can stand alone, use several conditions together, or target multiple ass
 
 ## A small language for precise changes
 
-Patchwork supports five core JSON operations:
+Patchwork supports core JSON operations:
 
 *   **Add** — add a new field or array entry.
 *   **Merge** — blend an object into an existing section.
 *   **Replace** — change a value that is already present.
 *   **Remove** — remove an existing field or entry.
 *   **Insert** — place an entry before, after, at the start of, or at the end of an array.
+*   **Matching and cross-asset merges** — select object entries with recursive matchers or merge data from another exact asset without mutating source files.
 
 ![image](https://media.forgecdn.net/attachments/description/1634146/description_8e6afbd4-849d-4643-9583-8a0411683670.png)
 
@@ -166,6 +180,8 @@ These tools provide patch status, diagnostics, explicit regeneration, and self-t
 The standalone plugin registers `Server/Patchwork/Patches/**/*.json` as a native Hytale asset type. Hytale’s Asset Editor can discover, create, structurally edit, validate, and save the same portable definitions consumed by Patchwork.
 
 New neutral definitions are marker-free: omit `FormatVersion` and `RequireFormat`. The installed native schema exposes the supported operations and rejects unknown structure before optional-operation handling. A runtime that cannot understand a neutral operation or field reports an installation/version error instead of silently publishing a partial asset. Explicit format 1 and format 2 files remain readable and lossless, including compatibility fields. See the [neutral authoring kit](docs/authoring-kit/neutral/patch-definition.schema.json) and [capabilities](docs/authoring-kit/neutral/capabilities.json).
+
+The generation dependency index records definition files, concrete target expansions, exact cross-asset sources, and glob stable prefixes for future reload coordination. It is metadata only; it does not start an automatic watcher.
 
 Patchwork 1.1.0 supports these installation modes:
 

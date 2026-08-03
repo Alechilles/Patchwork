@@ -1,0 +1,10 @@
+{
+  "Id": "glob-targets",
+  "Targets": [
+    "Server/Item/Items/Example.json",
+    "glob:Server/NPC/**/*.json"
+  ],
+  "Operations": [
+    {"Op": "Replace", "Path": "/Enabled", "Value": true}
+  ]
+}

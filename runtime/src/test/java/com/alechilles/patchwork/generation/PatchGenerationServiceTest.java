@@ -106,6 +106,54 @@ final class PatchGenerationServiceTest {
     }
 
     @Test
+    void expandsGlobTargetsBeforeGroupingAndPublishesDependencyMetadata() throws Exception {
+        Path patches = Files.createDirectories(temporary.resolve("glob-generation/Server/Patchwork/Patches"));
+        Path root = patches.getParent().getParent().getParent();
+        Files.createDirectories(root.resolve("Server/NPC"));
+        Files.writeString(root.resolve("Server/NPC/Bear.json"), "{\"value\":1}");
+        Files.writeString(root.resolve("Server/NPC/Wolf.json"), "{\"value\":1}");
+        Files.writeString(patches.resolve("glob.json"), """
+                {"Id":"glob","Target":"glob:Server/NPC/*.json","Operations":[
+                  {"Op":"Replace","Path":"/value","Value":2}
+                ]}
+                """);
+
+        PatchSource source = PatchSource.directory("Test:Pack", 0, root);
+        var plan = new PatchGenerationService().generate(new PatchGenerationService.GenerationRequest(
+                GenerationAssetSnapshot.capture(List.of(source)), Set.of(), Map.of(), "1", resolver()));
+
+        assertEquals(List.of("Server/NPC/Bear.json", "Server/NPC/Wolf.json"),
+                plan.entries().stream().map(GeneratedPackManifest.Entry::target).toList());
+        assertEquals(Set.of("Server/NPC/Bear.json", "Server/NPC/Wolf.json"), plan.dependencies().expandedTargets());
+        assertEquals(Set.of("glob:Server/NPC/*.json"), plan.dependencies().globRoots().stream()
+                .map(GenerationDependencyIndex.GlobRoot::selector).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(Set.of("Server/NPC/"), plan.dependencies().globRoots().stream()
+                .map(GenerationDependencyIndex.GlobRoot::stablePrefix).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(Set.of("Server/NPC/Bear.json", "Server/NPC/Wolf.json"),
+                plan.dependencies().definitions().stream().flatMap(dependency -> dependency.expandedTargets().stream())
+                        .collect(java.util.stream.Collectors.toSet()));
+    }
+
+    @Test
+    void zeroMatchGlobWarnsAndRetainsAnEmptyDefinitionDependency() throws Exception {
+        Path patches = Files.createDirectories(temporary.resolve("glob-empty/Server/Patchwork/Patches"));
+        Path root = patches.getParent().getParent().getParent();
+        Files.writeString(patches.resolve("glob.json"), """
+                {"Id":"glob","Target":"glob:Server/NPC/*.json","Operations":[]}
+                """);
+
+        PatchSource source = PatchSource.directory("Test:Pack", 0, root);
+        var plan = new PatchGenerationService().generate(new PatchGenerationService.GenerationRequest(
+                GenerationAssetSnapshot.capture(List.of(source)), Set.of(), Map.of(), "1", resolver()));
+
+        assertTrue(plan.entries().isEmpty());
+        assertTrue(plan.status().skipped().stream().anyMatch(value -> value.contains("matched no assets")));
+        assertEquals(1, plan.dependencies().definitions().size());
+        assertTrue(plan.dependencies().definitions().iterator().next().expandedTargets().isEmpty());
+        assertEquals(1, plan.dependencies().globRoots().size());
+    }
+
+    @Test
     void assetConditionsUseTheSameCapturedSnapshotAsTargets() throws Exception {
         Path patches = Files.createDirectories(temporary.resolve("asset-condition/Server/Patchwork/Patches"));
         Path root = patches.getParent().getParent().getParent();

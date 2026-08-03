@@ -1,6 +1,7 @@
 package com.alechilles.patchwork.generation;
 
 import com.alechilles.patchwork.discovery.PatchScanner;
+import com.alechilles.patchwork.format.Utf8Ordering;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import java.nio.charset.StandardCharsets;
@@ -15,7 +16,7 @@ import java.util.List;
 public record GeneratedPackManifest(List<Entry> entries) {
     /** File written before a staged directory can become active. */
     public static final String FILE_NAME = "patchwork-manifest.json";
-    public GeneratedPackManifest { entries = List.copyOf(entries.stream().sorted(Comparator.comparing(Entry::target)).map(entry -> new Entry(entry.target(), entry.bytes())).toList()); }
+    public GeneratedPackManifest { entries = List.copyOf(entries.stream().sorted(Comparator.comparing(Entry::target, Utf8Ordering.UNSIGNED_BYTES)).map(entry -> new Entry(entry.target(), entry.bytes())).toList()); }
     /** Serializes stable target, length, and SHA-256 metadata without source content. */
     public byte[] bytes() {
         JsonArray files = new JsonArray();

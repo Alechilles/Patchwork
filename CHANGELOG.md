@@ -4,7 +4,7 @@
 
 ### Added
 
-- Added deterministic JSON asset patches with single- and multi-target definitions, five built-in operations, host macros, and per-target failure isolation.
+- Added deterministic JSON asset patches with single- and multi-target definitions, built-in operations, host macros, and per-target failure isolation.
 - Added installed-mod, version, asset, target, and composable JSON conditions. JSON sources can read the target, another asset, or JSON under a registered Java mod data directory.
 - Added the neutral `Server/Patchwork/Patches` root and compatibility discovery for `Server/Tamework/Patches` while Alec's Tamework is installed.
 - Added reusable embedded runtime APIs for host macro providers, target reload adapters, and exact reload observations.
@@ -21,6 +21,8 @@
 - Added neutral `MergeMatching` and `UpsertMatching` operations for deep-merging object entries selected by recursive matchers, with deterministic zero-match insertion for upserts.
 - Added neutral `OverlayFromAsset` and `MergeObjectFromAsset` operations for exact-path, immutable-snapshot cross-asset object merges with source-wins semantics and optional applicability failures.
 - Added sanitized mutation effects with canonical JSON SHA-256 fingerprints for tracing successful writes, array membership changes, and array order changes without retaining raw values.
+- Added explicit `glob:` target selectors with `*`, `**`, and `?` tokens, deterministic immutable-snapshot expansion, generated-pack exclusion, deduplication, and zero-match warnings.
+- Added generation dependency metadata for definition files, expanded targets, exact cross-asset sources, and glob stable prefixes; the index is descriptive and does not start a watcher.
 
 ### Fixed
 
