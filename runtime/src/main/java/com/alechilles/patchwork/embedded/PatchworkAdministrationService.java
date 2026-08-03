@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -245,8 +246,8 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     private static String formatConflict(ConflictRecord row) {
         ConflictRecord.EffectRef earlier = row.earlier();
         ConflictRecord.EffectRef later = row.later();
-        return row.target() + " " + row.path() + " (" + row.effectKind().name().toLowerCase().replace('_', '-')
-                + ", " + row.scope().name().toLowerCase().replace('_', '-') + ", " + row.classification().name().toLowerCase().replace('_', '-')
+        return row.target() + " " + row.path() + " (" + row.effectKind().name().toLowerCase(Locale.ROOT).replace('_', '-')
+                + ", " + row.scope().name().toLowerCase(Locale.ROOT).replace('_', '-') + ", " + row.classification().name().toLowerCase(Locale.ROOT).replace('_', '-')
                 + ") earlier " + earlier.sourcePackId() + ":" + earlier.patchId() + ":" + earlier.operationId() + "@" + earlier.operationOrder()
                 + ", later " + later.sourcePackId() + ":" + later.patchId() + ":" + later.operationId() + "@" + later.operationOrder();
     }
