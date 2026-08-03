@@ -1,3 +1,4 @@
 # Maven build outputs
 target/
 .superpowers/
+/.worktrees/
