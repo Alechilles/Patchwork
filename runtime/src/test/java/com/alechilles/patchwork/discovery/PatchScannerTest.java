@@ -63,7 +63,13 @@ final class PatchScannerTest {
         PatchSource source = PatchSource.directory("pack", 1, pack);
 
         assertEquals(List.of("neutral"), new PatchScanner().scan(List.of(source), Set.of()).definitions().stream().map(definition -> definition.id()).toList());
-        assertEquals(List.of("legacy", "neutral"), new PatchScanner().scan(List.of(source), Set.of("Alechilles:Alec's Tamework!")).definitions().stream().map(definition -> definition.id()).toList());
+        PatchScanner.ScanResult withTamework = new PatchScanner().scan(
+                List.of(source), Set.of("Alechilles:Alec's Tamework!"));
+        assertEquals(List.of("legacy", "neutral"), withTamework.definitions().stream()
+                .map(definition -> definition.id()).toList());
+        PatchDefinition legacy = withTamework.definitions().getFirst();
+        assertEquals(PatchLanguage.LEGACY_V1, legacy.language());
+        assertEquals(1, legacy.formatVersion());
     }
 
     @Test

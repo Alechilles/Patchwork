@@ -59,9 +59,13 @@ public final class PatchEngine {
     private static String raw(JsonObject root, PatchDefinition definition, PatchOperation operation) {
         return switch (operation.op().toLowerCase(Locale.ROOT)) {
             case "requireformat" -> {
-                if (definition.formatVersion() == 2 && operation.formatVersion() == 2
-                        && Integer.valueOf(definition.formatVersion()).equals(operation.version())) yield null;
-                if (definition.formatVersion() != 2 || operation.formatVersion() != 2) {
+                if (definition.language().requiresFormatSentinel()
+                        && operation.language().requiresFormatSentinel()
+                        && Integer.valueOf(definition.language().compatibilityVersion()).equals(operation.version())) {
+                    yield null;
+                }
+                if (!definition.language().requiresFormatSentinel()
+                        || !operation.language().requiresFormatSentinel()) {
                     throw new IllegalArgumentException("Unsupported operation '" + operation.op() + "'.");
                 }
                 throw new IllegalArgumentException("RequireFormat version does not match definition format version.");
@@ -84,25 +88,25 @@ public final class PatchEngine {
             }
             case "insert" -> insert(root, operation);
             case "replacematching" -> {
-                requireFormatTwoMatcher(operation);
+                requireClosedMatcher(operation);
                 replaceMatching(root, operation);
                 yield null;
             }
             case "removematching" -> {
-                requireFormatTwoMatcher(operation);
+                requireClosedMatcher(operation);
                 removeMatching(root, operation);
                 yield null;
             }
             case "movematching" -> {
-                requireFormatTwoMatcher(operation);
+                requireClosedMatcher(operation);
                 yield moveMatching(root, operation);
             }
             default -> throw new IllegalArgumentException("Unsupported operation '" + operation.op() + "'.");
         };
     }
 
-    private static void requireFormatTwoMatcher(PatchOperation operation) {
-        if (operation.formatVersion() != 2) {
+    private static void requireClosedMatcher(PatchOperation operation) {
+        if (!operation.language().closedStructure()) {
             throw new IllegalArgumentException("Unsupported operation '" + operation.op() + "'.");
         }
     }
@@ -114,7 +118,7 @@ public final class PatchEngine {
             target.parent().getAsJsonObject().add(target.leaf(), value);
         } else if (target.parent().isJsonArray()) {
             JsonArray array = target.parent().getAsJsonArray();
-            insert(array, JsonPointer.arrayIndex(target.leaf(), array.size(), true, operation.formatVersion()), value);
+            insert(array, JsonPointer.arrayIndex(target.leaf(), array.size(), true, semanticVersion(operation)), value);
         } else {
             throw new IllegalArgumentException("Add parent is not an object or array at " + operation.path() + ".");
         }
@@ -139,7 +143,7 @@ public final class PatchEngine {
         }
         if (target.parent().isJsonArray()) {
             JsonArray array = target.parent().getAsJsonArray();
-            array.set(JsonPointer.arrayIndex(target.leaf(), array.size(), false, operation.formatVersion()), value);
+            array.set(JsonPointer.arrayIndex(target.leaf(), array.size(), false, semanticVersion(operation)), value);
             return;
         }
         throw new IllegalArgumentException("Replace parent is not an object or array at " + operation.path() + ".");
@@ -155,7 +159,7 @@ public final class PatchEngine {
         }
         if (target.parent().isJsonArray()) {
             JsonArray array = target.parent().getAsJsonArray();
-            array.remove(JsonPointer.arrayIndex(target.leaf(), array.size(), false, operation.formatVersion()));
+            array.remove(JsonPointer.arrayIndex(target.leaf(), array.size(), false, semanticVersion(operation)));
             return;
         }
         throw new IllegalArgumentException("Remove parent is not an object or array at " + operation.path() + ".");
@@ -167,11 +171,11 @@ public final class PatchEngine {
             throw new IllegalArgumentException("Insert target must be an array at " + operation.path() + ".");
         }
         JsonArray array = target.getAsJsonArray();
-        if (operation.formatVersion() == 2) {
+        if (operation.language().closedStructure()) {
             if (operation.existing() != null) JsonMatcher.validateV2(operation.existing());
             if (operation.find() != null) JsonMatcher.validateV2(operation.find());
         }
-        if (operation.existing() != null && find(array, operation.existing(), operation.formatVersion()) >= 0) {
+        if (operation.existing() != null && find(array, operation.existing(), semanticVersion(operation)) >= 0) {
             return "existing matcher already present";
         }
         String position = operation.position() == null ? "End" : operation.position();
@@ -188,7 +192,7 @@ public final class PatchEngine {
 
     private static int anchor(JsonArray array, PatchOperation operation, boolean after) {
         if (operation.find() == null) throw new IllegalArgumentException("Insert " + operation.position() + " requires Find.");
-        int index = find(array, operation.find(), operation.formatVersion());
+        int index = find(array, operation.find(), semanticVersion(operation));
         if (index < 0) throw new IllegalArgumentException("Insert anchor not found for " + operation.id() + ".");
         return after ? index + 1 : index;
     }
@@ -273,7 +277,7 @@ public final class PatchEngine {
         }
         List<Integer> matches = new ArrayList<>();
         for (int index = 0; index < snapshot.size(); index++) {
-            if (matches(snapshot.get(index), matcher, operation.formatVersion())) {
+            if (matches(snapshot.get(index), matcher, semanticVersion(operation))) {
                 matches.add(index);
             }
         }
@@ -305,6 +309,11 @@ public final class PatchEngine {
         return JsonMatcher.matches(candidate, matcher, formatVersion);
     }
 
+    /** Applies strict pointer and matcher semantics to both strict v2 and neutral operations. */
+    private static int semanticVersion(PatchOperation operation) {
+        return operation.language().closedStructure() ? 2 : operation.formatVersion();
+    }
+
     private static int find(JsonArray array, JsonObject matcher, int formatVersion) {
         for (int index = 0; index < array.size(); index++) {
             if (matches(array.get(index), matcher, formatVersion)) return index;
@@ -326,13 +335,13 @@ public final class PatchEngine {
 
     private static JsonElement resolve(JsonElement root, PatchOperation operation) {
         JsonElement current = root;
-        for (String token : JsonPointer.tokens(path(operation), operation.formatVersion(), true)) {
+        for (String token : JsonPointer.tokens(path(operation), semanticVersion(operation), true)) {
             if (current == null) return null;
             if (current.isJsonObject()) {
                 current = current.getAsJsonObject().get(token);
             } else if (current.isJsonArray()) {
                 JsonArray array = current.getAsJsonArray();
-                current = array.get(JsonPointer.arrayIndex(token, array.size(), false, operation.formatVersion()));
+                current = array.get(JsonPointer.arrayIndex(token, array.size(), false, semanticVersion(operation)));
             } else {
                 return null;
             }
@@ -341,7 +350,7 @@ public final class PatchEngine {
     }
 
     private static PathTarget parent(JsonObject root, PatchOperation operation, boolean allowMissingLeaf) {
-        List<String> tokens = JsonPointer.tokens(path(operation), operation.formatVersion(), true);
+        List<String> tokens = JsonPointer.tokens(path(operation), semanticVersion(operation), true);
         if (tokens.isEmpty()) throw new IllegalArgumentException("Path must not point to the document root.");
         JsonElement current = root;
         for (int index = 0; index < tokens.size() - 1; index++) {
@@ -350,7 +359,7 @@ public final class PatchEngine {
                 current = current.getAsJsonObject().get(token);
             } else if (current.isJsonArray()) {
                 JsonArray array = current.getAsJsonArray();
-                current = array.get(JsonPointer.arrayIndex(token, array.size(), false, operation.formatVersion()));
+                current = array.get(JsonPointer.arrayIndex(token, array.size(), false, semanticVersion(operation)));
             } else {
                 throw new IllegalArgumentException("Path parent is not traversable at " + token + ".");
             }

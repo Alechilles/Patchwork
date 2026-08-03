@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.stream.Stream;
 
 import com.alechilles.patchwork.format.PatchDefinitionReader;
+import com.alechilles.patchwork.format.PatchLanguage;
 import com.alechilles.patchwork.format.JsonMatcher;
 import com.alechilles.patchwork.format.JsonPointer;
 import com.google.gson.JsonObject;
@@ -274,6 +275,26 @@ final class PatchEngineTest {
     }
 
     @Test
+    void appliesNeutralMatcherOperationsWithStrictSemantics() {
+        PatchDefinition neutral = neutralDefinition("""
+                { "Id":"neutral-replace", "Op":"ReplaceMatching", "Path":"/items",
+                  "Match":{"id":"old"}, "Value":{"id":"new"} }
+                """);
+
+        assertEquals(PatchLanguage.NEUTRAL, neutral.language());
+        assertEquals(0, neutral.formatVersion());
+        assertEquals(0, neutral.operations().getFirst().formatVersion());
+
+        PatchEngine.PatchResult result = engine.apply(object("""
+                {"items":[{"id":"old"},{"id":"keep"}]}
+                """), List.of(neutral));
+
+        assertEquals(List.of("new", "keep"), objectIds(result.patched(), "items"));
+        assertEquals(List.of("neutral-replace:neutral-replace"), result.applied());
+        assertEquals(List.of(), result.skipped());
+    }
+
+    @Test
     void replaceMatchingSupportsFirstLastAndAllPolicies() {
         PatchDefinition first = v2Definition("""
                 { "Id":"first", "Op":"ReplaceMatching", "Path":"/items", "Match":{"id":"b"},
@@ -485,6 +506,13 @@ final class PatchEngineTest {
                   { "Op": "RequireFormat", "Version": 2 }, %s
                 ] }
                 """.formatted(operation));
+    }
+
+    private static PatchDefinition neutralDefinition(String operation) {
+        return PatchDefinition.parseAll(object("""
+                { "Id":"neutral-replace", "Target":"Server/Test.json", "Operations":[%s] }
+                """.formatted(operation)), "test-pack", "patches/neutral.json", 0, PatchLanguage.NEUTRAL)
+                .getFirst();
     }
 
     private static JsonObject object(String json) {
