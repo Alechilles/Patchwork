@@ -3,6 +3,7 @@ package com.alechilles.patchwork.generation;
 import com.alechilles.patchwork.discovery.PatchRoot;
 import com.alechilles.patchwork.discovery.PatchScanner;
 import com.alechilles.patchwork.discovery.PatchSource;
+import com.alechilles.patchwork.discovery.PatchTargetResolver;
 import com.alechilles.patchwork.format.Utf8Ordering;
 import java.io.IOException;
 import java.io.InputStream;
@@ -118,7 +119,8 @@ public final class GenerationAssetSnapshot {
             Path realFile = file.toRealPath();
             if (!realFile.startsWith(root)) return;
             String path = PatchScanner.normalizeAssetPath(root.relativize(realFile).toString());
-            byte[] bytes = Files.readAllBytes(realFile);
+            byte[] bytes = PatchTargetResolver.readDirectoryAsset(source.backingPath(), path);
+            if (bytes == null) return;
             putWinner(source, path, bytes, winners);
         } catch (IOException | IllegalArgumentException ignored) {
             // Ignore an individual disappearing, malformed, or escaping entry and retain others.

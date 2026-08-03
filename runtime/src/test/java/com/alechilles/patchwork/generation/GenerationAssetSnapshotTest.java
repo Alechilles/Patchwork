@@ -4,11 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
 import com.alechilles.patchwork.discovery.PatchRoot;
 import com.alechilles.patchwork.discovery.PatchScanner;
 import com.alechilles.patchwork.discovery.PatchSource;
 import com.alechilles.patchwork.format.Utf8Ordering;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -45,5 +48,20 @@ final class GenerationAssetSnapshotTest {
 
         assertFalse(snapshot.sourcePackIds().contains(PatchScanner.GENERATED_PACK_ID));
         assertEquals(snapshot.paths().stream().sorted(Utf8Ordering.UNSIGNED_BYTES).toList(), snapshot.paths());
+    }
+
+    @Test
+    void snapshotRejectsDirectoryEntriesThatEscapeThroughSymlinks() throws Exception {
+        try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+            Path root = Files.createDirectories(fs.getPath("/pack/Server"));
+            Path outside = fs.getPath("/outside.json");
+            Files.writeString(outside, "{\"outside\":true}");
+            Files.createSymbolicLink(root.resolve("Target.json"), outside);
+
+            GenerationAssetSnapshot snapshot = GenerationAssetSnapshot.capture(List.of(
+                    PatchSource.directory("pack", 1, root.getParent())));
+
+            assertFalse(snapshot.find("Server/Target.json").isPresent());
+        }
     }
 }

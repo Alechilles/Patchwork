@@ -134,7 +134,7 @@ public final class PatchGenerationService {
             installedIds = Set.copyOf(installedIds);
             versions = Collections.unmodifiableMap(new LinkedHashMap<>(versions));
             serverVersion = Objects.requireNonNull(serverVersion);
-            conditionResolver = Objects.requireNonNull(conditionResolver);
+            conditionResolver = Objects.requireNonNull(conditionResolver, "conditionResolver").withAssets(assetSnapshot);
             conditionsByPatchId = Collections.unmodifiableMap(new LinkedHashMap<>(conditionsByPatchId));
         }
 

@@ -97,6 +97,15 @@ public final class PatchTargetResolver {
         return fallbackRead(root, target);
     }
 
+    /**
+     * Reads one directory-backed asset with the same descriptor-relative and no-follow checks as
+     * target resolution.  Generation snapshots use this boundary after enumeration so a path or
+     * link swap cannot redirect a capture outside its registered source root.
+     */
+    public static byte[] readDirectoryAsset(Path root, String target) throws IOException {
+        return new PatchTargetResolver().readDirectory(root, target);
+    }
+
     /** Opens the registered root from the filesystem root so a path handoff cannot redirect child reads. */
     private static SecureDirectoryStream<Path> openSecureRoot(Path root, SourceAttributes expected, SecureDirectoryStream<Path> filesystemRoot) throws IOException {
         SecureDirectoryStream<Path> current = filesystemRoot;

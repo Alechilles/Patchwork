@@ -89,13 +89,13 @@ final class PatchGenerationServiceTest {
                 {"Id":"condition","Target":"Server/Target.json","Operations":[{"Op":"Replace","Path":"/value","Value":2}]}
                 """);
         PatchSource source = PatchSource.directory("Test:Pack", 0, root);
-        GenerationAssetSnapshot assets = GenerationAssetSnapshot.capture(List.of(source));
-        Files.writeString(root.resolve("Server/Condition.json"), "{\"enabled\":false}");
         PatchCondition condition = new PatchCondition.JsonPathEquals(
                 new ConditionSource.Asset("Server/Condition.json"), "/enabled", JsonParser.parseString("true"));
+        PatchGenerationService.GenerationRequest request = new PatchGenerationService.GenerationRequest(
+                List.of(source), Set.of(), Map.of(), "1", resolver(), Map.of("condition", condition));
+        Files.writeString(root.resolve("Server/Condition.json"), "{\"enabled\":false}");
 
-        var plan = new PatchGenerationService().generate(new PatchGenerationService.GenerationRequest(
-                assets, Set.of(), Map.of(), "1", resolver().withAssets(assets), Map.of("condition", condition)));
+        var plan = new PatchGenerationService().generate(request);
 
         assertEquals(List.of("Server/Target.json"), plan.entries().stream()
                 .map(GeneratedPackManifest.Entry::target).toList());

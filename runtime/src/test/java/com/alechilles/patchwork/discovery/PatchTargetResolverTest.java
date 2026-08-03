@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -153,6 +154,19 @@ final class PatchTargetResolverTest {
 
             assertEquals(PatchTargetResolver.Status.FAILED, new PatchTargetResolver().resolveDetailed(
                     List.of(PatchSource.directory("pack", 1, root.getParent())), "Server/Target.json").status());
+        }
+    }
+
+    @Test
+    void sharedDirectoryCaptureReadRejectsEscapingFinalSymlink() throws Exception {
+        try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+            Path root = Files.createDirectories(fs.getPath("/pack/Server"));
+            Path outside = fs.getPath("/outside.json");
+            Files.writeString(outside, "outside", StandardCharsets.UTF_8);
+            Files.createSymbolicLink(root.resolve("Target.json"), outside);
+
+            assertThrows(IOException.class, () -> PatchTargetResolver.readDirectoryAsset(
+                    root.getParent(), "Server/Target.json"));
         }
     }
 
