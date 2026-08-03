@@ -8,7 +8,10 @@ import com.hypixel.hytale.assetstore.AssetExtraInfo;
 import com.hypixel.hytale.codec.EmptyExtraInfo;
 import com.hypixel.hytale.codec.schema.SchemaContext;
 import com.hypixel.hytale.codec.schema.config.ObjectSchema;
+import com.hypixel.hytale.codec.schema.config.Schema;
+import com.hypixel.hytale.codec.schema.config.StringSchema;
 import com.hypixel.hytale.codec.util.RawJsonReader;
+import java.util.Arrays;
 import java.util.Set;
 import org.bson.BsonDocument;
 import org.junit.jupiter.api.Test;
@@ -168,17 +171,50 @@ final class PatchDefinitionAssetTest {
 
     @Test
     void nativeSchemasExposeDefinitionAndTypedOperationFields() {
-        var definitionProperties = ((ObjectSchema) PatchDefinitionAsset.CODEC
-                .toSchema(new SchemaContext())).getProperties();
+        var definitionSchema = (ObjectSchema) PatchDefinitionAsset.CODEC.toSchema(new SchemaContext());
+        var definitionProperties = definitionSchema.getProperties();
         assertEquals(Set.of(
                         "FormatVersion", "Id", "Target", "Targets", "Priority", "Enabled", "When", "Operations"),
                 definitionProperties.keySet(),
                 "native schema must not expose Hytale Parent or Tags wrapper fields");
 
-        var operationProperties = PatchOperationAsset.CODEC.toSchema(new SchemaContext()).getProperties();
+        var operationSchema = PatchOperationAsset.CODEC.toSchema(new SchemaContext());
+        var operationProperties = operationSchema.getProperties();
         assertTrue(operationProperties.keySet().containsAll(Set.of(
                 "Id", "Op", "Version", "Path", "Value", "Position", "Match", "MatchPolicy",
                 "Find", "Existing", "Macro", "Options", "Required")));
+
+        assertDocumented(definitionSchema, "Patch definition");
+        definitionProperties.forEach(PatchDefinitionAssetTest::assertDocumented);
+        assertDocumented(operationSchema, "Patch operation");
+        operationProperties.forEach(PatchDefinitionAssetTest::assertDocumented);
+
+        assertEnum(operationProperties.get("Op"), Set.of(
+                "RequireFormat", "Add", "Merge", "Replace", "Remove", "Insert",
+                "ReplaceMatching", "RemoveMatching", "MoveMatching", "Macro"));
+        assertEnum(operationProperties.get("Position"), Set.of("Start", "End", "Before", "After"));
+        assertEnum(operationProperties.get("MatchPolicy"), Set.of("ExactlyOne", "First", "Last", "All"));
+    }
+
+    private static void assertDocumented(String name, Schema schema) {
+        assertDocumented(schema, name);
+    }
+
+    private static void assertDocumented(Schema schema, String name) {
+        String documentation = schema.getMarkdownDescription() != null
+                ? schema.getMarkdownDescription() : schema.getDescription();
+        assertTrue(documentation != null && !documentation.isBlank(),
+                name + " must have beginner-facing documentation");
+    }
+
+    private static void assertEnum(Schema schema, Set<String> expectedValues) {
+        var stringSchema = (StringSchema) schema;
+        assertEquals(expectedValues, Set.copyOf(Arrays.asList(stringSchema.getEnum())));
+        assertEquals("Enum", stringSchema.getHytale().getType());
+        assertEquals(expectedValues.size(), stringSchema.getMarkdownEnumDescriptions().length);
+        assertTrue(Arrays.stream(stringSchema.getMarkdownEnumDescriptions())
+                .allMatch(description -> description != null && !description.isBlank()),
+                "every enum choice must explain what it does");
     }
 
 }

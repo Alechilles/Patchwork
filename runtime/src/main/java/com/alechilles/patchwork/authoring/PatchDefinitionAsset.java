@@ -22,23 +22,40 @@ public final class PatchDefinitionAsset
             .builder(PatchDefinitionAsset.class, PatchDefinitionAsset::new, Codec.STRING,
                     (asset, value) -> asset.assetId = value, asset -> asset.assetId,
                     (asset, value) -> asset.extraData = value, asset -> asset.extraData)
-            .addField(new KeyedCodec<>("FormatVersion", Codec.INTEGER),
+            .documentation("A Patchwork patch definition. Choose one target form, then add operations in the order they should run.")
+            .append(new KeyedCodec<>("FormatVersion", Codec.INTEGER),
                     (asset, value) -> asset.formatVersion = value, asset -> asset.formatVersion)
-            .addField(new KeyedCodec<>("Id", Codec.STRING),
+            .documentation("Patch format version. Use 2 for new patches. Format 2 requires the first operation to be RequireFormat with Version 2; omit this field only for legacy format 1.")
+            .add()
+            .append(new KeyedCodec<>("Id", Codec.STRING),
                     (asset, value) -> asset.patchId = value, asset -> asset.patchId)
-            .addField(new KeyedCodec<>("Target", Codec.STRING),
+            .documentation("Optional stable name for this patch. If omitted, Patchwork derives one from the source mod and this file's path.")
+            .add()
+            .append(new KeyedCodec<>("Target", Codec.STRING),
                     (asset, value) -> asset.target = value, asset -> asset.target)
-            .addField(new KeyedCodec<>("Targets", Codec.STRING_ARRAY),
+            .documentation("One asset file to patch, using a forward-slash path such as Server/Item/Items/Example.json. Use either Target or Targets, never both.")
+            .add()
+            .append(new KeyedCodec<>("Targets", Codec.STRING_ARRAY),
                     (asset, value) -> asset.targets = value, asset -> asset.targets)
-            .addField(new KeyedCodec<>("Priority", Codec.INTEGER),
+            .documentation("Multiple unique asset files that receive this same patch. Use either Targets or Target, never both.")
+            .add()
+            .append(new KeyedCodec<>("Priority", Codec.INTEGER),
                     (asset, value) -> asset.priority = value, asset -> asset.priority)
-            .addField(new KeyedCodec<>("Enabled", Codec.BOOLEAN),
+            .documentation("Controls ordering when several patches affect the same target. Lower numbers run first. Defaults to 0.")
+            .add()
+            .append(new KeyedCodec<>("Enabled", Codec.BOOLEAN),
                     (asset, value) -> asset.enabled = value, asset -> asset.enabled)
-            .addField(new KeyedCodec<>("When", Codec.BSON_DOCUMENT),
+            .documentation("Whether Patchwork applies this definition. Defaults to true; disable it to keep the file without applying it.")
+            .add()
+            .append(new KeyedCodec<>("When", Codec.BSON_DOCUMENT),
                     (asset, value) -> asset.when = value, asset -> asset.when)
-            .addField(new KeyedCodec<>("Operations",
+            .documentation("Optional condition object that decides whether this patch is eligible. Omit it to always apply the patch when its target exists.")
+            .add()
+            .append(new KeyedCodec<>("Operations",
                             new ArrayCodec<>(PatchOperationAsset.CODEC, PatchOperationAsset[]::new), true),
                     (asset, value) -> asset.operations = value, asset -> asset.operations)
+            .documentation("Patch steps, executed from top to bottom. Format 2 must start with RequireFormat (Version 2), followed by the changes you want to make.")
+            .add()
             .validator(PatchDefinitionAsset::validatePortableDefinition)
             .build();
     public static final AssetCodec<String, PatchDefinitionAsset> CODEC =
