@@ -46,6 +46,7 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     private ConflictReport conflictReport = ConflictReport.empty();
     private String neutralRoot = "unavailable";
     private List<String> legacyRoots = List.of();
+    private volatile java.util.function.Consumer<com.alechilles.patchwork.generation.GenerationDependencyIndex> dependencySink = ignored -> { };
 
     PatchworkAdministrationService(Supplier<PatchGenerationService.GenerationPlan> generation,
                                   Supplier<ReloadExecutor> reloads,
@@ -81,6 +82,7 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     void seedStartup(long publishedEpoch, PatchGenerationService.GenerationPlan plan) {
         Map<String, byte[]> published = inventory(Objects.requireNonNull(plan, "plan"));
         synchronized (gate) { if (active && epoch == publishedEpoch) { inventory = published; inventoryKnown = true; generationEpoch = publishedEpoch; generationStatus = status(plan); conflictReport = plan.conflicts(); } }
+        dependencySink.accept(plan.dependencies());
     }
 
     void seedPublishedInventory(PatchGenerationService.GenerationPlan plan, long publishedEpoch) { seedStartup(publishedEpoch, plan); }
@@ -88,6 +90,11 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     /** Supplies root labels captured by composition without exposing condition source details. */
     void configureRoots(String neutral, List<String> eligibleLegacy) {
         synchronized (gate) { neutralRoot = neutral; legacyRoots = eligibleLegacy == null ? List.of() : List.copyOf(eligibleLegacy); }
+    }
+
+    /** Installs the elected host's dependency metadata sink for automatic reloads. */
+    void setDependencySink(java.util.function.Consumer<com.alechilles.patchwork.generation.GenerationDependencyIndex> sink) {
+        dependencySink = Objects.requireNonNull(sink, "sink");
     }
 
     void fence(long value) {
@@ -135,35 +142,55 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
         long admittedEpoch = admit();
         if (admittedEpoch < 0) return CompletableFuture.completedFuture(List.of("Patchwork reload was not started: runtime is inactive or busy."));
         try {
-            PatchReloadCoordinator.ReloadOutcome outcome = reloads.get().reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> {
-                if (!stillActive(admittedEpoch)) throw new IllegalStateException("Patchwork reload was fenced.");
-                Map<String, byte[]> prior = snapshotOrFail();
-                if (!stillActive(admittedEpoch)) throw new IllegalStateException("Patchwork reload was fenced.");
-                PatchGenerationService.GenerationPlan plan = generation.get();
-                Map<String, byte[]> next = inventory(plan, prior);
-                synchronized (gate) {
-                    if (!active || epoch != admittedEpoch) throw new IllegalStateException("Patchwork reload was fenced.");
-                    generationEpoch = admittedEpoch;
-                    generationStatus = status(plan);
-                    conflictReport = plan.conflicts();
-                }
-                List<PatchReloadCoordinator.TargetUpdate> updates = updates(prior, next);
-                if (!stillActive(admittedEpoch)) throw new IllegalStateException("Patchwork reload was fenced.");
-                return new PatchReloadCoordinator.ReloadPlan(StartupPackPublisher.hytaleManifest(plan.sourcePackIds()), updates);
-            }));
-            Map<String, byte[]> actual = null;
-            boolean known = false;
-            try { actual = snapshots.snapshot(); known = true; } catch (Exception ignored) { }
-            synchronized (gate) {
-                if (active && epoch == admittedEpoch) {
-                    inventory = known ? actual : Map.of(); inventoryKnown = known;
-                    lastReload = outcome;
-                }
-            }
+            PatchReloadCoordinator.ReloadOutcome outcome = reloads.get().reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> buildPlan(admittedEpoch)));
+            recordOutcome(admittedEpoch, outcome);
             return CompletableFuture.completedFuture(reloadLines(outcome));
         } catch (RuntimeException failure) {
             return CompletableFuture.completedFuture(List.of("Patchwork reload failed; inspect server diagnostics."));
         } finally { release(); }
+    }
+
+    /** Starts a generation pass from an elected automatic source callback. */
+    PatchReloadCoordinator.ReloadOutcome automaticReload(long expectedOwnershipEpoch) {
+        long admittedEpoch = admit(expectedOwnershipEpoch);
+        if (admittedEpoch < 0) return notStarted("Automatic reload owner is stale or busy.");
+        try {
+            PatchReloadCoordinator.ReloadOutcome outcome = reloads.get().elected(admittedEpoch, () -> buildPlan(admittedEpoch));
+            recordOutcome(admittedEpoch, outcome);
+            return outcome;
+        } catch (RuntimeException failure) {
+            return notStarted("Automatic reload failed: " + (failure.getMessage() == null ? "generation error" : failure.getMessage()));
+        } finally { release(); }
+    }
+
+    private PatchReloadCoordinator.ReloadPlan buildPlan(long admittedEpoch) {
+        if (!stillActive(admittedEpoch)) throw new IllegalStateException("Patchwork reload was fenced.");
+        Map<String, byte[]> prior = snapshotOrFail();
+        if (!stillActive(admittedEpoch)) throw new IllegalStateException("Patchwork reload was fenced.");
+        PatchGenerationService.GenerationPlan plan = generation.get();
+        Map<String, byte[]> next = inventory(plan, prior);
+        synchronized (gate) {
+            if (!active || epoch != admittedEpoch) throw new IllegalStateException("Patchwork reload was fenced.");
+            generationEpoch = admittedEpoch;
+            generationStatus = status(plan);
+            conflictReport = plan.conflicts();
+        }
+        dependencySink.accept(plan.dependencies());
+        List<PatchReloadCoordinator.TargetUpdate> updates = updates(prior, next);
+        if (!stillActive(admittedEpoch)) throw new IllegalStateException("Patchwork reload was fenced.");
+        return new PatchReloadCoordinator.ReloadPlan(StartupPackPublisher.hytaleManifest(plan.sourcePackIds()), updates);
+    }
+
+    private void recordOutcome(long admittedEpoch, PatchReloadCoordinator.ReloadOutcome outcome) {
+        Map<String, byte[]> actual = null;
+        boolean known = false;
+        try { actual = snapshots.snapshot(); known = true; } catch (Exception ignored) { }
+        synchronized (gate) {
+            if (active && epoch == admittedEpoch) {
+                inventory = known ? actual : Map.of(); inventoryKnown = known;
+                lastReload = outcome;
+            }
+        }
     }
 
     @Override public CompletionStage<List<String>> selfTest() {
@@ -183,8 +210,17 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     private long admit() {
         synchronized (gate) { if (!active || paused || running) return -1L; running = true; return epoch; }
     }
+    private long admit(long expectedEpoch) {
+        synchronized (gate) { if (!active || paused || running || epoch != expectedEpoch) return -1L; running = true; return epoch; }
+    }
     private boolean stillActive(long expectedEpoch) { synchronized (gate) { return active && epoch == expectedEpoch; } }
     private void release() { synchronized (gate) { running = false; gate.notifyAll(); } }
+    private PatchReloadCoordinator.ReloadOutcome notStarted(String diagnostic) {
+        synchronized (gate) {
+            return new PatchReloadCoordinator.ReloadOutcome(false, epoch, PatchReloadCoordinator.ManifestState.NOT_ATTEMPTED,
+                    List.of(), PatchReloadCoordinator.IntegrityState.NOT_ATTEMPTED, diagnostic);
+        }
+    }
     private Map<String, byte[]> snapshotOrFail() {
         try { return snapshots.snapshot(); }
         catch (Exception failure) { throw new IllegalStateException("Generated inventory is unavailable."); }
@@ -262,5 +298,9 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     /** Narrow synchronous executor seam; production delegates directly to one reload coordinator. */
     @FunctionalInterface interface ReloadExecutor {
         PatchReloadCoordinator.ReloadOutcome reload(PatchReloadCoordinator.ReloadRequest request);
+        default PatchReloadCoordinator.ReloadOutcome elected(long expectedOwnershipEpoch, Supplier<PatchReloadCoordinator.ReloadPlan> generator) {
+            return reload(new PatchReloadCoordinator.ReloadRequest(PatchReloadCoordinator.Trigger.SOURCE_EDIT,
+                    "patchwork.elected", generator, expectedOwnershipEpoch));
+        }
     }
 }

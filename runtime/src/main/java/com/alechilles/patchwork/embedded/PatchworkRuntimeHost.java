@@ -7,8 +7,10 @@ import com.alechilles.patchwork.engine.PatchMacroRegistry;
 import com.alechilles.patchwork.engine.PatchOperation;
 import com.alechilles.patchwork.format.PatchFormat;
 import com.alechilles.patchwork.reload.HytalePatchTargetAdapter;
+import com.alechilles.patchwork.reload.AutomaticReloadController;
 import com.alechilles.patchwork.reload.PatchReloadTracker;
 import com.alechilles.patchwork.reload.PatchReloadCoordinator;
+import com.alechilles.patchwork.generation.GenerationDependencyIndex;
 import com.hypixel.hytale.server.core.asset.LoadAssetEvent;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonParser;
@@ -46,6 +48,9 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
     private Consumer<LoadAssetEvent> registeredEarlyLoad;
     private EarlyLoadRegistration earlyLoadRegistration;
     private CommandRegistrationHandle commandRegistration;
+    private AutomaticReloadRegistration automaticReloadRegistration;
+    private AutomaticReloadController automaticReloadController;
+    private HytalePatchTargetAdapter builtInAdapter;
     private PatchReloadCoordinator reloadCoordinator;
     private PatchworkAdministrationService administration;
 
@@ -65,6 +70,7 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
 
     @Override public void activate(long value) {
         synchronized (gate) { epoch = value; accepting = true; replayPaused = false; }
+        automaticReloadController().activate(value, GenerationDependencyIndex.empty());
         administration().activate(value);
         PatchReloadCoordinator coordinator = reloadCoordinator;
         if (coordinator != null) coordinator.activate(value);
@@ -79,6 +85,8 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
                 observationRoutes = Map.of();
             }
         }
+        AutomaticReloadController automatic = automaticReloadController;
+        if (automatic != null) automatic.fence(value);
         administration().fence(value);
         PatchReloadCoordinator coordinator = reloadCoordinator;
         if (coordinator != null) coordinator.revoke(value);
@@ -120,6 +128,8 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
                     throw new IllegalStateException("Patchwork command registration was rejected.");
                 }
                 commandRegistration = command;
+                automaticReloadRegistration = Objects.requireNonNull(earlyLoadRegistrar.registerAutomaticReload(value, automaticReloadController(), this),
+                        "Automatic reload registration handle is required.");
             } catch (RuntimeException failure) {
                 try { unregisterEarlyLoad(); } catch (RuntimeException cleanup) { failure.addSuppressed(cleanup); }
                 throw failure;
@@ -146,11 +156,38 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
 
     /** Builds a coordinator over this host's exact tracker and dynamic contribution multiplexer. */
     PatchReloadCoordinator reloadCoordinator(Duration timeout) {
-        HytalePatchTargetAdapter unavailableBuiltIn = new HytalePatchTargetAdapter("patchwork-unavailable", ignored -> false, ignored -> HytalePatchTargetAdapter.AdapterReply.rejected("No built-in reload route."));
+        HytalePatchTargetAdapter unavailableBuiltIn = builtInAdapter == null
+                ? new HytalePatchTargetAdapter("patchwork-unavailable", ignored -> false, ignored -> HytalePatchTargetAdapter.AdapterReply.rejected("No built-in reload route."))
+                : builtInAdapter;
         synchronized (gate) {
             if (reloadCoordinator == null) reloadCoordinator = new PatchReloadCoordinator(generatedRoot, tracker, unavailableBuiltIn, List.of(targetAdapter()), timeout);
             if (accepting) reloadCoordinator.activate(epoch);
             return reloadCoordinator;
+        }
+    }
+
+    /** Installs the Hytale-backed adapter before the first reload pass is admitted. */
+    void installBuiltInAdapter(HytalePatchTargetAdapter adapter) {
+        synchronized (gate) {
+            if (!accepting) return;
+            builtInAdapter = Objects.requireNonNull(adapter, "adapter");
+        }
+    }
+
+    Path generatedRootPath() { return generatedRoot; }
+    PatchReloadTracker reloadTracker() { return tracker; }
+
+    void updateAutomaticDependencies(GenerationDependencyIndex dependencies) {
+        AutomaticReloadController controller;
+        long currentEpoch;
+        synchronized (gate) { controller = automaticReloadController; currentEpoch = epoch; }
+        if (controller != null) controller.updateDependencies(currentEpoch, dependencies);
+    }
+
+    private AutomaticReloadController automaticReloadController() {
+        synchronized (gate) {
+            if (automaticReloadController == null) automaticReloadController = new AutomaticReloadController(epochValue -> administration().automaticReload(epochValue));
+            return automaticReloadController;
         }
     }
 
@@ -298,6 +335,7 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
     }
 
     private void unregisterEarlyLoad() {
+        unregisterAutomaticReload();
         unregisterCommands();
         EarlyLoadRegistration registration;
         synchronized (gate) {
@@ -310,6 +348,21 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
             earlyLoadRegistration = null;
             registeredEarlyLoad = null;
             registeredEpoch = Long.MIN_VALUE;
+        }
+    }
+
+    private void unregisterAutomaticReload() {
+        AutomaticReloadRegistration registration;
+        synchronized (gate) { registration = automaticReloadRegistration; automaticReloadRegistration = null; }
+        if (registration != null) registration.unregister();
+        AutomaticReloadController controller;
+        synchronized (gate) { controller = automaticReloadController; automaticReloadController = null; }
+        if (controller != null) controller.close();
+        synchronized (gate) {
+            // A new elected lifetime receives a fresh Hytale bridge/correlator;
+            // never retain a coordinator that points at a closed event bridge.
+            reloadCoordinator = null;
+            builtInAdapter = null;
         }
     }
 
@@ -425,6 +478,7 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
         default CommandRegistrationHandle registerCommands(PatchworkCommandActions actions) { return registerCommands(); }
         /** Compatibility seam for existing non-Hytale host tests. */
         default CommandRegistrationHandle registerCommands() { return () -> { }; }
+        default AutomaticReloadRegistration registerAutomaticReload(long epoch, AutomaticReloadController controller, PatchworkRuntimeHost host) { return () -> { }; }
         default PatchworkAdministrationService createAdministration(PatchworkRuntimeHost host) {
             return new PatchworkAdministrationService(
                     () -> { throw new IllegalStateException("Patchwork generation composition is unavailable."); },
@@ -447,6 +501,9 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
 
     /** Local elected-owner handle; it prevents a Hytale registry type escaping host lifecycle tests. */
     @FunctionalInterface public interface CommandRegistrationHandle { void unregister(); }
+
+    /** Elected-only automatic source/evidence event registration seam. */
+    @FunctionalInterface public interface AutomaticReloadRegistration { void unregister(); }
 
     /** Runs a publication atomically with the active-epoch check. */
     @FunctionalInterface public interface EpochActionGate { boolean execute(Runnable action); }

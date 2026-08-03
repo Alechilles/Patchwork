@@ -14,6 +14,8 @@ import com.hypixel.hytale.common.semver.SemverRange;
 import com.hypixel.hytale.server.core.asset.AssetModule;
 import com.hypixel.hytale.server.core.asset.LoadAssetEvent;
 import com.alechilles.patchwork.command.PatchworkCommandRoot;
+import com.alechilles.patchwork.reload.AutomaticReloadController;
+import com.alechilles.patchwork.reload.HytaleAssetEventBridge;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import java.util.List;
 import java.util.Objects;
@@ -51,9 +53,23 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
                 () -> host.reloadCoordinator(java.time.Duration.ofSeconds(3))::reload,
                 () -> selfTestExecutor(new com.alechilles.patchwork.selftest.PatchworkSelfTestRunner(layout)),
                 GeneratedInventorySnapshotter.from(layout.generatedRoot()));
+        created.setDependencySink(host::updateAutomaticDependencies);
         administration = created;
         return created;
     }
+
+    @Override public PatchworkRuntimeHost.AutomaticReloadRegistration registerAutomaticReload(long epoch, AutomaticReloadController controller, PatchworkRuntimeHost host) {
+        HytaleAssetEventBridge bridge = new HytaleAssetEventBridge(plugin, epoch, controller,
+                // The host owns the tracker and keeps it private to its elected coordinator.
+                host.reloadTracker(), layout.generatedRoot());
+        host.installBuiltInAdapter(bridge.adapter());
+        AutoCloseable registration = bridge.register();
+        return () -> {
+            try { registration.close(); }
+            catch (Exception failure) { throw new IllegalStateException("Failed to unregister Patchwork Hytale asset events.", failure); }
+        };
+    }
+
 
     private static SelfTestExecutor selfTestExecutor(com.alechilles.patchwork.selftest.PatchworkSelfTestRunner runner) {
         return new SelfTestExecutor() {

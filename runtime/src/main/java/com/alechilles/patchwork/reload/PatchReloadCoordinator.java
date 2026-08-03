@@ -43,9 +43,20 @@ public final class PatchReloadCoordinator {
         return target;
     }
     /** Command authorization and a lazy plan prevent unauthorized paths from generating. */
-    public record ReloadRequest(Trigger trigger, String permission, Supplier<ReloadPlan> generator) {
-        public ReloadRequest { trigger = Objects.requireNonNull(trigger); generator = Objects.requireNonNull(generator); }
-        public static ReloadRequest authorized(Supplier<ReloadPlan> generator) { return new ReloadRequest(Trigger.PATCHWORK_RELOAD_COMMAND, "patchwork.admin", generator); }
+    public record ReloadRequest(Trigger trigger, String permission, Supplier<ReloadPlan> generator, long expectedOwnershipEpoch) {
+        public ReloadRequest {
+            trigger = Objects.requireNonNull(trigger);
+            generator = Objects.requireNonNull(generator);
+        }
+        public ReloadRequest(Trigger trigger, String permission, Supplier<ReloadPlan> generator) {
+            this(trigger, permission, generator, -1L);
+        }
+        public static ReloadRequest authorized(Supplier<ReloadPlan> generator) {
+            return new ReloadRequest(Trigger.PATCHWORK_RELOAD_COMMAND, "patchwork.admin", generator, -1L);
+        }
+        static ReloadRequest electedSourceEdit(long ownershipEpoch, Supplier<ReloadPlan> generator) {
+            return new ReloadRequest(Trigger.SOURCE_EDIT, "patchwork.elected", generator, ownershipEpoch);
+        }
     }
     /** One externally visible target result. */
     public record TargetOutcome(String target, TargetState state, String adapterId, String diagnostic, TargetJournalEntry rollbackEvidence, Path rollbackEvidencePath, boolean restartRequired) { }
@@ -134,11 +145,23 @@ public final class PatchReloadCoordinator {
 
     /** Runs one authorized pass at a time; file and observer events cannot call this method successfully. */
     public synchronized ReloadOutcome reload(ReloadRequest request) {
-        if (request.trigger() != Trigger.PATCHWORK_RELOAD_COMMAND || !"patchwork.admin".equals(request.permission())) {
+        boolean command = request.trigger() == Trigger.PATCHWORK_RELOAD_COMMAND && "patchwork.admin".equals(request.permission());
+        boolean electedSourceEdit = request.trigger() == Trigger.SOURCE_EDIT && "patchwork.elected".equals(request.permission());
+        if (!command && !electedSourceEdit) {
             return new ReloadOutcome(false, nextEpoch, ManifestState.NOT_ATTEMPTED, List.of(), IntegrityState.NOT_ATTEMPTED, "Live reload requires authorized /patchwork reload.");
         }
         long epoch; String passToken;
-        synchronized (lifecycleLock) { if (inProgress || !accepting) return new ReloadOutcome(false, nextEpoch, ManifestState.NOT_ATTEMPTED, List.of(), IntegrityState.NOT_ATTEMPTED, "Reload is fenced or already in progress."); epoch = ++nextEpoch; passToken = coordinatorToken + ":" + ownershipEpoch + ":" + epoch; activePassToken = passToken; activePassOwnershipEpoch = ownershipEpoch; tracker.activate(passToken); inProgress = true; }
+        synchronized (lifecycleLock) {
+            if (inProgress || !accepting || (electedSourceEdit && ownershipEpoch != request.expectedOwnershipEpoch())) {
+                return new ReloadOutcome(false, nextEpoch, ManifestState.NOT_ATTEMPTED, List.of(), IntegrityState.NOT_ATTEMPTED, "Reload is fenced or already in progress.");
+            }
+            epoch = ++nextEpoch;
+            passToken = coordinatorToken + ":" + ownershipEpoch + ":" + epoch;
+            activePassToken = passToken;
+            activePassOwnershipEpoch = ownershipEpoch;
+            tracker.activate(passToken);
+            inProgress = true;
+        }
         try {
         ReloadPlan plan;
         try { plan = Objects.requireNonNull(request.generator().get(), "Reload generation returned no plan."); }
@@ -157,6 +180,15 @@ public final class PatchReloadCoordinator {
         IntegrityResult integrity = reconcileIntegrity(passToken);
         return new ReloadOutcome(true, epoch, ManifestState.COMMITTED, outcomes, integrity.state(), (isAccepting() ? "" : "Reload revoked. ") + integrity.diagnostic());
         } finally { tracker.fence(passToken); synchronized (lifecycleLock) { activePassToken = null; activePassOwnershipEpoch = -1L; inProgress = false; lifecycleLock.notifyAll(); } }
+    }
+
+    /**
+     * Internal elected-runtime entry point. The ownership epoch is checked at
+     * the same lifecycle linearization point as pass admission, so stale
+     * source callbacks cannot start a generation pass.
+     */
+    public ReloadOutcome reloadElected(long expectedOwnershipEpoch, Supplier<ReloadPlan> generator) {
+        return reload(ReloadRequest.electedSourceEdit(expectedOwnershipEpoch, generator));
     }
 
     /** Activates this coordinator for an ownership epoch. */

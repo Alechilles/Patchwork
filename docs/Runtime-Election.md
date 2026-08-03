@@ -25,7 +25,7 @@ The active candidate alone may:
 - scan patches and source assets;
 - generate or publish the generated pack;
 - register `/patchwork` commands;
-- own reload, observation, and self-test work;
+- own automatic reload, observation, and self-test work;
 - accept host contribution calls.
 
 Passive candidates retain their registration and appear in `/patchwork status`. Host contributions registered through passive embedded services are stored by the global coordinator and replayed to the active runtime.

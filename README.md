@@ -187,7 +187,9 @@ The standalone plugin registers `Server/Patchwork/Patches/**/*.json` as a native
 
 New neutral definitions are marker-free: omit `FormatVersion` and `RequireFormat`. The installed native schema exposes the supported operations and rejects unknown structure before optional-operation handling. A runtime that cannot understand a neutral operation or field reports an installation/version error instead of silently publishing a partial asset. Explicit format 1 and format 2 files remain readable and lossless, including compatibility fields. See the [neutral authoring kit](docs/authoring-kit/neutral/patch-definition.schema.json) and [capabilities](docs/authoring-kit/neutral/capabilities.json).
 
-The generation dependency index records definition files, concrete target expansions, exact cross-asset sources, and glob stable prefixes for future reload coordination. It is metadata only; it does not start an automatic watcher.
+The generation dependency index records definition files, concrete target expansions, exact cross-asset sources, and glob stable prefixes. The elected runtime uses it to debounce relevant directory-pack edits into one automatic regeneration pass; Patchwork's generated output is excluded so it cannot feed back into itself. Archive-pack and unregistered mod-data changes remain manual or restart-driven.
+
+For monitored Hytale server stores, Patchwork calls a target `hot-reloaded` only after Hytale reports the expected generated provider and asset path. Common, custom, unknown, disabled-monitor, or unconfirmed routes remain restart-required; writing a generated file alone is never treated as a live reload.
 
 Patchwork 1.1.0 supports these installation modes:
 
