@@ -25,29 +25,37 @@ public final class PatchTargetResolver {
     private final ReadHook rootHandoffHook;
     private final ReadHook beforeComponentOpenHook;
     private final ReadHook fallbackHandoffHook;
+    private final ReadHook fallbackComponentHook;
 
     public PatchTargetResolver() {
-        this(path -> { }, path -> { }, path -> { }, path -> { });
+        this(path -> { }, path -> { }, path -> { }, path -> { }, path -> { });
     }
 
     PatchTargetResolver(ReadHook readHook) {
-        this(readHook, path -> { }, path -> { }, path -> { });
+        this(readHook, path -> { }, path -> { }, path -> { }, path -> { });
     }
 
     PatchTargetResolver(ReadHook readHook, ReadHook rootHandoffHook) {
-        this(readHook, rootHandoffHook, path -> { }, path -> { });
+        this(readHook, rootHandoffHook, path -> { }, path -> { }, path -> { });
     }
 
     PatchTargetResolver(ReadHook readHook, ReadHook rootHandoffHook, ReadHook beforeComponentOpenHook) {
-        this(readHook, rootHandoffHook, beforeComponentOpenHook, path -> { });
+        this(readHook, rootHandoffHook, beforeComponentOpenHook, path -> { }, path -> { });
     }
 
     PatchTargetResolver(ReadHook readHook, ReadHook rootHandoffHook,
                         ReadHook beforeComponentOpenHook, ReadHook fallbackHandoffHook) {
+        this(readHook, rootHandoffHook, beforeComponentOpenHook, fallbackHandoffHook, path -> { });
+    }
+
+    PatchTargetResolver(ReadHook readHook, ReadHook rootHandoffHook,
+                        ReadHook beforeComponentOpenHook, ReadHook fallbackHandoffHook,
+                        ReadHook fallbackComponentHook) {
         this.readHook = readHook;
         this.rootHandoffHook = rootHandoffHook;
         this.beforeComponentOpenHook = beforeComponentOpenHook;
         this.fallbackHandoffHook = fallbackHandoffHook;
+        this.fallbackComponentHook = fallbackComponentHook;
     }
 
     /** Resolves a target to the highest-priority available source and copies its bytes before archive closure. */
@@ -166,14 +174,11 @@ public final class PatchTargetResolver {
         before.add(new ComponentSnapshot(current, initialRoot));
         for (int i = 0; i < parts.length; i++) {
             current = current.resolve(parts[i]);
+            fallbackComponentHook.beforeRead(current);
             SourceAttributes attributes;
             try { attributes = SourceAttributes.read(current); }
             catch (NoSuchFileException missing) {
-                ComponentSnapshot parent = before.getLast();
-                SourceAttributes parentAfter;
-                try { parentAfter = SourceAttributes.read(parent.path()); }
-                catch (NoSuchFileException disappeared) { throw new IOException("asset component disappeared after validation", disappeared); }
-                if (!parent.attributes().sameAs(parentAfter)) throw new IOException("asset component changed during lookup");
+                validateFallbackMissing(before, expectedRoot);
                 return null;
             }
             if (!attributes.safeComponent(i == parts.length - 1)) throw new IOException("unsafe asset component");
@@ -191,6 +196,21 @@ public final class PatchTargetResolver {
         }
         validateFallbackPostRead(before, realRoot, realFile, expectedRoot);
         return bytes;
+    }
+
+    private static void validateFallbackMissing(List<ComponentSnapshot> before,
+                                                SourceAttributes expectedRoot) throws IOException {
+        for (ComponentSnapshot snapshot : before) {
+            SourceAttributes after;
+            try { after = SourceAttributes.read(snapshot.path()); }
+            catch (NoSuchFileException disappeared) { throw new IOException("asset component disappeared after validation", disappeared); }
+            if (!after.safeComponent(false) || !snapshot.attributes().sameAs(after)) {
+                throw new IOException("asset component changed during lookup");
+            }
+        }
+        if (!expectedRoot.sameAs(before.getFirst().attributes())) {
+            throw new IOException("source root changed during lookup");
+        }
     }
 
     private static void validateFallbackPostRead(List<ComponentSnapshot> before, Path realRoot, Path realFile,
