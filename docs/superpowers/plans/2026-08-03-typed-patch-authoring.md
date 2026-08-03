@@ -54,8 +54,8 @@ void whenUsesDocumentedNamedRecursiveConditionChoices() {
     SchemaContext context = new SchemaContext();
     ObjectSchema definition = (ObjectSchema) PatchDefinitionAsset.CODEC.toSchema(context);
 
-    assertEquals("other.json#/definitions/PatchCondition",
-            definition.getProperties().get("When").getRef());
+    assertTrue(containsRef(definition.getProperties().get("When"),
+            "other.json#/definitions/PatchCondition"));
     Schema condition = context.getOtherDefinitions().get("PatchCondition");
     assertEquals(Set.of("ModInstalled", "ModVersion", "ServerVersion", "GameVersion",
                     "AssetExists", "AssetMissing", "TargetExists", "TargetProvidedBy",
@@ -100,6 +100,8 @@ final class PatchConditionCodec implements Codec<BsonDocument>, NamedSchema {
 ```
 
 `toSchema(...)` must return a documented `Schema` with 13 titled `oneOf` object variants. Each variant is a closed `ObjectSchema` containing its existing condition property plus optional documented `$Comment`. Use closed nested object schemas for asset references, version comparisons, JSON-path fields, and `Target`/`Asset`/`ModData` source alternatives. Use `context.refDefinition(INSTANCE)` for `All` array items, `Any` array items, and `Not`.
+
+Because optional builder fields wrap their child in a nullable `anyOf`, each named codec's `toSchema(...)` must self-register when `context.getRawDefinition(INSTANCE)` is null, then return `context.refDefinition(INSTANCE)`. During definition construction the registered null placeholder is the recursion guard and the codec returns its concrete definition body.
 
 Use existing portable fields only:
 
@@ -165,8 +167,8 @@ void matcherFieldsUseDocumentedRecursiveOperatorAndOrdinaryKeyChoices() {
     ObjectSchema operation = PatchOperationAsset.CODEC.toSchema(context);
 
     for (String field : List.of("Match", "Find", "Existing")) {
-        assertEquals("other.json#/definitions/PatchMatcher",
-                operation.getProperties().get(field).getRef(), field);
+        assertTrue(containsRef(operation.getProperties().get(field),
+                "other.json#/definitions/PatchMatcher"), field);
     }
     Schema matcher = context.getOtherDefinitions().get("PatchMatcher");
     assertEquals(Set.of("Exact value", "Contains", "Object fields"), variantTitles(matcher));
@@ -251,10 +253,10 @@ void valueAndOptionsUseRecursiveJsonSchemasWithoutChangingPortableShape() {
     SchemaContext context = new SchemaContext();
     ObjectSchema operation = PatchOperationAsset.CODEC.toSchema(context);
 
-    assertEquals("other.json#/definitions/PatchJsonValue",
-            operation.getProperties().get("Value").getRef());
-    assertEquals("other.json#/definitions/PatchJsonObject",
-            operation.getProperties().get("Options").getRef());
+    assertTrue(containsRef(operation.getProperties().get("Value"),
+            "other.json#/definitions/PatchJsonValue"));
+    assertTrue(containsRef(operation.getProperties().get("Options"),
+            "other.json#/definitions/PatchJsonObject"));
     Schema value = context.getOtherDefinitions().get("PatchJsonValue");
     assertEquals(Set.of("Null", "Boolean", "Number", "String", "Array", "Object"),
             variantTitles(value));

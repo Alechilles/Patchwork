@@ -47,7 +47,7 @@ public final class PatchDefinitionAsset
                     (asset, value) -> asset.enabled = value, asset -> asset.enabled)
             .documentation("Whether Patchwork applies this definition. Defaults to true; disable it to keep the file without applying it.")
             .add()
-            .append(new KeyedCodec<>("When", Codec.BSON_DOCUMENT),
+            .append(new KeyedCodec<>("When", PatchConditionCodec.INSTANCE),
                     (asset, value) -> asset.when = value, asset -> asset.when)
             .documentation("Optional condition object that decides whether this patch is eligible. Omit it to always apply the patch when its target exists.")
             .add()
