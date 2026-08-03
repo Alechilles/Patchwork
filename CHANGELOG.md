@@ -16,6 +16,7 @@
 - Added Patchwork format 2 support with strict pointer and matcher semantics, `RequireFormat` compatibility guarding, matcher-based array operations, portable target-provider conditions, and a versioned authoring kit; format 1 remains an explicit legacy-compatible mode.
 - Added standalone native Hytale asset registration for `Server/Patchwork/Patches`, including codec-generated definition and operation schemas, lossless portable JSON open/save, and validation through the portable Patchwork parser. The existing scanner remains the sole generation source, preventing duplicate application.
 - Added beginner-facing documentation for every native Patchwork definition and operation field, plus documented editor dropdowns for operation type, array position, and match policy.
+- Added guided recursive native-editor schemas for `When` conditions, `$Equals`/`$Contains` matchers, arbitrary JSON `Value` fields, and object-only macro `Options`. This changes editor guidance only; portable patch JSON and runtime behavior are unchanged.
 
 ### Fixed
 
