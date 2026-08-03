@@ -16,6 +16,8 @@
     "ReplaceMatching",
     "RemoveMatching",
     "MoveMatching",
+    "MergeMatching",
+    "UpsertMatching",
     "Macro"
   ],
   "conditions": [

@@ -31,6 +31,8 @@ final class PatchOperationAsset {
         ReplaceMatching,
         RemoveMatching,
         MoveMatching,
+        MergeMatching,
+        UpsertMatching,
         Macro
     }
 
@@ -67,6 +69,10 @@ final class PatchOperationAsset {
                     "Removes array entries selected by Match and MatchPolicy.")
             .documentKey(OperationType.MoveMatching,
                     "Moves exactly one array entry selected by Match to Position, optionally relative to Find.")
+            .documentKey(OperationType.MergeMatching,
+                    "Deep-merges Value into every object entry selected by Match. Neutral definitions only; MatchPolicy defaults to ExactlyOne.")
+            .documentKey(OperationType.UpsertMatching,
+                    "Deep-merges Value into selected object entries, or inserts one Value object when no entry matches. Neutral definitions only.")
             .documentKey(OperationType.Macro,
                     "Runs a macro supplied by an embedding mod, using Macro as its ID and Options as its input.");
     private static final EnumCodec<Position> POSITION_CODEC = new EnumCodec<>(Position.class)
@@ -101,23 +107,23 @@ final class PatchOperationAsset {
             .add()
             .append(new KeyedCodec<>("Value", PatchJsonValueCodec.INSTANCE),
                     (operation, value) -> operation.value = value, operation -> operation.value)
-            .documentation("JSON value to add, merge, replace, or insert. Its allowed shape depends on Op; Merge requires an object.")
+            .documentation("JSON value to add, merge, replace, or insert. Its allowed shape depends on Op; Merge, MergeMatching, and UpsertMatching require an object.")
             .add()
             .append(new KeyedCodec<>("Position", POSITION_CODEC),
                     (operation, value) -> operation.position = value, operation -> operation.position)
-            .documentation("Where Insert or MoveMatching places an array entry. Defaults to End. Before and After require Find; Start and End forbid Find.")
+            .documentation("Where Insert, MoveMatching, or a zero-match UpsertMatching places an array entry. Defaults to End. Before and After require Find; Start and End forbid Find.")
             .add()
             .append(new KeyedCodec<>("Match", PatchMatcherCodec.INSTANCE),
                     (operation, value) -> operation.match = value, operation -> operation.match)
-            .documentation("Matcher that selects array entries for ReplaceMatching, RemoveMatching, or MoveMatching. Declare only the fields that must match.")
+            .documentation("Matcher that selects array entries for ReplaceMatching, RemoveMatching, MoveMatching, MergeMatching, or UpsertMatching. Declare only the fields that must match.")
             .add()
             .append(new KeyedCodec<>("MatchPolicy", MATCH_POLICY_CODEC),
                     (operation, value) -> operation.matchPolicy = value, operation -> operation.matchPolicy)
-            .documentation("How ReplaceMatching or RemoveMatching chooses among matches. Defaults to ExactlyOne. MoveMatching always requires exactly one match.")
+            .documentation("How ReplaceMatching, RemoveMatching, MergeMatching, or UpsertMatching chooses among matches. Defaults to ExactlyOne. MoveMatching always requires exactly one match.")
             .add()
             .append(new KeyedCodec<>("Find", PatchMatcherCodec.INSTANCE),
                     (operation, value) -> operation.find = value, operation -> operation.find)
-            .documentation("Anchor matcher used with Position Before or After. Patchwork inserts or moves relative to the first matching array entry.")
+            .documentation("Anchor matcher used with Position Before or After. Patchwork inserts or moves relative to the first matching array entry, including a zero-match UpsertMatching.")
             .add()
             .append(new KeyedCodec<>("Existing", PatchMatcherCodec.INSTANCE),
                     (operation, value) -> operation.existing = value, operation -> operation.existing)

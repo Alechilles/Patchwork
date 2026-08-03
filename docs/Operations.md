@@ -14,13 +14,28 @@ All commands require `patchwork.admin` and default to the `hytale:Admin` group. 
 
 ## Authoring contract
 
-The portable format-2 authoring kit is shipped at `docs/authoring-kit/v2/` in the Patchwork source distribution:
+The portable authoring kits are shipped at `docs/authoring-kit/neutral/` and `docs/authoring-kit/v2/` in the Patchwork source distribution:
 
-- `patch-definition.schema.json` closes definition, operation, and condition descriptors while leaving JSON data containers opaque;
-- `capabilities.json` is the current capability document (`supportedFormatVersions: [1, 2]`), including matcher operations and the exact `TargetProvidedBy` condition; and
-- the runtime conformance corpus lives under `runtime/src/test/resources/authoring-kit/v2/`.
+- the neutral schema closes marker-free definition, operation, and condition descriptors while leaving JSON data containers opaque;
+- neutral `capabilities.json` advertises `MergeMatching` and `UpsertMatching` alongside the existing matcher operations;
+- the versioned kit preserves explicit format-2 compatibility and the exact `TargetProvidedBy` condition; and
+- runtime conformance corpora live under `runtime/src/test/resources/authoring-kit/neutral/` and `runtime/src/test/resources/authoring-kit/v2/`.
 
 There is no built-in macro descriptor version. Macro option schemas remain host-provider data; a provider may publish descriptors below `Server/Patchwork/Authoring/Macros/**/*.json`.
+
+## Matching object operations
+
+`MergeMatching` selects object entries in an array using `Match` and deep-merges `Value` into each selected entry. `MatchPolicy` defaults to `ExactlyOne`; use `First`, `Last`, or `All` when a different cardinality is intended.
+
+`UpsertMatching` uses the same object matcher and merge behavior, but inserts exactly one `Value` object when there is no match. `Position` defaults to `End`; `Before` and `After` require `Find`, which is resolved against the array snapshot taken before the operation. Both operations are available in marker-free neutral definitions and require object `Value` data.
+
+```json
+{"Op":"MergeMatching","Path":"/Rows","Match":{"Id":"a"},"Value":{"Enabled":true}}
+```
+
+```json
+{"Op":"UpsertMatching","Path":"/Rows","Match":{"Id":"a"},"Position":"End","Value":{"Id":"a","Enabled":true}}
+```
 
 ## Generation triggers
 

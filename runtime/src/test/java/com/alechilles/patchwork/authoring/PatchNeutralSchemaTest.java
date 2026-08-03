@@ -23,6 +23,10 @@ final class PatchNeutralSchemaTest {
     @Test
     void acceptsMarkerFreeNeutralFixtureAndRejectsFormatMarkers() throws IOException {
         assertValid(readResource("authoring-kit/neutral/valid/marker-free.json"), "marker-free");
+        assertValid(readResource("authoring-kit/neutral/valid/merge-matching.json"), "merge-matching");
+        assertValid(readResource("authoring-kit/neutral/valid/upsert-matching.json"), "upsert-matching");
+        assertInvalid(readResource("authoring-kit/neutral/invalid/upsert-relative-without-find.json"),
+                "upsert-relative-without-find");
         assertInvalid(JSON.readTree("""
                 {"FormatVersion":2,"Target":"Server/Test/A.json","Operations":[]}
                 """), "format-marker");
@@ -45,7 +49,7 @@ final class PatchNeutralSchemaTest {
                 .map(JsonNode::asText)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
         assertEquals(Set.of("Add", "Merge", "Replace", "Remove", "Insert",
-                "ReplaceMatching", "RemoveMatching", "MoveMatching", "Macro"), operations);
+                "ReplaceMatching", "RemoveMatching", "MoveMatching", "MergeMatching", "UpsertMatching", "Macro"), operations);
     }
 
     private static JsonSchema loadSchema() {

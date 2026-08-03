@@ -1,0 +1,13 @@
+{
+  "Id": "merge-matching",
+  "Target": "Server/Test/Rows.json",
+  "Operations": [
+    {
+      "Op": "MergeMatching",
+      "Path": "/Rows",
+      "Match": { "Id": "a" },
+      "MatchPolicy": "All",
+      "Value": { "Enabled": true }
+    }
+  ]
+}

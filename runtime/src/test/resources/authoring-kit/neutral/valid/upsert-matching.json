@@ -1,0 +1,15 @@
+{
+  "Id": "upsert-matching",
+  "Target": "Server/Test/Rows.json",
+  "Operations": [
+    {
+      "Op": "UpsertMatching",
+      "Path": "/Rows",
+      "Match": { "Id": "a" },
+      "MatchPolicy": "All",
+      "Position": "After",
+      "Find": { "Id": "anchor" },
+      "Value": { "Id": "a", "Enabled": true }
+    }
+  ]
+}

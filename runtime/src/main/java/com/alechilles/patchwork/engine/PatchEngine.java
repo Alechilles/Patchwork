@@ -2,6 +2,7 @@ package com.alechilles.patchwork.engine;
 
 import com.alechilles.patchwork.format.JsonMatcher;
 import com.alechilles.patchwork.format.JsonPointer;
+import com.alechilles.patchwork.generation.GenerationAssetSnapshot;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -9,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 /** Applies Patchwork operations to a copied JSON asset without host-plugin dependencies. */
 public final class PatchEngine {
@@ -21,42 +23,89 @@ public final class PatchEngine {
 
     /** Creates an engine using the supplied host macro registry. */
     public PatchEngine(PatchMacroRegistry macroRegistry) {
-        this.macroRegistry = macroRegistry;
+        this.macroRegistry = Objects.requireNonNull(macroRegistry, "macroRegistry");
     }
 
     /** Applies enabled definitions in deterministic order and returns patched JSON plus diagnostics. */
     public PatchResult apply(JsonObject source, List<PatchDefinition> definitions) {
+        return apply(source, definitions,
+                new ApplicationContext("", GenerationAssetSnapshot.capture(List.of())));
+    }
+
+    /** Applies enabled definitions with the immutable context bound to one target. */
+    public PatchResult apply(JsonObject source, List<PatchDefinition> definitions, ApplicationContext context) {
+        Objects.requireNonNull(source, "source");
+        Objects.requireNonNull(definitions, "definitions");
+        Objects.requireNonNull(context, "context");
         JsonObject working = source.deepCopy();
         List<String> applied = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
-        definitions.stream().filter(PatchDefinition::enabled).sorted(PatchDefinition.ORDERING).forEach(definition -> {
-            for (PatchOperation operation : definition.operations()) {
-                for (PatchOperation raw : macroRegistry.expand(operation)) {
-                    apply(working, definition, raw, applied, skipped);
-                }
+        List<MutationEffect> effects = new ArrayList<>();
+        long operationOrder = 0;
+        for (PatchDefinition definition : definitions.stream()
+                .filter(PatchDefinition::enabled).sorted(PatchDefinition.ORDERING).toList()) {
+            DefinitionResult result = applyDefinition(working, definition, context, operationOrder);
+            working = result.patched();
+            applied.addAll(result.applied());
+            skipped.addAll(result.skipped());
+            effects.addAll(result.effects());
+            operationOrder = result.nextOperationOrder();
+        }
+        return new PatchResult(working, List.copyOf(applied), List.copyOf(skipped), List.copyOf(effects));
+    }
+
+    /** Applies one definition to an isolated copy, preserving a caller-supplied operation order. */
+    public DefinitionResult applyDefinition(
+            JsonObject source,
+            PatchDefinition definition,
+            ApplicationContext context,
+            long firstOperationOrder) {
+        Objects.requireNonNull(source, "source");
+        Objects.requireNonNull(definition, "definition");
+        Objects.requireNonNull(context, "context");
+        if (firstOperationOrder < 0) throw new IllegalArgumentException("firstOperationOrder must not be negative.");
+
+        JsonObject working = source.deepCopy();
+        List<String> applied = new ArrayList<>();
+        List<String> skipped = new ArrayList<>();
+        List<MutationEffect> effects = new ArrayList<>();
+        long operationOrder = firstOperationOrder;
+        for (PatchOperation operation : definition.operations()) {
+            for (PatchOperation raw : macroRegistry.expand(operation)) {
+                EffectTrace trace = new EffectTrace(context.target(), definition, operation.id(), operationOrder);
+                apply(working, definition, raw, applied, skipped, trace);
+                effects.addAll(trace.effects);
+                operationOrder++;
             }
-        });
-        return new PatchResult(working, List.copyOf(applied), List.copyOf(skipped));
+        }
+        return new DefinitionResult(working, List.copyOf(applied), List.copyOf(skipped),
+                List.copyOf(effects), operationOrder);
     }
 
     private static void apply(JsonObject root, PatchDefinition definition, PatchOperation operation,
-                              List<String> applied, List<String> skipped) {
+                              List<String> applied, List<String> skipped, EffectTrace trace) {
         String label = definition.id() + ":" + operation.id();
         try {
-            String skip = raw(root, definition, operation);
-            if (skip == null) applied.add(label);
-            else skipped.add(label + " (" + skip + ")");
+            String skip = raw(root, definition, operation, trace);
+            if (skip == null) {
+                applied.add(label);
+                return;
+            }
+            skipped.add(label + " (" + skip + ")");
+            trace.effects.clear();
         } catch (JsonPointer.StructuralException ex) {
             String message = label + " failed: " + ex.getMessage();
             throw new PatchFailureException(message, ex);
         } catch (RuntimeException ex) {
             String message = label + " failed: " + ex.getMessage();
+            trace.effects.clear();
             if (operation.required()) throw new PatchFailureException(message, ex);
             skipped.add(message);
         }
     }
 
-    private static String raw(JsonObject root, PatchDefinition definition, PatchOperation operation) {
+    private static String raw(JsonObject root, PatchDefinition definition, PatchOperation operation,
+                              EffectTrace trace) {
         return switch (operation.op().toLowerCase(Locale.ROOT)) {
             case "requireformat" -> {
                 if (definition.language().requiresFormatSentinel()
@@ -71,35 +120,44 @@ public final class PatchEngine {
                 throw new IllegalArgumentException("RequireFormat version does not match definition format version.");
             }
             case "add" -> {
-                add(root, operation);
+                add(root, operation, trace);
                 yield null;
             }
             case "merge" -> {
-                merge(root, operation);
+                merge(root, operation, trace);
                 yield null;
             }
             case "replace" -> {
-                replace(root, operation);
+                replace(root, operation, trace);
                 yield null;
             }
             case "remove" -> {
-                remove(root, operation);
+                remove(root, operation, trace);
                 yield null;
             }
-            case "insert" -> insert(root, operation);
+            case "insert" -> insert(root, operation, trace);
             case "replacematching" -> {
                 requireClosedMatcher(operation);
-                replaceMatching(root, operation);
+                replaceMatching(root, operation, trace);
                 yield null;
             }
             case "removematching" -> {
                 requireClosedMatcher(operation);
-                removeMatching(root, operation);
+                removeMatching(root, operation, trace);
                 yield null;
             }
             case "movematching" -> {
                 requireClosedMatcher(operation);
-                yield moveMatching(root, operation);
+                yield moveMatching(root, operation, trace);
+            }
+            case "mergematching" -> {
+                requireNeutralMatching(operation);
+                mergeMatching(root, operation, trace);
+                yield null;
+            }
+            case "upsertmatching" -> {
+                requireNeutralMatching(operation);
+                yield upsertMatching(root, operation, trace);
             }
             default -> throw new IllegalArgumentException("Unsupported operation '" + operation.op() + "'.");
         };
@@ -111,61 +169,82 @@ public final class PatchEngine {
         }
     }
 
-    private static void add(JsonObject root, PatchOperation operation) {
+    private static void requireNeutralMatching(PatchOperation operation) {
+        if (operation.language() != com.alechilles.patchwork.format.PatchLanguage.NEUTRAL) {
+            throw new IllegalArgumentException("Unsupported operation '" + operation.op() + "'.");
+        }
+        requireClosedMatcher(operation);
+    }
+
+    private static void add(JsonObject root, PatchOperation operation, EffectTrace trace) {
         PathTarget target = parent(root, operation, true);
-        JsonElement value = value(operation);
+        JsonElement incoming = value(operation);
         if (target.parent().isJsonObject()) {
-            target.parent().getAsJsonObject().add(target.leaf(), value);
-        } else if (target.parent().isJsonArray()) {
-            JsonArray array = target.parent().getAsJsonArray();
-            insert(array, JsonPointer.arrayIndex(target.leaf(), array.size(), true, semanticVersion(operation)), value);
-        } else {
-            throw new IllegalArgumentException("Add parent is not an object or array at " + operation.path() + ".");
-        }
-    }
-
-    private static void merge(JsonObject root, PatchOperation operation) {
-        JsonElement value = value(operation);
-        if (!value.isJsonObject()) throw new IllegalArgumentException("Merge value must be an object.");
-        JsonElement target = resolve(root, operation);
-        if (target == null || !target.isJsonObject()) {
-            throw new IllegalArgumentException("Merge target must exist and be an object at " + operation.path() + ".");
-        }
-        merge(target.getAsJsonObject(), value.getAsJsonObject());
-    }
-
-    private static void replace(JsonObject root, PatchOperation operation) {
-        PathTarget target = parent(root, operation, false);
-        JsonElement value = value(operation);
-        if (target.parent().isJsonObject()) {
-            target.parent().getAsJsonObject().add(target.leaf(), value);
+            target.parent().getAsJsonObject().add(target.leaf(), incoming.deepCopy());
+            traceWrites(incoming, operation.path(), trace);
             return;
         }
         if (target.parent().isJsonArray()) {
             JsonArray array = target.parent().getAsJsonArray();
-            array.set(JsonPointer.arrayIndex(target.leaf(), array.size(), false, semanticVersion(operation)), value);
+            int index = JsonPointer.arrayIndex(target.leaf(), array.size(), true, semanticVersion(operation));
+            insert(array, index, incoming.deepCopy());
+            traceWrites(incoming, childPath(parentPath(operation.path()), index), trace);
+            trace.membership(parentPath(operation.path()), JsonValueFingerprint.sha256(incoming));
+            return;
+        }
+        throw new IllegalArgumentException("Add parent is not an object or array at " + operation.path() + ".");
+    }
+
+    private static void merge(JsonObject root, PatchOperation operation, EffectTrace trace) {
+        JsonElement incoming = value(operation);
+        if (!incoming.isJsonObject()) throw new IllegalArgumentException("Merge value must be an object.");
+        JsonElement target = resolve(root, operation);
+        if (target == null || !target.isJsonObject()) {
+            throw new IllegalArgumentException("Merge target must exist and be an object at " + operation.path() + ".");
+        }
+        mergeWithTrace(target.getAsJsonObject(), incoming.getAsJsonObject(), operation.path(), trace);
+    }
+
+    private static void replace(JsonObject root, PatchOperation operation, EffectTrace trace) {
+        PathTarget target = parent(root, operation, false);
+        JsonElement incoming = value(operation);
+        if (target.parent().isJsonObject()) {
+            target.parent().getAsJsonObject().add(target.leaf(), incoming.deepCopy());
+            traceWrites(incoming, operation.path(), trace);
+            return;
+        }
+        if (target.parent().isJsonArray()) {
+            JsonArray array = target.parent().getAsJsonArray();
+            int index = JsonPointer.arrayIndex(target.leaf(), array.size(), false, semanticVersion(operation));
+            array.set(index, incoming.deepCopy());
+            traceWrites(incoming, childPath(parentPath(operation.path()), index), trace);
             return;
         }
         throw new IllegalArgumentException("Replace parent is not an object or array at " + operation.path() + ".");
     }
 
-    private static void remove(JsonObject root, PatchOperation operation) {
+    private static void remove(JsonObject root, PatchOperation operation, EffectTrace trace) {
         PathTarget target = parent(root, operation, false);
         if (target.parent().isJsonObject()) {
-            if (target.parent().getAsJsonObject().remove(target.leaf()) == null) {
+            JsonElement removed = target.parent().getAsJsonObject().remove(target.leaf());
+            if (removed == null) {
                 throw new IllegalArgumentException("Remove target does not exist at " + operation.path() + ".");
             }
+            traceRemoved(removed, operation.path(), trace);
             return;
         }
         if (target.parent().isJsonArray()) {
             JsonArray array = target.parent().getAsJsonArray();
-            array.remove(JsonPointer.arrayIndex(target.leaf(), array.size(), false, semanticVersion(operation)));
+            int index = JsonPointer.arrayIndex(target.leaf(), array.size(), false, semanticVersion(operation));
+            JsonElement removed = array.remove(index);
+            traceRemoved(removed, childPath(parentPath(operation.path()), index), trace);
+            trace.membership(parentPath(operation.path()), MutationEffect.REMOVED);
             return;
         }
         throw new IllegalArgumentException("Remove parent is not an object or array at " + operation.path() + ".");
     }
 
-    private static String insert(JsonObject root, PatchOperation operation) {
+    private static String insert(JsonObject root, PatchOperation operation, EffectTrace trace) {
         JsonElement target = resolve(root, operation);
         if (target == null || !target.isJsonArray()) {
             throw new IllegalArgumentException("Insert target must be an array at " + operation.path() + ".");
@@ -186,7 +265,10 @@ public final class PatchEngine {
             case "after" -> anchor(array, operation, true);
             default -> throw new IllegalArgumentException("Unsupported insert position '" + position + "'.");
         };
-        insert(array, index, value(operation));
+        JsonElement incoming = value(operation);
+        insert(array, index, incoming.deepCopy());
+        traceWrites(incoming, childPath(operation.path(), index), trace);
+        trace.membership(operation.path(), JsonValueFingerprint.sha256(incoming));
         return null;
     }
 
@@ -197,38 +279,40 @@ public final class PatchEngine {
         return after ? index + 1 : index;
     }
 
-    private static void replaceMatching(JsonObject root, PatchOperation operation) {
+    private static void replaceMatching(JsonObject root, PatchOperation operation, EffectTrace trace) {
         JsonArray array = matchingTarget(root, operation, "ReplaceMatching");
         JsonArray snapshot = array.deepCopy();
-        List<Integer> indexes = matchingIndexes(snapshot, operation.match(), operation.matchPolicy(), operation);
+        List<Integer> indexes = matchingIndexes(snapshot, operation.match(), operation.matchPolicy(), operation, false);
         JsonElement replacement = value(operation);
         for (int index : indexes) {
             array.set(index, replacement.deepCopy());
+            traceWrites(replacement, childPath(operation.path(), index), trace);
         }
     }
 
-    private static void removeMatching(JsonObject root, PatchOperation operation) {
+    private static void removeMatching(JsonObject root, PatchOperation operation, EffectTrace trace) {
         JsonArray array = matchingTarget(root, operation, "RemoveMatching");
         JsonArray snapshot = array.deepCopy();
-        List<Integer> indexes = matchingIndexes(snapshot, operation.match(), operation.matchPolicy(), operation);
+        List<Integer> indexes = matchingIndexes(snapshot, operation.match(), operation.matchPolicy(), operation, false);
         for (int offset = indexes.size() - 1; offset >= 0; offset--) {
-            array.remove(indexes.get(offset));
+            int index = indexes.get(offset);
+            array.remove(index);
+            traceRemoved(snapshot.get(index), childPath(operation.path(), index), trace);
+            trace.membership(operation.path(), MutationEffect.REMOVED);
         }
     }
 
-    private static String moveMatching(JsonObject root, PatchOperation operation) {
+    private static String moveMatching(JsonObject root, PatchOperation operation, EffectTrace trace) {
         JsonArray array = matchingTarget(root, operation, "MoveMatching");
         JsonArray snapshot = array.deepCopy();
-        int movingIndex = matchingIndexes(snapshot, operation.match(), "ExactlyOne", operation).getFirst();
+        int movingIndex = matchingIndexes(snapshot, operation.match(), "ExactlyOne", operation, false).getFirst();
         String position = operation.position() == null ? "End" : operation.position();
         String normalizedPosition = position.toLowerCase(Locale.ROOT);
         JsonObject find = operation.find();
         int anchorIndex = -1;
         if ("before".equals(normalizedPosition) || "after".equals(normalizedPosition)) {
-            if (find == null) {
-                throw new IllegalArgumentException("MoveMatching " + position + " requires Find.");
-            }
-            anchorIndex = matchingIndexes(snapshot, find, "ExactlyOne", operation).getFirst();
+            if (find == null) throw new IllegalArgumentException("MoveMatching " + position + " requires Find.");
+            anchorIndex = matchingIndexes(snapshot, find, "ExactlyOne", operation, false).getFirst();
             if (movingIndex == anchorIndex) {
                 throw new IllegalArgumentException("MoveMatching cannot use the moving entry as its own anchor.");
             }
@@ -250,16 +334,66 @@ public final class PatchEngine {
             default -> throw new IllegalArgumentException("Position must be Start, End, Before, or After.");
         };
         insert(reordered, insertionIndex, moving);
-        if (snapshot.equals(reordered)) {
-            return "already in requested position";
-        }
-        while (!array.isEmpty()) {
-            array.remove(0);
-        }
-        for (JsonElement element : reordered) {
-            array.add(element.deepCopy());
-        }
+        if (snapshot.equals(reordered)) return "already in requested position";
+        while (!array.isEmpty()) array.remove(0);
+        for (JsonElement element : reordered) array.add(element.deepCopy());
+        trace.order(operation.path(), JsonValueFingerprint.sha256(reordered));
         return null;
+    }
+
+    private static void mergeMatching(JsonObject root, PatchOperation operation, EffectTrace trace) {
+        JsonArray array = matchingTarget(root, operation, "MergeMatching");
+        JsonArray snapshot = array.deepCopy();
+        List<Integer> indexes = matchingIndexes(snapshot, operation.match(), operation.matchPolicy(), operation, false);
+        JsonElement incoming = value(operation);
+        if (!incoming.isJsonObject()) throw new IllegalArgumentException("MergeMatching value must be an object.");
+        for (int index : indexes) {
+            JsonElement selected = array.get(index);
+            if (!selected.isJsonObject()) {
+                throw new IllegalArgumentException("MergeMatching selected entry must be an object at index " + index + ".");
+            }
+        }
+        for (int index : indexes) {
+            mergeWithTrace(selectedObject(array.get(index)), incoming.getAsJsonObject(),
+                    childPath(operation.path(), index), trace);
+        }
+    }
+
+    private static String upsertMatching(JsonObject root, PatchOperation operation, EffectTrace trace) {
+        JsonArray array = matchingTarget(root, operation, "UpsertMatching");
+        JsonArray snapshot = array.deepCopy();
+        List<Integer> indexes = matchingIndexes(snapshot, operation.match(), operation.matchPolicy(), operation, true);
+        JsonElement incoming = value(operation);
+        if (!incoming.isJsonObject()) throw new IllegalArgumentException("UpsertMatching value must be an object.");
+        if (!indexes.isEmpty()) {
+            for (int index : indexes) {
+                if (!array.get(index).isJsonObject()) {
+                    throw new IllegalArgumentException("UpsertMatching selected entry must be an object at index " + index + ".");
+                }
+            }
+            for (int index : indexes) {
+                mergeWithTrace(selectedObject(array.get(index)), incoming.getAsJsonObject(),
+                        childPath(operation.path(), index), trace);
+            }
+            return null;
+        }
+
+        String position = operation.position() == null ? "End" : operation.position();
+        int index = switch (position.toLowerCase(Locale.ROOT)) {
+            case "start" -> 0;
+            case "end" -> array.size();
+            case "before" -> anchor(snapshot, operation, false);
+            case "after" -> anchor(snapshot, operation, true);
+            default -> throw new IllegalArgumentException("Unsupported UpsertMatching position '" + position + "'.");
+        };
+        insert(array, index, incoming.deepCopy());
+        traceWrites(incoming, childPath(operation.path(), index), trace);
+        trace.membership(operation.path(), JsonValueFingerprint.sha256(incoming));
+        return null;
+    }
+
+    private static JsonObject selectedObject(JsonElement value) {
+        return value.getAsJsonObject();
     }
 
     private static JsonArray matchingTarget(JsonObject root, PatchOperation operation, String name) {
@@ -271,17 +405,14 @@ public final class PatchEngine {
     }
 
     private static List<Integer> matchingIndexes(JsonArray snapshot, JsonObject matcher, String requestedPolicy,
-                                                  PatchOperation operation) {
-        if (matcher == null) {
-            throw new IllegalArgumentException(operation.op() + " requires Match.");
-        }
+                                                  PatchOperation operation, boolean allowZero) {
+        if (matcher == null) throw new IllegalArgumentException(operation.op() + " requires Match.");
         List<Integer> matches = new ArrayList<>();
         for (int index = 0; index < snapshot.size(); index++) {
-            if (matches(snapshot.get(index), matcher, semanticVersion(operation))) {
-                matches.add(index);
-            }
+            if (matches(snapshot.get(index), matcher, semanticVersion(operation))) matches.add(index);
         }
         if (matches.isEmpty()) {
+            if (allowZero) return List.of();
             throw new IllegalArgumentException(operation.op() + " found no matching entries for " + operation.id() + ".");
         }
         String policy = requestedPolicy == null ? "exactlyone" : requestedPolicy.toLowerCase(Locale.ROOT);
@@ -321,14 +452,20 @@ public final class PatchEngine {
         return -1;
     }
 
-    private static void merge(JsonObject target, JsonObject value) {
-        for (Map.Entry<String, JsonElement> entry : value.entrySet()) {
+    private static void mergeWithTrace(JsonObject target, JsonObject incoming, String basePath, EffectTrace trace) {
+        if (incoming.isEmpty()) {
+            traceWrites(incoming, basePath, trace);
+            return;
+        }
+        for (Map.Entry<String, JsonElement> entry : incoming.entrySet()) {
+            String entryPath = childPath(basePath, entry.getKey());
             JsonElement existing = target.get(entry.getKey());
-            JsonElement incoming = entry.getValue();
-            if (existing != null && existing.isJsonObject() && incoming != null && incoming.isJsonObject()) {
-                merge(existing.getAsJsonObject(), incoming.getAsJsonObject());
+            JsonElement value = entry.getValue();
+            if (existing != null && existing.isJsonObject() && value != null && value.isJsonObject()) {
+                mergeWithTrace(existing.getAsJsonObject(), value.getAsJsonObject(), entryPath, trace);
             } else {
-                target.add(entry.getKey(), incoming == null ? null : incoming.deepCopy());
+                target.add(entry.getKey(), value == null ? null : value.deepCopy());
+                traceWrites(value, entryPath, trace);
             }
         }
     }
@@ -396,10 +533,144 @@ public final class PatchEngine {
         return value;
     }
 
-    /** Patched JSON plus operation diagnostics from a patch run. */
-    public record PatchResult(JsonObject patched, List<String> applied, List<String> skipped) { }
+    private static void traceWrites(JsonElement value, String path, EffectTrace trace) {
+        if (value == null || value.isJsonNull() || value.isJsonPrimitive()) {
+            trace.write(path, value);
+            return;
+        }
+        if (value.isJsonArray()) {
+            JsonArray array = value.getAsJsonArray();
+            if (array.isEmpty()) {
+                trace.write(path, value);
+                return;
+            }
+            for (int index = 0; index < array.size(); index++) {
+                traceWrites(array.get(index), childPath(path, index), trace);
+            }
+            return;
+        }
+        JsonObject object = value.getAsJsonObject();
+        if (object.isEmpty()) {
+            trace.write(path, value);
+            return;
+        }
+        for (Map.Entry<String, JsonElement> entry : object.entrySet()) {
+            traceWrites(entry.getValue(), childPath(path, entry.getKey()), trace);
+        }
+    }
 
-    private record PathTarget(JsonElement parent, String leaf) { }
+    private static void traceRemoved(JsonElement value, String path, EffectTrace trace) {
+        if (value == null || value.isJsonNull() || value.isJsonPrimitive()) {
+            trace.removed(path);
+            return;
+        }
+        if (value.isJsonArray()) {
+            JsonArray array = value.getAsJsonArray();
+            if (array.isEmpty()) {
+                trace.removed(path);
+                return;
+            }
+            for (int index = 0; index < array.size(); index++) {
+                traceRemoved(array.get(index), childPath(path, index), trace);
+            }
+            return;
+        }
+        JsonObject object = value.getAsJsonObject();
+        if (object.isEmpty()) {
+            trace.removed(path);
+            return;
+        }
+        for (Map.Entry<String, JsonElement> entry : object.entrySet()) {
+            traceRemoved(entry.getValue(), childPath(path, entry.getKey()), trace);
+        }
+    }
+
+    private static String parentPath(String path) {
+        int separator = path.lastIndexOf('/');
+        if (separator <= 0) return "";
+        return path.substring(0, separator);
+    }
+
+    private static String childPath(String basePath, Object token) {
+        String escaped = String.valueOf(token).replace("~", "~0").replace("/", "~1");
+        if (basePath == null || basePath.isEmpty()) return "/" + escaped;
+        return basePath.endsWith("/") ? basePath + escaped : basePath + "/" + escaped;
+    }
+
+    /** Context bound to one target and one immutable source snapshot. */
+    public record ApplicationContext(String target, GenerationAssetSnapshot assets) {
+        public ApplicationContext {
+            target = Objects.requireNonNull(target, "target");
+            assets = Objects.requireNonNull(assets, "assets");
+        }
+    }
+
+    /** Result of applying one definition to an isolated source copy. */
+    public record DefinitionResult(JsonObject patched, List<String> applied,
+                                   List<String> skipped, List<MutationEffect> effects,
+                                   long nextOperationOrder) {
+        public DefinitionResult {
+            patched = Objects.requireNonNull(patched, "patched");
+            applied = List.copyOf(applied);
+            skipped = List.copyOf(skipped);
+            effects = List.copyOf(effects);
+        }
+    }
+
+    /** Patched JSON plus operation diagnostics from a patch run. */
+    public record PatchResult(JsonObject patched, List<String> applied, List<String> skipped,
+                              List<MutationEffect> effects) {
+        public PatchResult(JsonObject patched, List<String> applied, List<String> skipped) {
+            this(patched, applied, skipped, List.of());
+        }
+
+        public PatchResult {
+            patched = Objects.requireNonNull(patched, "patched");
+            applied = List.copyOf(applied);
+            skipped = List.copyOf(skipped);
+            effects = List.copyOf(effects);
+        }
+    }
+
+    private static final class EffectTrace {
+        private final String target;
+        private final PatchDefinition definition;
+        private final String operationId;
+        private final long operationOrder;
+        private final List<MutationEffect> effects = new ArrayList<>();
+
+        private EffectTrace(String target, PatchDefinition definition, String operationId, long operationOrder) {
+            this.target = target;
+            this.definition = definition;
+            this.operationId = operationId;
+            this.operationOrder = operationOrder;
+        }
+
+        private void write(String path, JsonElement value) {
+            effects.add(effect(path, MutationEffect.Kind.WRITE,
+                    JsonValueFingerprint.sha256(value)));
+        }
+
+        private void removed(String path) {
+            effects.add(effect(path, MutationEffect.Kind.WRITE, MutationEffect.REMOVED));
+        }
+
+        private void membership(String path, String fingerprint) {
+            effects.add(effect(path, MutationEffect.Kind.ARRAY_MEMBERSHIP, fingerprint));
+        }
+
+        private void order(String path, String fingerprint) {
+            effects.add(effect(path, MutationEffect.Kind.ARRAY_ORDER, fingerprint));
+        }
+
+        private MutationEffect effect(String path, MutationEffect.Kind kind, String fingerprint) {
+            return new MutationEffect(target, definition.id(), definition.sourcePack(), operationId,
+                    operationOrder, path, kind, fingerprint);
+        }
+    }
+
+    private record PathTarget(JsonElement parent, String leaf) {
+    }
 
     /** Indicates failure of a required patch operation. */
     public static final class PatchFailureException extends RuntimeException {

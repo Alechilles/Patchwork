@@ -238,7 +238,7 @@ final class PatchDefinitionAssetTest {
 
         assertEnum(operationProperties.get("Op"), Set.of(
                 "Add", "Merge", "Replace", "Remove", "Insert",
-                "ReplaceMatching", "RemoveMatching", "MoveMatching", "Macro"));
+                "ReplaceMatching", "RemoveMatching", "MoveMatching", "MergeMatching", "UpsertMatching", "Macro"));
         assertEnum(operationProperties.get("Position"), Set.of("Start", "End", "Before", "After"));
         assertEnum(operationProperties.get("MatchPolicy"), Set.of("ExactlyOne", "First", "Last", "All"));
     }

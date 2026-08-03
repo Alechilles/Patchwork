@@ -159,6 +159,59 @@ final class PatchEngineTest {
     }
 
     @Test
+    void tracesEqualAndChangedMergeLeavesWithoutRetainingValues() {
+        PatchDefinition definition = neutralDefinition("""
+                { "Id":"trace", "Op":"Merge", "Path":"/Nested",
+                  "Value":{"A":1,"Nested":{"B":3}} }
+                """);
+
+        PatchEngine.PatchResult result = engine.apply(object("""
+                { "Nested": { "A": 1, "Nested": { "B": 2 } } }
+                """), List.of(definition));
+
+        assertEquals(List.of("/Nested/A", "/Nested/Nested/B"),
+                result.effects().stream().map(MutationEffect::path).toList());
+        assertEquals(MutationEffect.Kind.WRITE, result.effects().getFirst().kind());
+        assertFalse(result.effects().getFirst().valueFingerprint().isBlank());
+        assertEquals(0L, result.effects().getFirst().operationOrder());
+        assertEquals(64, result.effects().getFirst().valueFingerprint().length(),
+                "fingerprints are represented independently from raw JSON values");
+    }
+
+    @Test
+    void mergeMatchingDeepMergesMatchingObjectsFromOneSnapshot() {
+        PatchDefinition definition = neutralDefinition("""
+                { "Id":"merge-matching", "Op":"MergeMatching", "Path":"/Rows",
+                  "Match":{"Data":{"X":{"$Equals":1}}}, "MatchPolicy":"All",
+                  "Value":{"Data":{"Y":3}} }
+                """);
+
+        JsonObject result = engine.apply(object("""
+                { "Rows": [ { "Id":"a", "Data":{"X":1} }, { "Id":"b", "Data":{"X":2} } ] }
+                """), List.of(definition)).patched();
+
+        assertEquals(object("{\"X\":1,\"Y\":3}"),
+                result.getAsJsonArray("Rows").get(0).getAsJsonObject().get("Data"));
+        assertEquals(object("{\"X\":2}"),
+                result.getAsJsonArray("Rows").get(1).getAsJsonObject().get("Data"));
+    }
+
+    @Test
+    void upsertMatchingInsertsExactlyOneObjectWhenNoMatchExists() {
+        PatchDefinition definition = neutralDefinition("""
+                { "Id":"upsert", "Op":"UpsertMatching", "Path":"/Rows",
+                  "Match":{"Id":"a"}, "MatchPolicy":"All",
+                  "Value":{"Id":"a", "Enabled":true} }
+                """);
+
+        JsonObject result = engine.apply(object("{\"Rows\":[]}"), List.of(definition)).patched();
+
+        assertEquals(1, result.getAsJsonArray("Rows").size());
+        assertEquals("a", result.getAsJsonArray("Rows").get(0).getAsJsonObject().get("Id").getAsString());
+        assertEquals(1, result.getAsJsonArray("Rows").get(0).getAsJsonObject().get("Enabled").getAsBoolean() ? 1 : 0);
+    }
+
+    @Test
     void insertsAtStartEndAndBeforeAnAnchorAndSkipsExistingValues() {
         PatchEngine.PatchResult result = engine.apply(object("""
                 { "items": [{ "id": "anchor" }, { "id": "present" }] }

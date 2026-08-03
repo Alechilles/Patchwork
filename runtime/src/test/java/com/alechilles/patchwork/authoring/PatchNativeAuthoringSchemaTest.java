@@ -11,6 +11,7 @@ import com.hypixel.hytale.codec.schema.config.ArraySchema;
 import com.hypixel.hytale.codec.schema.config.BooleanSchema;
 import com.hypixel.hytale.codec.schema.config.ObjectSchema;
 import com.hypixel.hytale.codec.schema.config.Schema;
+import com.hypixel.hytale.codec.schema.config.StringSchema;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -102,6 +103,26 @@ final class PatchNativeAuthoringSchemaTest {
         assertTrue(containsRef(matcher, "common.json#/definitions/Alechilles.Patchwork.PatchMatcher"));
         assertTrue(context.getDefinitions().containsKey("Alechilles.Patchwork.PatchMatcherValue"));
         assertEveryChoiceDocumented(matcher);
+    }
+
+    @Test
+    void matchingMergeAndUpsertOperationsAreSelectableAndDocumented() {
+        SchemaContext context = new SchemaContext();
+        ObjectSchema operation = PatchOperationAsset.CODEC.toSchema(context);
+        StringSchema choices = (StringSchema) operation.getProperties().get("Op");
+
+        assertTrue(Arrays.asList(choices.getEnum()).contains("MergeMatching"));
+        assertTrue(Arrays.asList(choices.getEnum()).contains("UpsertMatching"));
+        assertNotNull(choices.getMarkdownEnumDescriptions());
+        for (String description : choices.getMarkdownEnumDescriptions()) {
+            assertTrue(description != null && !description.isBlank());
+        }
+        assertTrue(operation.getProperties().get("Path").getMarkdownDescription() != null);
+        assertTrue(operation.getProperties().get("Match").getMarkdownDescription() != null);
+        assertTrue(operation.getProperties().get("Value").getMarkdownDescription() != null);
+        assertTrue(operation.getProperties().get("MatchPolicy").getMarkdownDescription() != null);
+        assertTrue(operation.getProperties().get("Position").getMarkdownDescription() != null);
+        assertTrue(operation.getProperties().get("Find").getMarkdownDescription() != null);
     }
 
     @Test

@@ -216,6 +216,15 @@ public final class PatchOperation {
                 allowed = Set.of("Op", "Path", "Match", "Id", "Required", "Position", "Find");
                 required = Set.of("Op", "Path", "Match");
             }
+            case "MergeMatching", "UpsertMatching" -> {
+                if (language != PatchLanguage.NEUTRAL) {
+                    throw structural(patchId, index, "unsupported operation '" + op + "'.");
+                }
+                allowed = "MergeMatching".equals(op)
+                        ? Set.of("Op", "Path", "Match", "Value", "Id", "Required", "MatchPolicy")
+                        : Set.of("Op", "Path", "Match", "Value", "Id", "Required", "MatchPolicy", "Position", "Find");
+                required = Set.of("Op", "Path", "Match", "Value");
+            }
             case "Add", "Merge", "Replace" -> {
                 allowed = Set.of("Op", "Path", "Value", "Id", "Required");
                 required = Set.of("Op", "Path", "Value");
@@ -258,18 +267,20 @@ public final class PatchOperation {
             if (version <= 0) throw structural(patchId, index, "Version must be a positive integer.");
             return;
         }
-        if (Set.of("Add", "Merge", "Replace", "Remove", "Insert", "ReplaceMatching", "RemoveMatching", "MoveMatching")
+        if (Set.of("Add", "Merge", "Replace", "Remove", "Insert", "ReplaceMatching", "RemoveMatching", "MoveMatching",
+                "MergeMatching", "UpsertMatching")
                 .contains(op)) {
             validatePath(operation, patchId, index);
         }
-        if (Set.of("ReplaceMatching", "RemoveMatching", "MoveMatching").contains(op)) {
+        if (Set.of("ReplaceMatching", "RemoveMatching", "MoveMatching", "MergeMatching", "UpsertMatching").contains(op)) {
             if (!operation.get("Match").isJsonObject()) {
                 throw structural(patchId, index, "Match must be an object.");
             }
             validateMatcher(operation.get("Match"), "Match", patchId, index);
         }
-        if ("Merge".equals(op) && !operation.get("Value").isJsonObject()) {
-            throw structural(patchId, index, "Merge Value must be an object.");
+        if (Set.of("Merge", "MergeMatching", "UpsertMatching").contains(op)
+                && !operation.get("Value").isJsonObject()) {
+            throw structural(patchId, index, op + " Value must be an object.");
         }
         if ("Macro".equals(op)) {
             String macro = strictString(operation, "Macro", patchId + " operation " + index);
@@ -283,6 +294,10 @@ public final class PatchOperation {
             validateInsert(operation, patchId, index);
             return;
         }
+        if ("UpsertMatching".equals(op)) {
+            validateRelativePosition(operation, patchId, index, "UpsertMatching");
+            return;
+        }
         if (operation.has("MatchPolicy")) {
             String policy = strictString(operation, "MatchPolicy", patchId + " operation " + index);
             if (!Set.of("exactlyone", "first", "last", "all").contains(policy.toLowerCase(Locale.ROOT))) {
@@ -290,22 +305,26 @@ public final class PatchOperation {
             }
         }
         if ("MoveMatching".equals(op)) {
-            String position = operation.has("Position")
-                    ? strictString(operation, "Position", patchId + " operation " + index) : "End";
-            String normalized = position.toLowerCase(Locale.ROOT);
-            if (!Set.of("start", "end", "before", "after").contains(normalized)) {
-                throw structural(patchId, index, "Position must be Start, End, Before, or After.");
-            }
-            boolean hasFind = operation.has("Find");
-            if (hasFind && !operation.get("Find").isJsonObject()) {
-                throw structural(patchId, index, "Find must be an object.");
-            }
-            if (hasFind) validateMatcher(operation.get("Find"), "Find", patchId, index);
-            if (("before".equals(normalized) || "after".equals(normalized)) != hasFind) {
-                throw structural(patchId, index, ("before".equals(normalized) || "after".equals(normalized))
-                        ? "Position " + position + " requires Find."
-                        : "Find is only allowed with Position Before or After.");
-            }
+            validateRelativePosition(operation, patchId, index, "MoveMatching");
+        }
+    }
+
+    private static void validateRelativePosition(JsonObject operation, String patchId, int index, String name) {
+        String position = operation.has("Position")
+                ? strictString(operation, "Position", patchId + " operation " + index) : "End";
+        String normalized = position.toLowerCase(Locale.ROOT);
+        if (!Set.of("start", "end", "before", "after").contains(normalized)) {
+            throw structural(patchId, index, "Position must be Start, End, Before, or After.");
+        }
+        boolean hasFind = operation.has("Find");
+        if (hasFind && !operation.get("Find").isJsonObject()) {
+            throw structural(patchId, index, "Find must be an object.");
+        }
+        if (hasFind) validateMatcher(operation.get("Find"), "Find", patchId, index);
+        if (("before".equals(normalized) || "after".equals(normalized)) != hasFind) {
+            throw structural(patchId, index, ("before".equals(normalized) || "after".equals(normalized))
+                    ? name + " " + position + " requires Find."
+                    : "Find is only allowed with Position Before or After.");
         }
     }
 

@@ -357,6 +357,80 @@
         }
       ]
     },
+    "mergeMatching": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["Op", "Path", "Match", "Value"],
+      "properties": {
+        "Op": {"const": "MergeMatching"},
+        "Path": {"$ref": "#/$defs/path"},
+        "Match": {"$ref": "#/$defs/matcher"},
+        "Value": {"$ref": "#/$defs/jsonObject"},
+        "Id": {"$ref": "#/$defs/operationId"},
+        "Required": {"type": "boolean"},
+        "MatchPolicy": {"$ref": "#/$defs/matchPolicy"}
+      }
+    },
+    "upsertMatching": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["Op", "Path", "Match", "Value"],
+      "properties": {
+        "Op": {"const": "UpsertMatching"},
+        "Path": {"$ref": "#/$defs/path"},
+        "Match": {"$ref": "#/$defs/matcher"},
+        "Value": {"$ref": "#/$defs/jsonObject"},
+        "Id": {"$ref": "#/$defs/operationId"},
+        "Required": {"type": "boolean"},
+        "MatchPolicy": {"$ref": "#/$defs/matchPolicy"},
+        "Position": {"$ref": "#/$defs/position"},
+        "Find": {"$ref": "#/$defs/matcher"}
+      },
+      "allOf": [
+        {
+          "if": {"required": ["Find"]},
+          "then": {
+            "required": ["Position"],
+            "properties": {
+              "Position": {
+                "anyOf": [
+                  {"pattern": "^[Bb][Ee][Ff][Oo][Rr][Ee]$"},
+                  {"pattern": "^[Aa][Ff][Tt][Ee][Rr]$"}
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["Position"],
+            "properties": {
+              "Position": {
+                "anyOf": [
+                  {"pattern": "^[Bb][Ee][Ff][Oo][Rr][Ee]$"},
+                  {"pattern": "^[Aa][Ff][Tt][Ee][Rr]$"}
+                ]
+              }
+            }
+          },
+          "then": {"required": ["Find"]}
+        },
+        {
+          "if": {
+            "required": ["Position"],
+            "properties": {
+              "Position": {
+                "anyOf": [
+                  {"pattern": "^[Ss][Tt][Aa][Rr][Tt]$"},
+                  {"pattern": "^[Ee][Nn][Dd]$"}
+                ]
+              }
+            }
+          },
+          "then": {"not": {"required": ["Find"]}}
+        }
+      ]
+    },
     "macro": {
       "type": "object",
       "additionalProperties": false,
@@ -383,6 +457,8 @@
         {"$ref": "#/$defs/replaceMatching"},
         {"$ref": "#/$defs/removeMatching"},
         {"$ref": "#/$defs/moveMatching"},
+        {"$ref": "#/$defs/mergeMatching"},
+        {"$ref": "#/$defs/upsertMatching"},
         {"$ref": "#/$defs/macro"}
       ]
     },
