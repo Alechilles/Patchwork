@@ -1,6 +1,6 @@
 # Typed Patchwork Authoring Design
 
-**Date:** 2026-08-03  
+**Date:** 2026-08-03
 **Status:** Approved for implementation planning
 
 ## Goal
