@@ -80,6 +80,32 @@ final class PatchGenerationServiceTest {
     }
 
     @Test
+    void generatedTargetCanOverlayFromOriginalWinningSnapshot() throws Exception {
+        Path patches = Files.createDirectories(temporary.resolve("cross-asset/Server/Patchwork/Patches"));
+        Path root = patches.getParent().getParent().getParent();
+        Path target = root.resolve("Server/Target.json");
+        Path source = root.resolve("Server/Source.json");
+        Files.writeString(target, "{\"Shared\":{\"B\":2}}");
+        Files.writeString(source, "{\"Shared\":{\"A\":1},\"FromSource\":true}");
+        Files.writeString(patches.resolve("overlay.json"), """
+                {"Id":"overlay","Target":"Server/Target.json","Operations":[
+                  {"Op":"OverlayFromAsset","Source":"Server/Source.json"}
+                ]}
+                """);
+        PatchSource pack = PatchSource.directory("Test:Pack", 0, root);
+        GenerationAssetSnapshot assets = GenerationAssetSnapshot.capture(List.of(pack));
+        Files.writeString(source, "not-json");
+
+        PatchGenerationService.GenerationPlan plan = new PatchGenerationService().generate(
+                new PatchGenerationService.GenerationRequest(assets, Set.of(), Map.of(), "1", resolver().withAssets(assets)));
+
+        assertEquals(List.of("Server/Target.json"), plan.entries().stream()
+                .map(GeneratedPackManifest.Entry::target).toList());
+        assertEquals("{\"Shared\":{\"B\":2,\"A\":1},\"FromSource\":true}",
+                new String(plan.entries().getFirst().bytes()));
+    }
+
+    @Test
     void assetConditionsUseTheSameCapturedSnapshotAsTargets() throws Exception {
         Path patches = Files.createDirectories(temporary.resolve("asset-condition/Server/Patchwork/Patches"));
         Path root = patches.getParent().getParent().getParent();
@@ -152,7 +178,7 @@ final class PatchGenerationServiceTest {
                 (request, target) -> { order.add("resolve"); return new PatchTargetResolver.Resolution(PatchTargetResolver.Status.FOUND,
                         new PatchTargetResolver.ResolvedTarget("Test:Pack", 0, target, "{\"value\":1}".getBytes()), ""); },
                 (patch, request, resolved) -> { order.add("condition"); return new com.alechilles.patchwork.conditions.PatchConditionEvaluator.Evaluation(com.alechilles.patchwork.conditions.PatchConditionEvaluator.Status.MATCHED, ""); },
-                (source, definitions) -> { order.add("apply"); return new PatchEngine().apply(source, definitions); });
+                (source, definitions, context) -> { order.add("apply"); return new PatchEngine().apply(source, definitions, context); });
         service.generate(new PatchGenerationService.GenerationRequest(List.of(), Set.of(), Map.of(), "1", resolver()));
         assertEquals(List.of("scan", "resolve", "condition", "apply"), order);
     }

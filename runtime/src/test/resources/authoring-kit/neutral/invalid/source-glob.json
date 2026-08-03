@@ -1,0 +1,10 @@
+{
+  "Id": "source-glob",
+  "Target": "Server/Test/Target.json",
+  "Operations": [
+    {
+      "Op": "OverlayFromAsset",
+      "Source": "glob:Server/Test/*.json"
+    }
+  ]
+}

@@ -33,6 +33,8 @@ final class PatchOperationAsset {
         MoveMatching,
         MergeMatching,
         UpsertMatching,
+        OverlayFromAsset,
+        MergeObjectFromAsset,
         Macro
     }
 
@@ -73,6 +75,10 @@ final class PatchOperationAsset {
                     "Deep-merges Value into every object entry selected by Match. Neutral definitions only; MatchPolicy defaults to ExactlyOne.")
             .documentKey(OperationType.UpsertMatching,
                     "Deep-merges Value into selected object entries, or inserts one Value object when no entry matches. Neutral definitions only.")
+            .documentKey(OperationType.OverlayFromAsset,
+                    "Overlay entire asset — deep-merges an exact source asset onto the target; source leaves win and unrelated target fields remain.")
+            .documentKey(OperationType.MergeObjectFromAsset,
+                    "Merge object from asset — deep-merges a selected source object into an existing target object; SourcePath defaults to the source root.")
             .documentKey(OperationType.Macro,
                     "Runs a macro supplied by an embedding mod, using Macro as its ID and Options as its input.");
     private static final EnumCodec<Position> POSITION_CODEC = new EnumCodec<>(Position.class)
@@ -104,6 +110,14 @@ final class PatchOperationAsset {
             .append(new KeyedCodec<>("Path", Codec.STRING),
                     (operation, value) -> operation.path = value, operation -> operation.path)
             .documentation("Location inside the target JSON, written as a JSON Pointer such as /Container/Capacity. Use ~1 for '/' and ~0 for '~' inside a key.")
+            .add()
+            .append(new KeyedCodec<>("Source", Codec.STRING),
+                    (operation, value) -> operation.source = value, operation -> operation.source)
+            .documentation("Exact source asset path for OverlayFromAsset or MergeObjectFromAsset. Globs are not accepted; missing or incompatible sources are ordinary applicability failures when Required is false.")
+            .add()
+            .append(new KeyedCodec<>("SourcePath", Codec.STRING),
+                    (operation, value) -> operation.sourcePath = value, operation -> operation.sourcePath)
+            .documentation("Optional JSON Pointer into Source for MergeObjectFromAsset. Defaults to the source root; the selected source value must be an object.")
             .add()
             .append(new KeyedCodec<>("Value", PatchJsonValueCodec.INSTANCE),
                     (operation, value) -> operation.value = value, operation -> operation.value)
@@ -143,7 +157,7 @@ final class PatchOperationAsset {
             .add()
             .build();
     private static final PortableObjectCodec<PatchOperationAsset> PORTABLE_CODEC = new PortableObjectCodec<>(BUILDER_CODEC, Set.of(
-            "Id", "Op", "Version", "Path", "Value", "Position", "Match", "MatchPolicy",
+            "Id", "Op", "Version", "Path", "Source", "SourcePath", "Value", "Position", "Match", "MatchPolicy",
             "Find", "Existing", "Macro", "Options", "Required"));
 
     /**
@@ -214,6 +228,8 @@ final class PatchOperationAsset {
     private OperationType op;
     private Integer version;
     private String path;
+    private String source;
+    private String sourcePath;
     private BsonValue value;
     private Position position;
     private BsonDocument match;
@@ -235,6 +251,8 @@ final class PatchOperationAsset {
         add(result, "Op", name(op));
         if (version != null) result.addProperty("Version", version);
         add(result, "Path", path);
+        add(result, "Source", source);
+        add(result, "SourcePath", sourcePath);
         if (value != null) result.add("Value", json(value));
         add(result, "Position", name(position));
         add(result, "Match", match);
@@ -254,6 +272,8 @@ final class PatchOperationAsset {
         operation.op = enumValue(root, "Op", OperationType.class);
         operation.version = integer(root, "Version");
         operation.path = string(root, "Path");
+        operation.source = string(root, "Source");
+        operation.sourcePath = string(root, "SourcePath");
         if (root.has("Value")) operation.value = PortableJsonBsonDocument.mirror(root.get("Value"));
         operation.position = enumValue(root, "Position", Position.class);
         operation.match = object(root, "Match");

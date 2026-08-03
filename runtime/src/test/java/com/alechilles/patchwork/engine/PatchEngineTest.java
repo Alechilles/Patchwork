@@ -11,20 +11,27 @@ import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 import com.alechilles.patchwork.format.PatchDefinitionReader;
 import com.alechilles.patchwork.format.PatchLanguage;
 import com.alechilles.patchwork.format.JsonMatcher;
 import com.alechilles.patchwork.format.JsonPointer;
+import com.alechilles.patchwork.discovery.PatchSource;
+import com.alechilles.patchwork.generation.GenerationAssetSnapshot;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /** Tests raw Patchwork JSON patch operation behavior. */
 final class PatchEngineTest {
 
     private final PatchEngine engine = new PatchEngine();
+
+    @TempDir
+    Path temporary;
 
     @Test
     void addsToArrayWithJsonPointerAppendToken() {
@@ -156,6 +163,68 @@ final class PatchEngineTest {
         assertEquals(2, nested.get("changed").getAsInt());
         assertTrue(nested.get("added").getAsBoolean());
         assertEquals("kept", result.patched().getAsJsonObject("config").get("top").getAsString());
+    }
+
+    @Test
+    void overlayReadsOriginalSnapshotAndLaterOperationsWin() throws IOException {
+        GenerationAssetSnapshot assets = snapshot(Map.of(
+                "Server/Test/Source.json", "{\"Shared\":{\"A\":1},\"FromSource\":true}"));
+        PatchDefinition definition = neutralDefinition("""
+                { "Id":"overlay", "Op":"OverlayFromAsset", "Source":"Server/Test/Source.json" }
+                """);
+        PatchDefinition later = neutralDefinition("""
+                { "Id":"replace", "Op":"Replace", "Path":"/Shared/A", "Value":9 }
+                """);
+
+        PatchEngine.PatchResult result = engine.apply(object("{\"Shared\":{\"B\":2}}"),
+                List.of(definition, later),
+                new PatchEngine.ApplicationContext("Server/Test/Target.json", assets));
+
+        assertEquals(object("{\"A\":9,\"B\":2}"), result.patched().getAsJsonObject("Shared"));
+        assertTrue(result.patched().get("FromSource").getAsBoolean());
+    }
+
+    @Test
+    void mergeObjectSelectsSourcePathAndExistingDestination() throws IOException {
+        GenerationAssetSnapshot assets = snapshot(Map.of(
+                "Server/Test/Source.json", "{\"Shared\":{\"Imported\":2}}"));
+        PatchDefinition definition = neutralDefinition("""
+                { "Id":"merge-object", "Op":"MergeObjectFromAsset", "Source":"Server/Test/Source.json",
+                  "SourcePath":"/Shared", "Path":"/Destination" }
+                """);
+
+        JsonObject merged = engine.apply(object("{\"Destination\":{\"Keep\":1}}"), List.of(definition),
+                new PatchEngine.ApplicationContext("Server/Test/Target.json", assets)).patched();
+
+        assertEquals(object("{\"Keep\":1,\"Imported\":2}"), merged.getAsJsonObject("Destination"));
+    }
+
+    @Test
+    void missingCrossAssetSourceIsSkippedWhenOptional() throws IOException {
+        PatchDefinition definition = neutralDefinition("""
+                { "Id":"missing", "Op":"OverlayFromAsset", "Source":"Server/Test/Missing.json", "Required":false }
+                """);
+
+        PatchEngine.PatchResult result = engine.apply(object("{\"Keep\":true}"), List.of(definition),
+                new PatchEngine.ApplicationContext("Server/Test/Target.json", snapshot(Map.of())));
+
+        assertEquals(object("{\"Keep\":true}"), result.patched());
+        assertEquals(List.of("neutral-replace:missing failed: Asset source is missing: Server/Test/Missing.json"), result.skipped());
+    }
+
+    @Test
+    void selfOverlayIsRejected() throws IOException {
+        GenerationAssetSnapshot assets = snapshot(Map.of(
+                "Server/Test/Target.json", "{\"Keep\":true}"));
+        PatchDefinition definition = neutralDefinition("""
+                { "Id":"self", "Op":"OverlayFromAsset", "Source":"Server/Test/Target.json" }
+                """);
+
+        PatchEngine.PatchFailureException failure = assertThrows(PatchEngine.PatchFailureException.class,
+                () -> engine.apply(object("{\"Keep\":true}"), List.of(definition),
+                        new PatchEngine.ApplicationContext("Server/Test/Target.json", assets)));
+
+        assertEquals("neutral-replace:self failed: OverlayFromAsset cannot overlay the current target asset.", failure.getMessage());
     }
 
     @Test
@@ -581,6 +650,16 @@ final class PatchEngineTest {
                 { "Id":"neutral-replace", "Target":"Server/Test.json", "Operations":[%s] }
                 """.formatted(operation)), "test-pack", "patches/neutral.json", 0, PatchLanguage.NEUTRAL)
                 .getFirst();
+    }
+
+    private GenerationAssetSnapshot snapshot(Map<String, String> assets) throws IOException {
+        Path root = temporary.resolve("pack");
+        for (Map.Entry<String, String> entry : assets.entrySet()) {
+            Path path = root.resolve(entry.getKey());
+            Files.createDirectories(path.getParent());
+            Files.writeString(path, entry.getValue());
+        }
+        return GenerationAssetSnapshot.capture(List.of(PatchSource.directory("test-pack", 0, root)));
     }
 
     private static JsonObject object(String json) {

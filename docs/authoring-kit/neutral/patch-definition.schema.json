@@ -143,6 +143,11 @@
       "type": "string",
       "pattern": "^/"
     },
+    "assetPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!glob:)(?!/)(?![A-Za-z]:)(?!.*//)(?!.*(?:^|/)\\.\\.?(?:/|$)).+"
+    },
     "operationId": {
       "type": "string",
       "minLength": 1,
@@ -431,6 +436,35 @@
         }
       ]
     },
+    "overlayFromAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["Op", "Source"],
+      "properties": {
+        "Op": {"const": "OverlayFromAsset"},
+        "Source": {"$ref": "#/$defs/assetPath"},
+        "Id": {"$ref": "#/$defs/operationId"},
+        "Required": {"type": "boolean"}
+      }
+    },
+    "mergeObjectFromAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["Op", "Source", "Path"],
+      "properties": {
+        "Op": {"const": "MergeObjectFromAsset"},
+        "Source": {"$ref": "#/$defs/assetPath"},
+        "SourcePath": {
+          "oneOf": [
+            {"$ref": "#/$defs/path"},
+            {"type": "null"}
+          ]
+        },
+        "Path": {"$ref": "#/$defs/path"},
+        "Id": {"$ref": "#/$defs/operationId"},
+        "Required": {"type": "boolean"}
+      }
+    },
     "macro": {
       "type": "object",
       "additionalProperties": false,
@@ -459,6 +493,8 @@
         {"$ref": "#/$defs/moveMatching"},
         {"$ref": "#/$defs/mergeMatching"},
         {"$ref": "#/$defs/upsertMatching"},
+        {"$ref": "#/$defs/overlayFromAsset"},
+        {"$ref": "#/$defs/mergeObjectFromAsset"},
         {"$ref": "#/$defs/macro"}
       ]
     },

@@ -70,7 +70,8 @@ public final class PatchGenerationService {
             if (!parsed.isJsonObject()) throw new IllegalArgumentException("Target JSON must be an object.");
             List<PatchDefinition> eligible = eligibleDefinitions(request, resolvedTarget, definitions, skipped);
             if (eligible.isEmpty()) return;
-            PatchEngine.PatchResult result = patchEngine.apply(parsed.getAsJsonObject(), eligible);
+            PatchEngine.PatchResult result = patchEngine.apply(parsed.getAsJsonObject(), eligible,
+                    new PatchEngine.ApplicationContext(target, request.assetSnapshot()));
             skipped.addAll(result.skipped());
             entries.add(new GeneratedPackManifest.Entry(target, result.patched().toString().getBytes(StandardCharsets.UTF_8)));
         } catch (RuntimeException failure) { rejected.put(target, safeMessage(failure)); }
@@ -102,7 +103,10 @@ public final class PatchGenerationService {
     @FunctionalInterface interface ScanStage { PatchScanner.ScanResult scan(GenerationRequest request); }
     @FunctionalInterface interface ResolveStage { PatchTargetResolver.Resolution resolve(GenerationRequest request, String target); }
     @FunctionalInterface interface EvaluateStage { PatchConditionEvaluator.Evaluation evaluate(PatchDefinition definition, GenerationRequest request, PatchTargetResolver.ResolvedTarget resolvedTarget); }
-    @FunctionalInterface interface ApplyStage { PatchEngine.PatchResult apply(com.google.gson.JsonObject source, List<PatchDefinition> definitions); }
+    @FunctionalInterface interface ApplyStage {
+        PatchEngine.PatchResult apply(com.google.gson.JsonObject source, List<PatchDefinition> definitions,
+                                      PatchEngine.ApplicationContext context);
+    }
     /** Immutable generation inputs; the resolver/cache instance is deliberately shared for the entire pass. */
     public record GenerationRequest(GenerationAssetSnapshot assetSnapshot, Set<String> installedIds, Map<String, String> versions,
                                     String serverVersion, ConditionSourceResolver conditionResolver,

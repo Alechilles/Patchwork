@@ -111,6 +111,28 @@ final class PatchDefinitionAssetTest {
     }
 
     @Test
+    void nativeCodecPreservesCrossAssetOperationFieldsExactly() throws Exception {
+        String source = """
+                {
+                  "Id": "cross-asset-fields",
+                  "Target": "Server/Test/Target.json",
+                  "Operations": [
+                    {"Op": "OverlayFromAsset", "Source": "Server/Test/Source.json"},
+                    {"Op": "MergeObjectFromAsset", "Source": "Server/Test/Source.json",
+                     "SourcePath": "/Shared", "Path": "/Destination", "Required": false}
+                  ]
+                }
+                """;
+
+        PatchDefinitionAsset asset = PatchDefinitionAsset.CODEC.decodeJson(
+                RawJsonReader.fromBuffer(source.toCharArray()), EmptyExtraInfo.EMPTY);
+
+        assertEquals(JsonParser.parseString(source), asset.toPortableJson());
+        assertEquals(JsonParser.parseString(source), JsonParser.parseString(
+                PatchDefinitionAsset.CODEC.encode(asset, EmptyExtraInfo.EMPTY).toString()));
+    }
+
+    @Test
     void productionJsonCodecRejectsDuplicateFormatDowngrade() {
         String source = """
                 {
@@ -228,7 +250,7 @@ final class PatchDefinitionAssetTest {
         var operationSchema = PatchOperationAsset.CODEC.toSchema(new SchemaContext());
         var operationProperties = operationSchema.getProperties();
         assertTrue(operationProperties.keySet().containsAll(Set.of(
-                "Id", "Op", "Version", "Path", "Value", "Position", "Match", "MatchPolicy",
+                "Id", "Op", "Version", "Path", "Source", "SourcePath", "Value", "Position", "Match", "MatchPolicy",
                 "Find", "Existing", "Macro", "Options", "Required")));
 
         assertDocumented(definitionSchema, "Patch definition");
@@ -238,7 +260,8 @@ final class PatchDefinitionAssetTest {
 
         assertEnum(operationProperties.get("Op"), Set.of(
                 "Add", "Merge", "Replace", "Remove", "Insert",
-                "ReplaceMatching", "RemoveMatching", "MoveMatching", "MergeMatching", "UpsertMatching", "Macro"));
+                "ReplaceMatching", "RemoveMatching", "MoveMatching", "MergeMatching", "UpsertMatching",
+                "OverlayFromAsset", "MergeObjectFromAsset", "Macro"));
         assertEnum(operationProperties.get("Position"), Set.of("Start", "End", "Before", "After"));
         assertEnum(operationProperties.get("MatchPolicy"), Set.of("ExactlyOne", "First", "Last", "All"));
     }

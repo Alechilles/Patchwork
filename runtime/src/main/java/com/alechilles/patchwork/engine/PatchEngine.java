@@ -6,11 +6,13 @@ import com.alechilles.patchwork.generation.GenerationAssetSnapshot;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.nio.charset.StandardCharsets;
 
 /** Applies Patchwork operations to a copied JSON asset without host-plugin dependencies. */
 public final class PatchEngine {
@@ -73,7 +75,7 @@ public final class PatchEngine {
         for (PatchOperation operation : definition.operations()) {
             for (PatchOperation raw : macroRegistry.expand(operation)) {
                 EffectTrace trace = new EffectTrace(context.target(), definition, operation.id(), operationOrder);
-                apply(working, definition, raw, applied, skipped, trace);
+                apply(working, definition, raw, context, applied, skipped, trace);
                 effects.addAll(trace.effects);
                 operationOrder++;
             }
@@ -83,10 +85,11 @@ public final class PatchEngine {
     }
 
     private static void apply(JsonObject root, PatchDefinition definition, PatchOperation operation,
+                              ApplicationContext context,
                               List<String> applied, List<String> skipped, EffectTrace trace) {
         String label = definition.id() + ":" + operation.id();
         try {
-            String skip = raw(root, definition, operation, trace);
+            String skip = raw(root, definition, operation, context, trace);
             if (skip == null) {
                 applied.add(label);
                 return;
@@ -105,6 +108,7 @@ public final class PatchEngine {
     }
 
     private static String raw(JsonObject root, PatchDefinition definition, PatchOperation operation,
+                              ApplicationContext context,
                               EffectTrace trace) {
         return switch (operation.op().toLowerCase(Locale.ROOT)) {
             case "requireformat" -> {
@@ -159,6 +163,16 @@ public final class PatchEngine {
                 requireNeutralMatching(operation);
                 yield upsertMatching(root, operation, trace);
             }
+            case "overlayfromasset" -> {
+                requireNeutralCrossAsset(operation);
+                overlayFromAsset(root, operation, context, trace);
+                yield null;
+            }
+            case "mergeobjectfromasset" -> {
+                requireNeutralCrossAsset(operation);
+                mergeObjectFromAsset(root, operation, context, trace);
+                yield null;
+            }
             default -> throw new IllegalArgumentException("Unsupported operation '" + operation.op() + "'.");
         };
     }
@@ -174,6 +188,82 @@ public final class PatchEngine {
             throw new IllegalArgumentException("Unsupported operation '" + operation.op() + "'.");
         }
         requireClosedMatcher(operation);
+    }
+
+    private static void requireNeutralCrossAsset(PatchOperation operation) {
+        if (operation.language() != com.alechilles.patchwork.format.PatchLanguage.NEUTRAL) {
+            throw new IllegalArgumentException("Unsupported operation '" + operation.op() + "'.");
+        }
+    }
+
+    private static void overlayFromAsset(JsonObject root, PatchOperation operation,
+                                         ApplicationContext context, EffectTrace trace) {
+        String source = source(operation);
+        if (source.equals(context.target())) {
+            throw new IllegalArgumentException("OverlayFromAsset cannot overlay the current target asset.");
+        }
+        JsonObject sourceRoot = sourceObject(context, source, "OverlayFromAsset");
+        mergeWithTrace(root, sourceRoot, "", trace);
+    }
+
+    private static void mergeObjectFromAsset(JsonObject root, PatchOperation operation,
+                                             ApplicationContext context, EffectTrace trace) {
+        JsonObject sourceRoot = sourceObject(context, source(operation), "MergeObjectFromAsset");
+        JsonElement selectedSource = resolveSourcePath(sourceRoot, operation.sourcePath());
+        if (selectedSource == null) {
+            throw new IllegalArgumentException("MergeObjectFromAsset source path does not exist"
+                    + (operation.sourcePath() == null ? "." : " at " + operation.sourcePath() + "."));
+        }
+        if (!selectedSource.isJsonObject()) {
+            throw new IllegalArgumentException("MergeObjectFromAsset source path must select an object.");
+        }
+        JsonElement target = resolve(root, operation);
+        if (target == null) {
+            throw new IllegalArgumentException("MergeObjectFromAsset target does not exist at " + operation.path() + ".");
+        }
+        if (!target.isJsonObject()) {
+            throw new IllegalArgumentException("MergeObjectFromAsset target must be an object at " + operation.path() + ".");
+        }
+        mergeWithTrace(target.getAsJsonObject(), selectedSource.getAsJsonObject(), operation.path(), trace);
+    }
+
+    private static String source(PatchOperation operation) {
+        if (operation.source() == null || operation.source().isBlank()) {
+            throw new IllegalArgumentException("Operation " + operation.id() + " requires Source.");
+        }
+        return operation.source();
+    }
+
+    private static JsonObject sourceObject(ApplicationContext context, String source, String operationName) {
+        GenerationAssetSnapshot.AssetRecord record = context.assets().find(source)
+                .orElseThrow(() -> new IllegalArgumentException("Asset source is missing: " + source));
+        final JsonElement parsed;
+        try {
+            parsed = JsonParser.parseString(new String(record.bytes(), StandardCharsets.UTF_8));
+        } catch (RuntimeException failure) {
+            throw new IllegalArgumentException(operationName + " source is not valid JSON: " + source, failure);
+        }
+        if (!parsed.isJsonObject()) {
+            throw new IllegalArgumentException(operationName + " source must be an object: " + source);
+        }
+        return parsed.getAsJsonObject();
+    }
+
+    private static JsonElement resolveSourcePath(JsonObject sourceRoot, String sourcePath) {
+        if (sourcePath == null) return sourceRoot;
+        JsonElement current = sourceRoot;
+        for (String token : JsonPointer.tokens(sourcePath, 2, false)) {
+            if (current == null) return null;
+            if (current.isJsonObject()) {
+                current = current.getAsJsonObject().get(token);
+            } else if (current.isJsonArray()) {
+                JsonArray array = current.getAsJsonArray();
+                current = array.get(JsonPointer.arrayIndex(token, array.size(), false, 2));
+            } else {
+                return null;
+            }
+        }
+        return current;
     }
 
     private static void add(JsonObject root, PatchOperation operation, EffectTrace trace) {

@@ -1,7 +1,10 @@
 package com.alechilles.patchwork.engine;
 
 import com.alechilles.patchwork.format.JsonMatcher;
+import com.alechilles.patchwork.format.JsonPointer;
+import com.alechilles.patchwork.format.PatchFormat;
 import com.alechilles.patchwork.format.PatchLanguage;
+import com.alechilles.patchwork.discovery.PatchScanner;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.util.Locale;
@@ -12,6 +15,8 @@ public final class PatchOperation {
     private final String id;
     private final String op;
     private final String path;
+    private final String source;
+    private final String sourcePath;
     private final String position;
     private final String macro;
     private final String matchPolicy;
@@ -28,6 +33,8 @@ public final class PatchOperation {
             String id,
             String op,
             String path,
+            String source,
+            String sourcePath,
             String position,
             String macro,
             boolean required,
@@ -42,6 +49,8 @@ public final class PatchOperation {
         this.id = id;
         this.op = op;
         this.path = path;
+        this.source = source;
+        this.sourcePath = sourcePath;
         this.position = position;
         this.macro = macro;
         this.required = required;
@@ -78,10 +87,18 @@ public final class PatchOperation {
         String position = language.closedStructure() && object.has("Position")
                 ? strictString(object, "Position", patchId + " operation " + index)
                 : PatchDefinition.readString(object, "Position", null);
+        String source = crossAssetOperation(operation) && object.has("Source")
+                ? normalizeSource(strictString(object, "Source", patchId + " operation " + index), patchId, index)
+                : null;
+        String sourcePath = crossAssetOperation(operation) && object.has("SourcePath")
+                ? readSourcePath(object, patchId, index)
+                : null;
         return new PatchOperation(
                 PatchDefinition.readString(object, "Id", patchId + "#" + index),
                 operation,
                 PatchDefinition.readString(object, "Path", null),
+                source,
+                sourcePath,
                 position,
                 PatchDefinition.readString(object, "Macro", null),
                 language.closedStructure() && object.has("Required")
@@ -120,6 +137,8 @@ public final class PatchOperation {
         if (version != null) object.addProperty("Version", version);
         if (path != null) object.addProperty("Path", path);
         if (position != null) object.addProperty("Position", position);
+        if (source != null) object.addProperty("Source", source);
+        if (sourcePath != null) object.addProperty("SourcePath", sourcePath);
         if (macro != null) object.addProperty("Macro", macro);
         if (!(language.requiresFormatSentinel() && "RequireFormat".equals(op))) {
             object.addProperty("Required", required);
@@ -143,19 +162,21 @@ public final class PatchOperation {
             JsonElement value,
             JsonObject find,
             JsonObject existing) {
-        return new PatchOperation(id, op, path, position, null, required, value, find, existing, null,
+        return new PatchOperation(id, op, path, null, null, position, null, required, value, find, existing, null,
                 PatchLanguage.LEGACY_V1, null, null, null);
     }
 
     /** Returns this operation with the supplied macro identifier. */
     public PatchOperation withMacro(String macroId) {
-        return new PatchOperation(id, op, path, position, macroId, required, value, find, existing, options,
+        return new PatchOperation(id, op, path, source, sourcePath, position, macroId, required, value, find, existing, options,
                 language, version, match, matchPolicy);
     }
 
     public String id() { return id; }
     public String op() { return op; }
     public String path() { return path; }
+    public String source() { return source; }
+    public String sourcePath() { return sourcePath; }
     public String position() { return position; }
     public String macro() { return macro; }
     public boolean required() { return required; }
@@ -175,6 +196,8 @@ public final class PatchOperation {
     public String getId() { return id(); }
     public String getOp() { return op(); }
     public String getPath() { return path(); }
+    public String getSource() { return source(); }
+    public String getSourcePath() { return sourcePath(); }
     public String getPosition() { return position(); }
     public String getMacro() { return macro(); }
     public boolean isRequired() { return required(); }
@@ -225,6 +248,20 @@ public final class PatchOperation {
                         : Set.of("Op", "Path", "Match", "Value", "Id", "Required", "MatchPolicy", "Position", "Find");
                 required = Set.of("Op", "Path", "Match", "Value");
             }
+            case "OverlayFromAsset" -> {
+                if (language != PatchLanguage.NEUTRAL) {
+                    throw structural(patchId, index, "unsupported operation '" + op + "'.");
+                }
+                allowed = Set.of("Op", "Source", "Id", "Required");
+                required = Set.of("Op", "Source");
+            }
+            case "MergeObjectFromAsset" -> {
+                if (language != PatchLanguage.NEUTRAL) {
+                    throw structural(patchId, index, "unsupported operation '" + op + "'.");
+                }
+                allowed = Set.of("Op", "Source", "SourcePath", "Path", "Id", "Required");
+                required = Set.of("Op", "Source", "Path");
+            }
             case "Add", "Merge", "Replace" -> {
                 allowed = Set.of("Op", "Path", "Value", "Id", "Required");
                 required = Set.of("Op", "Path", "Value");
@@ -268,9 +305,15 @@ public final class PatchOperation {
             return;
         }
         if (Set.of("Add", "Merge", "Replace", "Remove", "Insert", "ReplaceMatching", "RemoveMatching", "MoveMatching",
-                "MergeMatching", "UpsertMatching")
+                "MergeMatching", "UpsertMatching", "MergeObjectFromAsset")
                 .contains(op)) {
             validatePath(operation, patchId, index);
+        }
+        if (Set.of("OverlayFromAsset", "MergeObjectFromAsset").contains(op)) {
+            validateSource(operation, patchId, index);
+        }
+        if ("MergeObjectFromAsset".equals(op) && operation.has("SourcePath")) {
+            validateSourcePath(operation, patchId, index);
         }
         if (Set.of("ReplaceMatching", "RemoveMatching", "MoveMatching", "MergeMatching", "UpsertMatching").contains(op)) {
             if (!operation.get("Match").isJsonObject()) {
@@ -344,6 +387,64 @@ public final class PatchOperation {
                 throw structural(patchId, index, "Path contains an invalid JSON pointer escape.");
             }
         }
+    }
+
+    private static void validateSource(JsonObject operation, String patchId, int index) {
+        final String source;
+        try {
+            source = strictString(operation, "Source", patchId + " operation " + index);
+        } catch (IllegalArgumentException failure) {
+            throw structural(patchId, index, "Source must be a string.");
+        }
+        try {
+            normalizeSource(source, patchId, index);
+        } catch (IllegalArgumentException failure) {
+            if (failure.getMessage() != null && failure.getMessage().startsWith("Patch '")) throw failure;
+            throw structural(patchId, index, "Source must be an exact asset path.");
+        }
+    }
+
+    private static void validateSourcePath(JsonObject operation, String patchId, int index) {
+        JsonElement value = operation.get("SourcePath");
+        if (value == null || value.isJsonNull()) return;
+        final String sourcePath;
+        try {
+            sourcePath = strictString(operation, "SourcePath", patchId + " operation " + index);
+        } catch (IllegalArgumentException failure) {
+            throw structural(patchId, index, "SourcePath must be a string.");
+        }
+        try {
+            JsonPointer.tokens(sourcePath, PatchFormat.FORMAT_VERSION_2, false);
+        } catch (IllegalArgumentException failure) {
+            throw structural(patchId, index, "SourcePath must use RFC 6901 pointer syntax.");
+        }
+    }
+
+    private static String normalizeSource(String source, String patchId, int index) {
+        if (source.startsWith("glob:")) {
+            throw structural(patchId, index, "Source must be an exact asset path.");
+        }
+        try {
+            return PatchScanner.normalizeAssetPath(source);
+        } catch (IllegalArgumentException failure) {
+            throw structural(patchId, index, "Source must be an exact asset path.");
+        }
+    }
+
+    private static String readSourcePath(JsonObject object, String patchId, int index) {
+        JsonElement value = object.get("SourcePath");
+        if (value == null || value.isJsonNull()) return null;
+        String sourcePath = strictString(object, "SourcePath", patchId + " operation " + index);
+        try {
+            JsonPointer.tokens(sourcePath, PatchFormat.FORMAT_VERSION_2, false);
+            return sourcePath;
+        } catch (IllegalArgumentException failure) {
+            throw structural(patchId, index, "SourcePath must use RFC 6901 pointer syntax.");
+        }
+    }
+
+    private static boolean crossAssetOperation(String operation) {
+        return "OverlayFromAsset".equals(operation) || "MergeObjectFromAsset".equals(operation);
     }
 
     private static void validateInsert(JsonObject operation, String patchId, int index) {

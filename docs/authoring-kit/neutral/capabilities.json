@@ -18,6 +18,8 @@
     "MoveMatching",
     "MergeMatching",
     "UpsertMatching",
+    "OverlayFromAsset",
+    "MergeObjectFromAsset",
     "Macro"
   ],
   "conditions": [

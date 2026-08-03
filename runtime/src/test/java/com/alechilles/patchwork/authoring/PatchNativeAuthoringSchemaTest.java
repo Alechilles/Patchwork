@@ -126,6 +126,22 @@ final class PatchNativeAuthoringSchemaTest {
     }
 
     @Test
+    void crossAssetOperationsAreSelectableAndDocumented() {
+        SchemaContext context = new SchemaContext();
+        ObjectSchema operation = PatchOperationAsset.CODEC.toSchema(context);
+        StringSchema choices = (StringSchema) operation.getProperties().get("Op");
+
+        assertTrue(Arrays.asList(choices.getEnum()).contains("OverlayFromAsset"));
+        assertTrue(Arrays.asList(choices.getEnum()).contains("MergeObjectFromAsset"));
+        assertTrue(Arrays.stream(choices.getMarkdownEnumDescriptions())
+                .anyMatch(description -> description.contains("Overlay entire asset")));
+        assertTrue(Arrays.stream(choices.getMarkdownEnumDescriptions())
+                .anyMatch(description -> description.contains("Merge object from asset")));
+        assertTrue(operation.getProperties().get("Source").getMarkdownDescription() != null);
+        assertTrue(operation.getProperties().get("SourcePath").getMarkdownDescription() != null);
+    }
+
+    @Test
     void valueAndOptionsUseRecursiveJsonSchemasWithoutChangingPortableShape() {
         SchemaContext context = new SchemaContext();
         ObjectSchema operation = PatchOperationAsset.CODEC.toSchema(context);

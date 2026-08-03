@@ -1,0 +1,10 @@
+{
+  "Id": "overlay-from-asset",
+  "Target": "Server/Test/Target.json",
+  "Operations": [
+    {
+      "Op": "OverlayFromAsset",
+      "Source": "Server/Test/Source.json"
+    }
+  ]
+}

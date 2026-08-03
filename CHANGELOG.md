@@ -19,6 +19,7 @@
 - Added beginner-facing documentation for every native Patchwork definition and operation field, plus documented editor dropdowns for operation type, array position, and match policy.
 - Added guided recursive native-editor schemas for `When` conditions, `$Equals`/`$Contains` matchers, arbitrary JSON `Value` fields, and object-only macro `Options`. This changes editor guidance only; portable patch JSON and runtime behavior are unchanged.
 - Added neutral `MergeMatching` and `UpsertMatching` operations for deep-merging object entries selected by recursive matchers, with deterministic zero-match insertion for upserts.
+- Added neutral `OverlayFromAsset` and `MergeObjectFromAsset` operations for exact-path, immutable-snapshot cross-asset object merges with source-wins semantics and optional applicability failures.
 - Added sanitized mutation effects with canonical JSON SHA-256 fingerprints for tracing successful writes, array membership changes, and array order changes without retaining raw values.
 
 ### Fixed

@@ -17,7 +17,7 @@ All commands require `patchwork.admin` and default to the `hytale:Admin` group. 
 The portable authoring kits are shipped at `docs/authoring-kit/neutral/` and `docs/authoring-kit/v2/` in the Patchwork source distribution:
 
 - the neutral schema closes marker-free definition, operation, and condition descriptors while leaving JSON data containers opaque;
-- neutral `capabilities.json` advertises `MergeMatching` and `UpsertMatching` alongside the existing matcher operations;
+- neutral `capabilities.json` advertises matching and exact cross-asset merge operations alongside the existing operations;
 - the versioned kit preserves explicit format-2 compatibility and the exact `TargetProvidedBy` condition; and
 - runtime conformance corpora live under `runtime/src/test/resources/authoring-kit/neutral/` and `runtime/src/test/resources/authoring-kit/v2/`.
 
@@ -35,6 +35,22 @@ There is no built-in macro descriptor version. Macro option schemas remain host-
 
 ```json
 {"Op":"UpsertMatching","Path":"/Rows","Match":{"Id":"a"},"Position":"End","Value":{"Id":"a","Enabled":true}}
+```
+
+## Cross-asset merge operations
+
+`OverlayFromAsset` imports an entire exact `Source` asset into the current target. It recursively merges objects, with source leaves winning while unrelated target fields remain; later operations can override imported leaves. The source is read from the immutable generation snapshot, and `Source` does not accept `glob:` selectors. The native editor labels this operation **Overlay entire asset**.
+
+`MergeObjectFromAsset` imports one object from an exact source asset into an existing target object. `SourcePath` is an optional JSON Pointer and defaults to the source root; `Path` must select an existing object in the target. Source leaves win and unrelated destination fields remain. The native editor labels this operation **Merge object from asset**.
+
+Missing sources or selected paths, non-object source values, and non-object destinations are applicability failures. Set `Required` to `false` to report and skip those failures without rejecting the target. Self-overlay is rejected, and both operations resolve only against the original source snapshot.
+
+```json
+{"Op":"OverlayFromAsset","Source":"Server/Test/Source.json"}
+```
+
+```json
+{"Op":"MergeObjectFromAsset","Source":"Server/Test/Source.json","SourcePath":"/Shared","Path":"/Destination"}
 ```
 
 ## Generation triggers
