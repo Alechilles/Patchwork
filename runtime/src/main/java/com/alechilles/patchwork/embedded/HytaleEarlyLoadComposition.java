@@ -3,6 +3,7 @@ package com.alechilles.patchwork.embedded;
 import com.alechilles.patchwork.engine.PatchMacroRegistry;
 import com.alechilles.patchwork.generation.GeneratedPackLayout;
 import com.alechilles.patchwork.generation.PatchGenerationService;
+import com.alechilles.patchwork.generation.PatchStatusSnapshot;
 import com.alechilles.patchwork.generation.PatchworkEarlyLoadHook;
 import com.alechilles.patchwork.generation.StartupPackPublisher;
 import com.hypixel.hytale.assetstore.AssetPack;
@@ -72,9 +73,7 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
             else {
                 PatchworkAdministrationService currentAdministration = administration;
                 if (currentAdministration != null) currentAdministration.seedStartup(epoch, plan);
-                if (!plan.status().scanFailures().isEmpty() || !plan.status().rejectedTargets().isEmpty()) {
-                    fail(event, "Patchwork generated valid targets with recoverable diagnostics: " + plan.status().scanFailures().size() + " scan failure(s), " + plan.status().rejectedTargets().size() + " rejected target(s).");
-                }
+                reportRecoverableDiagnostics(plan.status(), message -> LOG.log(System.Logger.Level.WARNING, message));
             }
         } catch (Exception failure) {
             String message = "Patchwork startup generation failed: " + detail(failure);
@@ -91,6 +90,16 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
                     PatchworkAdministrationService current = administration;
                     if (current != null) current.configureRoots(metadata.neutralRoot(), metadata.legacyRoots());
                 });
+    }
+
+    static void reportRecoverableDiagnostics(PatchStatusSnapshot status, Consumer<String> warningSink) {
+        if (status.scanFailures().isEmpty() && status.rejectedTargets().isEmpty()) return;
+        List<String> details = new java.util.ArrayList<>(status.scanFailures());
+        status.rejectedTargets().forEach((target, reason) -> details.add(target + ": " + reason));
+        warningSink.accept("Patchwork published valid targets and skipped recoverable patch errors: "
+                + status.scanFailures().size() + " scan failure(s), "
+                + status.rejectedTargets().size() + " rejected target(s). Details: "
+                + String.join(" | ", details));
     }
 
 
