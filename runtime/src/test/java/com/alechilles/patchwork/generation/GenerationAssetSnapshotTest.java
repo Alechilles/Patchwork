@@ -9,6 +9,7 @@ import com.google.common.jimfs.Jimfs;
 import com.alechilles.patchwork.discovery.PatchRoot;
 import com.alechilles.patchwork.discovery.PatchScanner;
 import com.alechilles.patchwork.discovery.PatchSource;
+import com.alechilles.patchwork.discovery.PatchTargetResolver;
 import com.alechilles.patchwork.format.Utf8Ordering;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
@@ -62,6 +63,26 @@ final class GenerationAssetSnapshotTest {
                     PatchSource.directory("pack", 1, root.getParent())));
 
             assertFalse(snapshot.find("Server/Target.json").isPresent());
+        }
+    }
+
+    @Test
+    void resolvedRootReadStaysOnCapturedRootAfterRegisteredSymlinkSwap() throws Exception {
+        try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+            Path rootA = Files.createDirectories(fs.getPath("/packs/a/Server"));
+            Path rootB = Files.createDirectories(fs.getPath("/packs/b/Server"));
+            Files.writeString(rootA.resolve("Target.json"), "A");
+            Files.writeString(rootB.resolve("Target.json"), "B");
+            Path registered = fs.getPath("/packs/registered");
+            Files.createSymbolicLink(registered, rootA.getParent());
+
+            PatchTargetResolver.DirectoryRootSnapshot captured = PatchTargetResolver.snapshotDirectoryRoot(
+                    registered.toRealPath());
+            Files.delete(registered);
+            Files.createSymbolicLink(registered, rootB.getParent());
+
+            assertEquals("A", new String(PatchTargetResolver.readDirectoryAsset(captured, "Server/Target.json"),
+                    StandardCharsets.UTF_8));
         }
     }
 }

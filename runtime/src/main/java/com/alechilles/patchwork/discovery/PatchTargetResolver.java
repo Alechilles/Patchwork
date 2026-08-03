@@ -70,11 +70,14 @@ public final class PatchTargetResolver {
     private byte[] readDirectory(Path root, String target) throws IOException {
         try { root = root.toRealPath(); }
         catch (NoSuchFileException missing) { return null; }
+        return readDirectoryAtResolvedRoot(snapshotDirectoryRoot(root), target);
+    }
+
+    private byte[] readDirectoryAtResolvedRoot(DirectoryRootSnapshot snapshot, String target) throws IOException {
+        Path root = snapshot.root;
+        SourceAttributes rootAttributes = snapshot.attributes;
         Path file = root.resolve(target).normalize();
         if (!file.startsWith(root)) throw new IOException("unsafe target path");
-        SourceAttributes rootAttributes;
-        try { rootAttributes = SourceAttributes.read(root); }
-        catch (NoSuchFileException missing) { return null; }
         if (!rootAttributes.safeDirectory()) throw new IOException("unsafe source root");
         Path filesystemRoot = root.toAbsolutePath().normalize().getRoot();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(filesystemRoot)) {
@@ -104,6 +107,19 @@ public final class PatchTargetResolver {
      */
     public static byte[] readDirectoryAsset(Path root, String target) throws IOException {
         return new PatchTargetResolver().readDirectory(root, target);
+    }
+
+    /** Captures a resolved source root identity for descriptor-relative snapshot reads. */
+    public static DirectoryRootSnapshot snapshotDirectoryRoot(Path root) throws IOException {
+        Path resolved = root.toAbsolutePath().normalize();
+        SourceAttributes attributes = SourceAttributes.read(resolved);
+        if (!attributes.safeDirectory()) throw new IOException("unsafe source root");
+        return new DirectoryRootSnapshot(resolved, attributes);
+    }
+
+    /** Reads beneath a previously resolved root without resolving its registered path again. */
+    public static byte[] readDirectoryAsset(DirectoryRootSnapshot root, String target) throws IOException {
+        return new PatchTargetResolver().readDirectoryAtResolvedRoot(root, target);
     }
 
     /** Opens the registered root from the filesystem root so a path handoff cannot redirect child reads. */
@@ -245,6 +261,17 @@ public final class PatchTargetResolver {
     @FunctionalInterface interface ReadHook { void beforeRead(Path file) throws IOException; }
 
     private record ComponentSnapshot(Path path, SourceAttributes attributes) { }
+
+    /** Opaque resolved-root identity retained across one generation asset capture. */
+    public static final class DirectoryRootSnapshot {
+        private final Path root;
+        private final SourceAttributes attributes;
+
+        private DirectoryRootSnapshot(Path root, SourceAttributes attributes) {
+            this.root = root;
+            this.attributes = attributes;
+        }
+    }
 
     /** Basic and available DOS attributes captured with no link following for fallback verification. */
     private record SourceAttributes(boolean directory, boolean regular, boolean other, boolean symbolicLink, long size, java.nio.file.attribute.FileTime created, java.nio.file.attribute.FileTime modified, Object fileKey, boolean hidden, boolean system) {

@@ -99,27 +99,31 @@ public final class GenerationAssetSnapshot {
 
     private static void captureDirectory(PatchSource source, Map<String, AssetRecord> winners) {
         final Path root;
+        final PatchTargetResolver.DirectoryRootSnapshot rootSnapshot;
         try {
             root = source.backingPath().toRealPath();
+            rootSnapshot = PatchTargetResolver.snapshotDirectoryRoot(root);
         } catch (IOException missing) {
             return;
         }
         if (!Files.isDirectory(root)) return;
         try (var files = Files.walk(root)) {
             files.filter(Files::isRegularFile)
-                    .forEach(file -> captureDirectoryFile(source, root, file, winners));
+                    .forEach(file -> captureDirectoryFile(source, root, rootSnapshot, file, winners));
         } catch (IOException ignored) {
             // A source can disappear during a capture.  Unreadable paths simply do not win.
         }
     }
 
-    private static void captureDirectoryFile(PatchSource source, Path root, Path file,
+    private static void captureDirectoryFile(PatchSource source, Path root,
+                                              PatchTargetResolver.DirectoryRootSnapshot rootSnapshot,
+                                              Path file,
                                               Map<String, AssetRecord> winners) {
         try {
             Path realFile = file.toRealPath();
             if (!realFile.startsWith(root)) return;
             String path = PatchScanner.normalizeAssetPath(root.relativize(realFile).toString());
-            byte[] bytes = PatchTargetResolver.readDirectoryAsset(source.backingPath(), path);
+            byte[] bytes = PatchTargetResolver.readDirectoryAsset(rootSnapshot, path);
             if (bytes == null) return;
             putWinner(source, path, bytes, winners);
         } catch (IOException | IllegalArgumentException ignored) {
