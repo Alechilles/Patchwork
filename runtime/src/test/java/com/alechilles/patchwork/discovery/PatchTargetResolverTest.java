@@ -5,11 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SecureDirectoryStream;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -199,6 +202,29 @@ final class PatchTargetResolverTest {
         write(root, "Server/Target.json", "{}");
         PatchTargetResolver fallback = new PatchTargetResolver(Files::delete);
         assertEquals(PatchTargetResolver.Status.FAILED, fallback.resolveDetailed(List.of(PatchSource.directory("pack", 1, root)), "Server/Target.json").status());
+    }
+
+    @Test
+    void rejectsPhysicalRootReplacementBetweenFallbackValidationAndRead() throws Exception {
+        Path root = tempDir.resolve("fallback-root-handoff");
+        write(root, "Server/Target.json", "inside");
+        boolean secureProvider;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(root.toAbsolutePath().getRoot())) {
+            secureProvider = stream instanceof SecureDirectoryStream<?>;
+        }
+        assumeFalse(secureProvider, "fallback handoff regression requires a non-secure directory provider");
+        PatchTargetResolver resolver = new PatchTargetResolver(path -> { }, path -> { }, path -> { }, path -> {
+            Path moved = root.resolveSibling("fallback-root-handoff-old");
+            Files.move(root, moved);
+            Files.createDirectories(root.resolve("Server"));
+            Files.writeString(root.resolve("Server/Target.json"), "replacement", StandardCharsets.UTF_8);
+        });
+
+        PatchTargetResolver.Resolution result = resolver.resolveDetailed(
+                List.of(PatchSource.directory("pack", 1, root)), "Server/Target.json");
+
+        assertEquals(PatchTargetResolver.Status.FAILED, result.status());
+        assertTrue(result.target().isEmpty());
     }
 
     @Test

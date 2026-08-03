@@ -24,23 +24,30 @@ public final class PatchTargetResolver {
     private final ReadHook readHook;
     private final ReadHook rootHandoffHook;
     private final ReadHook beforeComponentOpenHook;
+    private final ReadHook fallbackHandoffHook;
 
     public PatchTargetResolver() {
-        this(path -> { }, path -> { }, path -> { });
+        this(path -> { }, path -> { }, path -> { }, path -> { });
     }
 
     PatchTargetResolver(ReadHook readHook) {
-        this(readHook, path -> { }, path -> { });
+        this(readHook, path -> { }, path -> { }, path -> { });
     }
 
     PatchTargetResolver(ReadHook readHook, ReadHook rootHandoffHook) {
-        this(readHook, rootHandoffHook, path -> { });
+        this(readHook, rootHandoffHook, path -> { }, path -> { });
     }
 
     PatchTargetResolver(ReadHook readHook, ReadHook rootHandoffHook, ReadHook beforeComponentOpenHook) {
+        this(readHook, rootHandoffHook, beforeComponentOpenHook, path -> { });
+    }
+
+    PatchTargetResolver(ReadHook readHook, ReadHook rootHandoffHook,
+                        ReadHook beforeComponentOpenHook, ReadHook fallbackHandoffHook) {
         this.readHook = readHook;
         this.rootHandoffHook = rootHandoffHook;
         this.beforeComponentOpenHook = beforeComponentOpenHook;
+        this.fallbackHandoffHook = fallbackHandoffHook;
     }
 
     /** Resolves a target to the highest-priority available source and copies its bytes before archive closure. */
@@ -97,7 +104,8 @@ public final class PatchTargetResolver {
         } catch (NoSuchFileException disappeared) {
             throw new IOException("source root disappeared after validation", disappeared);
         }
-        return fallbackRead(root, target);
+        fallbackHandoffHook.beforeRead(root);
+        return fallbackRead(root, target, rootAttributes);
     }
 
     /**
@@ -147,11 +155,15 @@ public final class PatchTargetResolver {
     }
 
     /** Uses full pre/post component snapshots because this provider cannot retain descriptor-relative directory handles. */
-    private byte[] fallbackRead(Path root, String target) throws IOException {
+    private byte[] fallbackRead(Path root, String target, SourceAttributes expectedRoot) throws IOException {
         String[] parts = target.split("/");
         List<ComponentSnapshot> before = new ArrayList<>();
         Path current = root;
-        before.add(new ComponentSnapshot(current, SourceAttributes.read(current)));
+        SourceAttributes initialRoot = SourceAttributes.read(current);
+        if (!initialRoot.safeDirectory() || !expectedRoot.sameAs(initialRoot)) {
+            throw new IOException("source root changed during fallback handoff");
+        }
+        before.add(new ComponentSnapshot(current, initialRoot));
         for (int i = 0; i < parts.length; i++) {
             current = current.resolve(parts[i]);
             SourceAttributes attributes;
@@ -177,11 +189,12 @@ public final class PatchTargetResolver {
         } catch (NoSuchFileException disappeared) {
             throw new IOException("asset disappeared after validation", disappeared);
         }
-        validateFallbackPostRead(before, realRoot, realFile);
+        validateFallbackPostRead(before, realRoot, realFile, expectedRoot);
         return bytes;
     }
 
-    private static void validateFallbackPostRead(List<ComponentSnapshot> before, Path realRoot, Path realFile) throws IOException {
+    private static void validateFallbackPostRead(List<ComponentSnapshot> before, Path realRoot, Path realFile,
+                                                 SourceAttributes expectedRoot) throws IOException {
         for (int i = 0; i < before.size(); i++) {
             ComponentSnapshot snapshot = before.get(i);
             SourceAttributes after;
@@ -189,6 +202,7 @@ public final class PatchTargetResolver {
             catch (NoSuchFileException disappeared) { throw new IOException("asset disappeared after validation", disappeared); }
             if (!after.safeComponent(i == before.size() - 1) || !snapshot.attributes().sameAs(after)) throw new IOException("asset component changed during read");
         }
+        if (!expectedRoot.sameAs(before.getFirst().attributes())) throw new IOException("source root changed during read");
         Path afterRealRoot;
         Path afterRealFile;
         try {
