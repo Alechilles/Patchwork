@@ -2,7 +2,6 @@ package com.alechilles.patchwork.authoring;
 
 import com.hypixel.hytale.codec.Codec;
 import com.hypixel.hytale.codec.ExtraInfo;
-import com.hypixel.hytale.codec.codecs.BsonDocumentCodec;
 import com.hypixel.hytale.codec.schema.NamedSchema;
 import com.hypixel.hytale.codec.schema.SchemaContext;
 import com.hypixel.hytale.codec.schema.config.ArraySchema;
@@ -20,24 +19,24 @@ import org.bson.BsonValue;
 /** Lossless BSON codec with a beginner-facing schema for Patchwork conditions. */
 final class PatchConditionCodec implements Codec<BsonDocument>, NamedSchema {
     static final PatchConditionCodec INSTANCE = new PatchConditionCodec();
-    private static final BsonDocumentCodec DOCUMENT_CODEC = new BsonDocumentCodec();
 
     private PatchConditionCodec() {
     }
 
     @Override
     public BsonDocument decode(@Nonnull BsonValue value, ExtraInfo extraInfo) {
-        return DOCUMENT_CODEC.decode(value, extraInfo);
+        return value.asDocument();
     }
 
     @Override
     public BsonValue encode(BsonDocument value, ExtraInfo extraInfo) {
-        return DOCUMENT_CODEC.encode(value, extraInfo);
+        return value;
     }
 
     @Override
+    @SuppressWarnings("deprecation")
     public BsonDocument decodeJson(@Nonnull RawJsonReader reader, ExtraInfo extraInfo) throws IOException {
-        return DOCUMENT_CODEC.decodeJson(reader, extraInfo);
+        return RawJsonReader.readBsonValue(reader).asDocument();
     }
 
     @Override

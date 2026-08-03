@@ -2,7 +2,6 @@ package com.alechilles.patchwork.authoring;
 
 import com.hypixel.hytale.codec.Codec;
 import com.hypixel.hytale.codec.ExtraInfo;
-import com.hypixel.hytale.codec.codecs.BsonDocumentCodec;
 import com.hypixel.hytale.codec.schema.NamedSchema;
 import com.hypixel.hytale.codec.schema.SchemaContext;
 import com.hypixel.hytale.codec.schema.config.ObjectSchema;
@@ -16,24 +15,24 @@ import org.bson.BsonValue;
 /** Lossless BSON codec for fields whose portable contract requires a JSON object. */
 final class PatchJsonObjectCodec implements Codec<BsonDocument>, NamedSchema {
     static final PatchJsonObjectCodec INSTANCE = new PatchJsonObjectCodec();
-    private static final BsonDocumentCodec DOCUMENT_CODEC = new BsonDocumentCodec();
 
     private PatchJsonObjectCodec() {
     }
 
     @Override
     public BsonDocument decode(@Nonnull BsonValue value, ExtraInfo extraInfo) {
-        return DOCUMENT_CODEC.decode(value, extraInfo);
+        return value.asDocument();
     }
 
     @Override
     public BsonValue encode(BsonDocument value, ExtraInfo extraInfo) {
-        return DOCUMENT_CODEC.encode(value, extraInfo);
+        return value;
     }
 
     @Override
+    @SuppressWarnings("deprecation")
     public BsonDocument decodeJson(@Nonnull RawJsonReader reader, ExtraInfo extraInfo) throws IOException {
-        return DOCUMENT_CODEC.decodeJson(reader, extraInfo);
+        return RawJsonReader.readBsonValue(reader).asDocument();
     }
 
     @Override

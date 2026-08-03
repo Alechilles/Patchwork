@@ -30,6 +30,7 @@ final class PatchJsonValueCodec implements Codec<BsonValue>, NamedSchema {
     }
 
     @Override
+    @SuppressWarnings("deprecation")
     public BsonValue decodeJson(@Nonnull RawJsonReader reader, ExtraInfo extraInfo) throws IOException {
         return RawJsonReader.readBsonValue(reader);
     }
