@@ -26,36 +26,45 @@ public final class PatchTargetResolver {
     private final ReadHook beforeComponentOpenHook;
     private final ReadHook fallbackHandoffHook;
     private final ReadHook fallbackComponentHook;
+    private final ReadHook fallbackMissingValidationHook;
 
     public PatchTargetResolver() {
-        this(path -> { }, path -> { }, path -> { }, path -> { }, path -> { });
+        this(path -> { }, path -> { }, path -> { }, path -> { }, path -> { }, path -> { });
     }
 
     PatchTargetResolver(ReadHook readHook) {
-        this(readHook, path -> { }, path -> { }, path -> { }, path -> { });
+        this(readHook, path -> { }, path -> { }, path -> { }, path -> { }, path -> { });
     }
 
     PatchTargetResolver(ReadHook readHook, ReadHook rootHandoffHook) {
-        this(readHook, rootHandoffHook, path -> { }, path -> { }, path -> { });
+        this(readHook, rootHandoffHook, path -> { }, path -> { }, path -> { }, path -> { });
     }
 
     PatchTargetResolver(ReadHook readHook, ReadHook rootHandoffHook, ReadHook beforeComponentOpenHook) {
-        this(readHook, rootHandoffHook, beforeComponentOpenHook, path -> { }, path -> { });
+        this(readHook, rootHandoffHook, beforeComponentOpenHook, path -> { }, path -> { }, path -> { });
     }
 
     PatchTargetResolver(ReadHook readHook, ReadHook rootHandoffHook,
                         ReadHook beforeComponentOpenHook, ReadHook fallbackHandoffHook) {
-        this(readHook, rootHandoffHook, beforeComponentOpenHook, fallbackHandoffHook, path -> { });
+        this(readHook, rootHandoffHook, beforeComponentOpenHook, fallbackHandoffHook, path -> { }, path -> { });
     }
 
     PatchTargetResolver(ReadHook readHook, ReadHook rootHandoffHook,
                         ReadHook beforeComponentOpenHook, ReadHook fallbackHandoffHook,
                         ReadHook fallbackComponentHook) {
+        this(readHook, rootHandoffHook, beforeComponentOpenHook, fallbackHandoffHook,
+                fallbackComponentHook, path -> { });
+    }
+
+    PatchTargetResolver(ReadHook readHook, ReadHook rootHandoffHook,
+                        ReadHook beforeComponentOpenHook, ReadHook fallbackHandoffHook,
+                        ReadHook fallbackComponentHook, ReadHook fallbackMissingValidationHook) {
         this.readHook = readHook;
         this.rootHandoffHook = rootHandoffHook;
         this.beforeComponentOpenHook = beforeComponentOpenHook;
         this.fallbackHandoffHook = fallbackHandoffHook;
         this.fallbackComponentHook = fallbackComponentHook;
+        this.fallbackMissingValidationHook = fallbackMissingValidationHook;
     }
 
     /** Resolves a target to the highest-priority available source and copies its bytes before archive closure. */
@@ -198,8 +207,8 @@ public final class PatchTargetResolver {
         return bytes;
     }
 
-    private static void validateFallbackMissing(List<ComponentSnapshot> before,
-                                                SourceAttributes expectedRoot) throws IOException {
+    private void validateFallbackMissing(List<ComponentSnapshot> before,
+                                         SourceAttributes expectedRoot) throws IOException {
         for (ComponentSnapshot snapshot : before) {
             SourceAttributes after;
             try { after = SourceAttributes.read(snapshot.path()); }
@@ -208,7 +217,11 @@ public final class PatchTargetResolver {
                 throw new IOException("asset component changed during lookup");
             }
         }
-        if (!expectedRoot.sameAs(before.getFirst().attributes())) {
+        fallbackMissingValidationHook.beforeRead(before.getFirst().path());
+        SourceAttributes liveRoot;
+        try { liveRoot = SourceAttributes.read(before.getFirst().path()); }
+        catch (NoSuchFileException disappeared) { throw new IOException("source root disappeared during lookup", disappeared); }
+        if (!expectedRoot.sameAs(liveRoot)) {
             throw new IOException("source root changed during lookup");
         }
     }

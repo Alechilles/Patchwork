@@ -256,6 +256,30 @@ final class PatchTargetResolverTest {
     }
 
     @Test
+    void rereadsRootAfterFallbackMissingValidationBeforeReturningNull() throws Exception {
+        Path root = tempDir.resolve("fallback-missing-post-root");
+        Files.createDirectories(root.resolve("Server"));
+        boolean secureProvider;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(root.toAbsolutePath().getRoot())) {
+            secureProvider = stream instanceof SecureDirectoryStream<?>;
+        }
+        assumeFalse(secureProvider, "fallback missing-component regression requires a non-secure directory provider");
+        PatchTargetResolver resolver = new PatchTargetResolver(path -> { }, path -> { }, path -> { }, path -> { }, path -> { }, path -> {
+            Path moved = root.resolveSibling("fallback-missing-post-root-old");
+            Files.move(root, moved);
+            Files.createDirectories(root);
+            Files.writeString(root.resolve("marker"), "replacement", StandardCharsets.UTF_8);
+            Files.move(moved.resolve("Server"), root.resolve("Server"));
+        });
+
+        PatchTargetResolver.Resolution result = resolver.resolveDetailed(
+                List.of(PatchSource.directory("pack", 1, root)), "Server/Target.json");
+
+        assertEquals(PatchTargetResolver.Status.FAILED, result.status());
+        assertTrue(result.target().isEmpty());
+    }
+
+    @Test
     void rejectsFallbackIntermediateReplacementAfterSnapshot() throws Exception {
         Path root = tempDir.resolve("intermediate-swap");
         write(root, "Server/Target.json", "inside");
