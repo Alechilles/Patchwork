@@ -165,6 +165,8 @@ These tools provide patch status, diagnostics, explicit regeneration, and self-t
 
 The standalone plugin registers `Server/Patchwork/Patches/**/*.json` as a native Hytale asset type. Hytale’s Asset Editor can discover, create, structurally edit, validate, and save the same portable definitions consumed by Patchwork.
 
+New neutral definitions are marker-free: omit `FormatVersion` and `RequireFormat`. The installed native schema exposes the supported operations and rejects unknown structure before optional-operation handling. A runtime that cannot understand a neutral operation or field reports an installation/version error instead of silently publishing a partial asset. Explicit format 1 and format 2 files remain readable and lossless, including compatibility fields. See the [neutral authoring kit](docs/authoring-kit/neutral/patch-definition.schema.json) and [capabilities](docs/authoring-kit/neutral/capabilities.json).
+
 Patchwork 1.1.0 supports these installation modes:
 
 *   Install `patchwork-standalone-1.1.0.jar` as a Hytale server mod.

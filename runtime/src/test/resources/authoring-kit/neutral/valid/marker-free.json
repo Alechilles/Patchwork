@@ -1,0 +1,17 @@
+{
+  "Id": "neutral-example",
+  "Target": "Server/Test/A.json",
+  "Operations": [
+    {
+      "Op": "Remove",
+      "Path": "/OldField"
+    },
+    {
+      "Op": "ReplaceMatching",
+      "Path": "/Items",
+      "Match": {"Id": "old"},
+      "MatchPolicy": "First",
+      "Value": {"Id": "new"}
+    }
+  ]
+}

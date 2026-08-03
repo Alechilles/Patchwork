@@ -18,13 +18,30 @@ A duplicate enabled key inside the same root rejects the entire later definition
 
 ## Format versions
 
-Definitions without `FormatVersion` use legacy format 1. Format 2 definitions set `"FormatVersion": 2` and are validated with a closed root and operation grammar. A format-2 definition must begin with exactly one compatibility sentinel:
+Definitions under the neutral `Server/Patchwork/Patches` root use the marker-free neutral language when they omit `FormatVersion`. Neutral roots have a closed root and operation grammar, but do not require a compatibility sentinel. Definitions under the compatibility `Server/Tamework/Patches` root (and direct parser callers) retain the historical rule that a missing marker means legacy format 1. Explicit format 1 and format 2 markers remain unchanged. Format 2 definitions set `"FormatVersion": 2` and are validated with a closed root and operation grammar. A format-2 definition must begin with exactly one compatibility sentinel:
 
 ```json
 { "Op": "RequireFormat", "Version": 2 }
 ```
 
 The sentinel must be operation index zero, its `Version` must equal the root `FormatVersion`, and its only optional field is `Id`; `Required` and every other operation field are forbidden. A second or differently-cased `RequireFormat` is invalid. Format 1 remains supported explicitly; it does not acquire format-2 pointer or matcher semantics by inference.
+
+### Neutral authoring baseline
+
+New definitions should omit `FormatVersion` and `RequireFormat`:
+
+```json
+{
+  "Target": "Server/Test/A.json",
+  "Operations": [
+    { "Op": "Remove", "Path": "/OldField" }
+  ]
+}
+```
+
+Neutral definitions allow only `Id`, `Target`, `Targets`, `Priority`, `Enabled`, `When`, and `Operations` at the root. Their operations are `Add`, `Merge`, `Replace`, `Remove`, `Insert`, `ReplaceMatching`, `RemoveMatching`, `MoveMatching`, and `Macro`. Unknown root fields, operation fields, and operation names are structural errors before `Required: false` is considered; an older runtime that cannot understand new neutral syntax must be treated as an installation/version error rather than silently skipping it. The machine-readable baseline is published in [`docs/authoring-kit/neutral`](authoring-kit/neutral/patch-definition.schema.json).
+
+The native Hytale Asset Editor hides compatibility-only fields from new neutral authoring. Explicit format 1 or 2 files remain lossless when opened and saved, including their marker and sentinel fields. If the native schema is unavailable after installing the standalone runtime, restart Hytale so the asset registration can load; portable JSON under the neutral root remains the same runtime contract.
 
 ## Definition fields
 

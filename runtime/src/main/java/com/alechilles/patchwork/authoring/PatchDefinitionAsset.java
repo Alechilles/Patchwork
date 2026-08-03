@@ -1,6 +1,8 @@
 package com.alechilles.patchwork.authoring;
 
 import com.alechilles.patchwork.engine.PatchDefinition;
+import com.alechilles.patchwork.format.PatchFormat;
+import com.alechilles.patchwork.format.PatchLanguage;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -25,7 +27,7 @@ public final class PatchDefinitionAsset
             .documentation("A Patchwork patch definition. Choose one target form, then add operations in the order they should run.")
             .append(new KeyedCodec<>("FormatVersion", Codec.INTEGER),
                     (asset, value) -> asset.formatVersion = value, asset -> asset.formatVersion)
-            .documentation("Patch format version. Use 2 for new patches. Format 2 requires the first operation to be RequireFormat with Version 2; omit this field only for legacy format 1.")
+            .documentation("Compatibility marker preserved when reopening an explicit versioned file. New Patchwork definitions use the neutral schema and do not need this field.")
             .add()
             .append(new KeyedCodec<>("Id", Codec.STRING),
                     (asset, value) -> asset.patchId = value, asset -> asset.patchId)
@@ -54,7 +56,7 @@ public final class PatchDefinitionAsset
             .append(new KeyedCodec<>("Operations",
                             new ArrayCodec<>(PatchOperationAsset.CODEC, PatchOperationAsset[]::new), true),
                     (asset, value) -> asset.operations = value, asset -> asset.operations)
-            .documentation("Patch steps, executed from top to bottom. Format 2 must start with RequireFormat (Version 2), followed by the changes you want to make.")
+            .documentation("Patch steps, executed from top to bottom. New files use the neutral operation choices; explicit versioned compatibility fields are preserved when reopened.")
             .add()
             .validator(PatchDefinitionAsset::validatePortableDefinition)
             .build();
@@ -171,9 +173,21 @@ public final class PatchDefinitionAsset
             com.hypixel.hytale.codec.validation.ValidationResults results) {
         try {
             String sourcePath = asset.assetId == null ? "definition.json" : asset.assetId + ".json";
-            PatchDefinition.parseAll(asset.toPortableJson(), "native-asset-store", sourcePath, 0);
+            parsePortableDefinition(asset.toPortableJson(), "native-asset-store", sourcePath, 0);
         } catch (IllegalArgumentException failure) {
             results.fail(failure.getMessage());
         }
+    }
+
+    /** Selects and applies the one portable parser profile used by all native decode paths. */
+    static java.util.List<PatchDefinition> parsePortableDefinition(
+            JsonObject root,
+            String sourcePack,
+            String sourcePath,
+            int sourcePackLoadOrder) {
+        PatchLanguage language = root.has("FormatVersion")
+                ? PatchFormat.fromRoot(root).language()
+                : PatchLanguage.NEUTRAL;
+        return PatchDefinition.parseAll(root, sourcePack, sourcePath, sourcePackLoadOrder, language);
     }
 }

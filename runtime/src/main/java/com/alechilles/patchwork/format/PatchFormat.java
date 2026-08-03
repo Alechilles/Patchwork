@@ -55,6 +55,11 @@ public final class PatchFormat {
         return isVersion2(version);
     }
 
+    /** Returns the explicit language represented by this compatibility marker. */
+    public PatchLanguage language() {
+        return isVersion2() ? PatchLanguage.STRICT_V2 : PatchLanguage.LEGACY_V1;
+    }
+
     /** Returns whether the supplied version is the strict version-2 format. */
     public static boolean isVersion2(int version) {
         return version == FORMAT_VERSION_2;

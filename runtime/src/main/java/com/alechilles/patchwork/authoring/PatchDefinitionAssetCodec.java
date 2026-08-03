@@ -1,6 +1,5 @@
 package com.alechilles.patchwork.authoring;
 
-import com.alechilles.patchwork.engine.PatchDefinition;
 import com.alechilles.patchwork.format.PatchDefinitionReader;
 import com.google.gson.JsonParser;
 import com.hypixel.hytale.assetstore.AssetExtraInfo;
@@ -23,7 +22,7 @@ import org.bson.BsonValue;
 /** Asset-codec adapter that publishes only fields belonging to the portable Patchwork format. */
 final class PatchDefinitionAssetCodec implements AssetCodec<String, PatchDefinitionAsset> {
     private static final Set<String> PORTABLE_FIELDS = Set.of(
-            "FormatVersion", "Id", "Target", "Targets", "Priority", "Enabled", "When", "Operations");
+            "Id", "Target", "Targets", "Priority", "Enabled", "When", "Operations");
     private final AssetBuilderCodec<String, PatchDefinitionAsset> delegate;
 
     PatchDefinitionAssetCodec(AssetBuilderCodec<String, PatchDefinitionAsset> delegate) {
@@ -137,7 +136,7 @@ final class PatchDefinitionAssetCodec implements AssetCodec<String, PatchDefinit
     }
 
     private static void validateDocument(BsonDocument document) {
-        PatchDefinition.parseAll(
+        PatchDefinitionAsset.parsePortableDefinition(
                 JsonParser.parseString(document.toJson()).getAsJsonObject(),
                 "native-asset-store",
                 "definition.json",
@@ -156,7 +155,7 @@ final class PatchDefinitionAssetCodec implements AssetCodec<String, PatchDefinit
         }
         var root = PatchDefinitionReader.parse(
                 source.getBytes(StandardCharsets.UTF_8), "native-asset-store", "definition.json", 0);
-        PatchDefinition.parseAll(root, "native-asset-store", "definition.json", 0);
+        PatchDefinitionAsset.parsePortableDefinition(root, "native-asset-store", "definition.json", 0);
         return PatchDefinitionAsset.fromPortableJson(root, extraInfo);
     }
 }

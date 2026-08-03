@@ -143,6 +143,7 @@ final class PatchDefinitionAssetTest {
     void productionJsonCodecPreservesAcceptedLegacyExtensions() throws Exception {
         String source = """
                 {
+                  "FormatVersion": 1,
                   "Id": "legacy-extensions",
                   "Target": "Server/Test.json",
                   "LegacyRoot": {"keep": 1},
@@ -220,7 +221,7 @@ final class PatchDefinitionAssetTest {
         var definitionSchema = (ObjectSchema) PatchDefinitionAsset.CODEC.toSchema(new SchemaContext());
         var definitionProperties = definitionSchema.getProperties();
         assertEquals(Set.of(
-                        "FormatVersion", "Id", "Target", "Targets", "Priority", "Enabled", "When", "Operations"),
+                        "Id", "Target", "Targets", "Priority", "Enabled", "When", "Operations"),
                 definitionProperties.keySet(),
                 "native schema must not expose Hytale Parent or Tags wrapper fields");
 
@@ -236,7 +237,7 @@ final class PatchDefinitionAssetTest {
         operationProperties.forEach(PatchDefinitionAssetTest::assertDocumented);
 
         assertEnum(operationProperties.get("Op"), Set.of(
-                "RequireFormat", "Add", "Merge", "Replace", "Remove", "Insert",
+                "Add", "Merge", "Replace", "Remove", "Insert",
                 "ReplaceMatching", "RemoveMatching", "MoveMatching", "Macro"));
         assertEnum(operationProperties.get("Position"), Set.of("Start", "End", "Before", "After"));
         assertEnum(operationProperties.get("MatchPolicy"), Set.of("ExactlyOne", "First", "Last", "All"));

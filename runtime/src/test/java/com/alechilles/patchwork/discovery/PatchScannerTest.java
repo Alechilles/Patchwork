@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.alechilles.patchwork.engine.PatchDefinition;
+import com.alechilles.patchwork.format.PatchLanguage;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -166,6 +167,34 @@ final class PatchScannerTest {
         assertEquals(1, result.definitions().size());
         assertEquals(2, result.definitions().getFirst().formatVersion());
         assertEquals(List.of(), result.failures());
+    }
+
+    @Test
+    void neutralRootUsesClosedSentinelFreeLanguageWhenMarkerIsAbsent() throws Exception {
+        Path source = tempDir.resolve("source");
+        write(source, "Server/Patchwork/Patches/modern.json", """
+                {"Target":"Server/Test/A.json","Operations":[{"Op":"Remove","Path":"/Old"}]}
+                """);
+
+        PatchScanner.ScanResult result = new PatchScanner().scan(
+                List.of(PatchSource.directory("pack", 1, source)), Set.of());
+
+        assertEquals(PatchLanguage.NEUTRAL, result.definitions().getFirst().language());
+        assertEquals(List.of(), result.failures());
+    }
+
+    @Test
+    void neutralUnknownOperationRejectsWholeDefinitionEvenWhenOptional() throws Exception {
+        Path source = tempDir.resolve("source");
+        write(source, "Server/Patchwork/Patches/bad.json", """
+                {"Target":"Server/Test/A.json","Operations":[{"Op":"FutureOp","Required":false}]}
+                """);
+
+        PatchScanner.ScanResult result = new PatchScanner().scan(
+                List.of(PatchSource.directory("pack", 1, source)), Set.of());
+
+        assertEquals(List.of(), result.definitions());
+        assertEquals(1, result.failures().size());
     }
 
     @Test

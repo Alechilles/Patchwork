@@ -16,6 +16,7 @@ import java.util.stream.Stream;
 
 import com.alechilles.patchwork.conditions.PatchCondition;
 import com.alechilles.patchwork.format.PatchDefinitionReader;
+import com.alechilles.patchwork.format.PatchLanguage;
 import com.alechilles.patchwork.format.Utf8Ordering;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -119,6 +120,27 @@ final class PatchDefinitionTest {
         assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parseAll(object("""
                 { "FormatVersion": 2, "Id": "v2", "Target": "Server/A.json", "Operations": [] }
                 """), "pack", "patch.json"));
+    }
+
+    @Test
+    void directParserKeepsMissingMarkerLegacyAndExplicitFormatTwoStrict() {
+        PatchDefinition legacy = PatchDefinition.parse(object("""
+                { "Id": "legacy", "Target": "Server/A.json", "Operations": [] }
+                """), "pack", "legacy.json");
+        assertEquals(PatchLanguage.LEGACY_V1, legacy.language());
+        assertEquals(1, legacy.formatVersion());
+
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parseAll(object("""
+                { "FormatVersion": 2, "Id": "v2", "Target": "Server/A.json", "Operations": [] }
+                """), "pack", "v2.json"));
+
+        PatchDefinition strict = PatchDefinition.parse(object("""
+                { "FormatVersion": 2, "Id": "v2", "Target": "Server/A.json", "Operations": [
+                  { "Op": "RequireFormat", "Version": 2 }
+                ] }
+                """), "pack", "v2.json");
+        assertEquals(PatchLanguage.STRICT_V2, strict.language());
+        assertEquals(PatchLanguage.STRICT_V2, strict.operations().getFirst().language());
     }
 
     @Test

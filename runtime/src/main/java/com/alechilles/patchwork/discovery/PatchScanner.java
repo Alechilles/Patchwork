@@ -63,7 +63,12 @@ public final class PatchScanner {
                              Map<DuplicateKey, PatchRoot> accepted, List<String> skipped, List<String> failures) {
         try {
             var rootObject = PatchDefinitionReader.parse(reader.read(source, assetPath), source.sourcePackId(), assetPath, source.sourcePackLoadOrder());
-            List<PatchDefinition> parsed = PatchDefinition.parseAll(rootObject, source.sourcePackId(), assetPath, source.sourcePackLoadOrder())
+            List<PatchDefinition> parsed = PatchDefinition.parseAll(
+                            rootObject,
+                            source.sourcePackId(),
+                            assetPath,
+                            source.sourcePackLoadOrder(),
+                            root.languageFor(rootObject))
                     .stream().sorted(Comparator.comparing(PatchDefinition::target)).toList();
             validateTargets(parsed);
             List<PatchDefinition> enabled = parsed.stream().filter(PatchDefinition::enabled).toList();

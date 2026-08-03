@@ -3,10 +3,19 @@ package com.alechilles.patchwork.authoring;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.hypixel.hytale.codec.Codec;
+import com.hypixel.hytale.codec.ExtraInfo;
 import com.hypixel.hytale.codec.KeyedCodec;
 import com.hypixel.hytale.codec.builder.BuilderCodec;
 import com.hypixel.hytale.codec.codecs.EnumCodec;
+import com.hypixel.hytale.codec.schema.SchemaContext;
+import com.hypixel.hytale.codec.schema.config.ObjectSchema;
+import com.hypixel.hytale.codec.schema.config.Schema;
+import com.hypixel.hytale.codec.schema.config.StringSchema;
+import com.hypixel.hytale.codec.util.RawJsonReader;
+import java.io.IOException;
+import java.util.Arrays;
 import java.util.Set;
+import javax.annotation.Nonnull;
 import org.bson.BsonDocument;
 import org.bson.BsonValue;
 
@@ -41,7 +50,7 @@ final class PatchOperationAsset {
 
     private static final EnumCodec<OperationType> OPERATION_TYPE_CODEC = new EnumCodec<>(OperationType.class)
             .documentKey(OperationType.RequireFormat,
-                    "Declares the Patchwork format used by this file. In format 2, this must be the first operation and Version must be 2.")
+                    "Compatibility operation retained when reopening an explicit format-2 file. New neutral files do not need this sentinel.")
             .documentKey(OperationType.Add,
                     "Adds or overwrites an object field, or inserts/appends an array entry at Path.")
             .documentKey(OperationType.Merge,
@@ -84,7 +93,7 @@ final class PatchOperationAsset {
             .add()
             .append(new KeyedCodec<>("Version", Codec.INTEGER),
                     (operation, value) -> operation.version = value, operation -> operation.version)
-            .documentation("Format version declared by RequireFormat. For a format-2 patch, set this to 2 and use RequireFormat as the first operation.")
+            .documentation("Compatibility version retained by RequireFormat in explicit format-2 files. New neutral files do not need this field.")
             .add()
             .append(new KeyedCodec<>("Path", Codec.STRING),
                     (operation, value) -> operation.path = value, operation -> operation.path)
@@ -127,9 +136,73 @@ final class PatchOperationAsset {
             .documentation("Whether failure stops this target from being published. Defaults to true; false reports and skips an inapplicable operation.")
             .add()
             .build();
-    static final PortableObjectCodec<PatchOperationAsset> CODEC = new PortableObjectCodec<>(BUILDER_CODEC, Set.of(
+    private static final PortableObjectCodec<PatchOperationAsset> PORTABLE_CODEC = new PortableObjectCodec<>(BUILDER_CODEC, Set.of(
             "Id", "Op", "Version", "Path", "Value", "Position", "Match", "MatchPolicy",
             "Find", "Existing", "Macro", "Options", "Required"));
+
+    /**
+     * Portable operation codec.  Explicit version-2 sentinels remain decodable,
+     * but the native editor's operation picker omits that compatibility-only
+     * choice for new neutral definitions.
+     */
+    static final OperationAssetCodec CODEC = new OperationAssetCodec();
+
+    static final class OperationAssetCodec implements Codec<PatchOperationAsset> {
+        @Override
+        public PatchOperationAsset decode(BsonValue value, ExtraInfo extraInfo) {
+            return PORTABLE_CODEC.decode(value, extraInfo);
+        }
+
+        @Override
+        public BsonValue encode(PatchOperationAsset value, ExtraInfo extraInfo) {
+            return PORTABLE_CODEC.encode(value, extraInfo);
+        }
+
+        @Override
+        public PatchOperationAsset decodeJson(@Nonnull RawJsonReader reader, ExtraInfo extraInfo) throws IOException {
+            return PORTABLE_CODEC.decodeJson(reader, extraInfo);
+        }
+
+        @Nonnull
+        @Override
+        public ObjectSchema toSchema(@Nonnull SchemaContext context) {
+            ObjectSchema schema = PORTABLE_CODEC.toSchema(context);
+            Schema operation = schema.getProperties().get("Op");
+            if (operation instanceof StringSchema choices) {
+                String[] values = choices.getEnum();
+                String[] descriptions = choices.getMarkdownEnumDescriptions();
+                String[] enumDescriptions = choices.getEnumDescriptions();
+                int keep = (int) Arrays.stream(values)
+                        .filter(value -> !OperationType.RequireFormat.name().equals(value))
+                        .count();
+                String[] filteredValues = new String[keep];
+                String[] filteredDescriptions = descriptions == null ? null : new String[keep];
+                String[] filteredEnumDescriptions = enumDescriptions == null ? null : new String[keep];
+                int index = 0;
+                for (int source = 0; source < values.length; source++) {
+                    if (OperationType.RequireFormat.name().equals(values[source])) continue;
+                    filteredValues[index] = values[source];
+                    if (filteredDescriptions != null) {
+                        String description = source < descriptions.length ? descriptions[source] : null;
+                        filteredDescriptions[index] = description == null || description.isBlank()
+                                ? "Patchwork operation " + values[source] + "."
+                                : description;
+                    }
+                    if (filteredEnumDescriptions != null) {
+                        String description = source < enumDescriptions.length ? enumDescriptions[source] : null;
+                        filteredEnumDescriptions[index] = description == null || description.isBlank()
+                                ? "Patchwork operation " + values[source] + "."
+                                : description;
+                    }
+                    index++;
+                }
+                choices.setEnum(filteredValues);
+                if (filteredDescriptions != null) choices.setMarkdownEnumDescriptions(filteredDescriptions);
+                if (filteredEnumDescriptions != null) choices.setEnumDescriptions(filteredEnumDescriptions);
+            }
+            return schema;
+        }
+    }
 
     private String id;
     private OperationType op;

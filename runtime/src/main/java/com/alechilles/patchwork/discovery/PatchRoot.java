@@ -1,5 +1,8 @@
 package com.alechilles.patchwork.discovery;
 
+import com.alechilles.patchwork.format.PatchFormat;
+import com.alechilles.patchwork.format.PatchLanguage;
+import com.google.gson.JsonObject;
 import java.util.List;
 import java.util.Set;
 
@@ -27,6 +30,21 @@ public enum PatchRoot {
     /** Returns the root's precedence, with neutral patches higher than legacy patches. */
     public int precedence() {
         return precedence;
+    }
+
+    /**
+     * Selects the grammar profile for one definition read from this root.
+     *
+     * <p>The neutral root is the authoring default.  A neutral definition with
+     * no compatibility marker therefore uses the closed, sentinel-free neutral
+     * grammar, while an explicit marker keeps its historical meaning.  The
+     * legacy root always follows the explicit/legacy marker rules.</p>
+     */
+    public PatchLanguage languageFor(JsonObject definitionRoot) {
+        if (this == NEUTRAL && !definitionRoot.has("FormatVersion")) {
+            return PatchLanguage.NEUTRAL;
+        }
+        return PatchFormat.fromRoot(definitionRoot).language();
     }
 
     /** Returns active roots from lowest to highest precedence. */

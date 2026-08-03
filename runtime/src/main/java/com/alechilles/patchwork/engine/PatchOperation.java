@@ -1,6 +1,7 @@
 package com.alechilles.patchwork.engine;
 
 import com.alechilles.patchwork.format.JsonMatcher;
+import com.alechilles.patchwork.format.PatchLanguage;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.util.Locale;
@@ -8,16 +9,36 @@ import java.util.Set;
 
 /** One raw or host-expanded operation in a Patchwork definition. */
 public final class PatchOperation {
-    private final String id, op, path, position, macro, matchPolicy;
-    private final int formatVersion;
+    private final String id;
+    private final String op;
+    private final String path;
+    private final String position;
+    private final String macro;
+    private final String matchPolicy;
+    private final PatchLanguage language;
     private final Integer version;
     private final boolean required;
     private final JsonElement value;
-    private final JsonObject find, existing, options, match;
+    private final JsonObject find;
+    private final JsonObject existing;
+    private final JsonObject options;
+    private final JsonObject match;
 
-    private PatchOperation(String id, String op, String path, String position, String macro, boolean required,
-                           JsonElement value, JsonObject find, JsonObject existing, JsonObject options,
-                           int formatVersion, Integer version, JsonObject match, String matchPolicy) {
+    private PatchOperation(
+            String id,
+            String op,
+            String path,
+            String position,
+            String macro,
+            boolean required,
+            JsonElement value,
+            JsonObject find,
+            JsonObject existing,
+            JsonObject options,
+            PatchLanguage language,
+            Integer version,
+            JsonObject match,
+            String matchPolicy) {
         this.id = id;
         this.op = op;
         this.path = path;
@@ -28,29 +49,33 @@ public final class PatchOperation {
         this.find = copy(find);
         this.existing = copy(existing);
         this.options = copy(options);
-        this.formatVersion = formatVersion;
+        this.language = java.util.Objects.requireNonNull(language, "language");
         this.version = version;
         this.match = copy(match);
         this.matchPolicy = matchPolicy;
     }
 
     static PatchOperation parse(JsonObject object, String patchId, int index) {
-        return parse(object, patchId, index, 1);
+        return parse(object, patchId, index, PatchLanguage.LEGACY_V1);
     }
 
     static PatchOperation parse(JsonObject object, String patchId, int index, int formatVersion) {
+        return parse(object, patchId, index, languageForVersion(formatVersion));
+    }
+
+    static PatchOperation parse(JsonObject object, String patchId, int index, PatchLanguage language) {
         String operation = PatchDefinition.readRequiredString(object, "Op", patchId + " operation " + index);
-        if (formatVersion == 2) {
-            validateV2(object, operation, patchId, index);
+        if (language.closedStructure()) {
+            validateClosedOperation(object, operation, patchId, index, language);
         }
         Integer version = object.has("Version")
-                ? (formatVersion == 2 ? readVersion(object, patchId, index) : readLegacyVersion(object))
+                ? (language.closedStructure() ? readVersion(object, patchId, index) : readLegacyVersion(object))
                 : null;
         JsonObject match = object(object, "Match");
-        String matchPolicy = formatVersion == 2 && object.has("MatchPolicy")
+        String matchPolicy = language.closedStructure() && object.has("MatchPolicy")
                 ? strictString(object, "MatchPolicy", patchId + " operation " + index)
                 : PatchDefinition.readString(object, "MatchPolicy", null);
-        String position = formatVersion == 2 && object.has("Position")
+        String position = language.closedStructure() && object.has("Position")
                 ? strictString(object, "Position", patchId + " operation " + index)
                 : PatchDefinition.readString(object, "Position", null);
         return new PatchOperation(
@@ -59,14 +84,14 @@ public final class PatchOperation {
                 PatchDefinition.readString(object, "Path", null),
                 position,
                 PatchDefinition.readString(object, "Macro", null),
-                formatVersion == 2 && object.has("Required")
+                language.closedStructure() && object.has("Required")
                         ? strictBoolean(object, "Required", patchId + " operation " + index)
                         : PatchDefinition.readBoolean(object, "Required", true),
                 object.get("Value"),
                 object(object, "Find"),
                 object(object, "Existing"),
                 object(object, "Options"),
-                formatVersion,
+                language,
                 version,
                 match,
                 matchPolicy);
@@ -74,17 +99,17 @@ public final class PatchOperation {
 
     /** Parses a host-expanded operation with a stable synthetic source position. */
     public static PatchOperation parseHostOperation(JsonObject object, String patchId) {
-        return parseHostOperation(object, patchId, 1);
+        return parseHostOperation(object, patchId, PatchLanguage.LEGACY_V1);
     }
 
-    /**
-     * Parses a host-expanded operation using the enclosing definition format.
-     * Macro results are serialized and reparsed at this boundary so strict
-     * format-2 pointer and matcher validation cannot be bypassed by a legacy
-     * host model.
-     */
+    /** Parses a host-expanded operation using the enclosing compatibility version. */
     public static PatchOperation parseHostOperation(JsonObject object, String patchId, int formatVersion) {
-        return parse(object, patchId, 0, formatVersion);
+        return parseHostOperation(object, patchId, languageForVersion(formatVersion));
+    }
+
+    /** Parses a host-expanded operation using the enclosing root language. */
+    public static PatchOperation parseHostOperation(JsonObject object, String patchId, PatchLanguage language) {
+        return parse(object, patchId, 0, language);
     }
 
     /** Serializes this operation for the isolated host macro boundary. */
@@ -96,7 +121,9 @@ public final class PatchOperation {
         if (path != null) object.addProperty("Path", path);
         if (position != null) object.addProperty("Position", position);
         if (macro != null) object.addProperty("Macro", macro);
-        if (!(formatVersion == 2 && "RequireFormat".equals(op))) object.addProperty("Required", required);
+        if (!(language.requiresFormatSentinel() && "RequireFormat".equals(op))) {
+            object.addProperty("Required", required);
+        }
         if (value != null) object.add("Value", value());
         if (match != null) object.add("Match", match());
         if (matchPolicy != null) object.addProperty("MatchPolicy", matchPolicy);
@@ -106,17 +133,24 @@ public final class PatchOperation {
         return object;
     }
 
-    /** Creates an explicit non-macro operation. */
-    public static PatchOperation raw(String id, String op, String path, String position, boolean required,
-                                     JsonElement value, JsonObject find, JsonObject existing) {
+    /** Creates an explicit non-macro operation using legacy compatibility semantics. */
+    public static PatchOperation raw(
+            String id,
+            String op,
+            String path,
+            String position,
+            boolean required,
+            JsonElement value,
+            JsonObject find,
+            JsonObject existing) {
         return new PatchOperation(id, op, path, position, null, required, value, find, existing, null,
-                1, null, null, null);
+                PatchLanguage.LEGACY_V1, null, null, null);
     }
 
     /** Returns this operation with the supplied macro identifier. */
     public PatchOperation withMacro(String macroId) {
         return new PatchOperation(id, op, path, position, macroId, required, value, find, existing, options,
-                formatVersion, version, match, matchPolicy);
+                language, version, match, matchPolicy);
     }
 
     public String id() { return id; }
@@ -129,7 +163,11 @@ public final class PatchOperation {
     public JsonObject find() { return copy(find); }
     public JsonObject existing() { return copy(existing); }
     public JsonObject options() { return copy(options); }
-    public int formatVersion() { return formatVersion; }
+    public PatchLanguage language() { return language; }
+
+    /** Compatibility view retained for existing embedders. */
+    public int formatVersion() { return language.compatibilityVersion(); }
+
     public Integer version() { return version; }
     public JsonObject match() { return copy(match); }
     public String matchPolicy() { return matchPolicy; }
@@ -144,16 +182,25 @@ public final class PatchOperation {
     public JsonObject getFind() { return find(); }
     public JsonObject getExisting() { return existing(); }
     public JsonObject getOptions() { return options(); }
+    public PatchLanguage getLanguage() { return language(); }
     public int getFormatVersion() { return formatVersion(); }
     public Integer getVersion() { return version(); }
     public JsonObject getMatch() { return match(); }
     public String getMatchPolicy() { return matchPolicy(); }
 
-    private static void validateV2(JsonObject operation, String op, String patchId, int index) {
+    private static void validateClosedOperation(
+            JsonObject operation,
+            String op,
+            String patchId,
+            int index,
+            PatchLanguage language) {
         Set<String> allowed;
         Set<String> required;
         switch (op) {
             case "RequireFormat" -> {
+                if (language == PatchLanguage.NEUTRAL) {
+                    throw structural(patchId, index, "RequireFormat is not part of neutral definitions.");
+                }
                 allowed = Set.of("Op", "Version", "Id");
                 required = Set.of("Op", "Version");
             }
@@ -204,15 +251,11 @@ public final class PatchOperation {
         }
         if (operation.has("Id")) {
             String id = strictString(operation, "Id", patchId + " operation " + index);
-            if (id.isBlank()) {
-                throw structural(patchId, index, "Id must be a non-empty string.");
-            }
+            if (id.isBlank()) throw structural(patchId, index, "Id must be a non-empty string.");
         }
         if ("RequireFormat".equals(op)) {
             int version = readVersion(operation, patchId, index);
-            if (version <= 0) {
-                throw structural(patchId, index, "Version must be a positive integer.");
-            }
+            if (version <= 0) throw structural(patchId, index, "Version must be a positive integer.");
             return;
         }
         if (Set.of("Add", "Merge", "Replace", "Remove", "Insert", "ReplaceMatching", "RemoveMatching", "MoveMatching")
@@ -248,14 +291,13 @@ public final class PatchOperation {
         }
         if ("MoveMatching".equals(op)) {
             String position = operation.has("Position")
-                    ? strictString(operation, "Position", patchId + " operation " + index)
-                    : "End";
+                    ? strictString(operation, "Position", patchId + " operation " + index) : "End";
             String normalized = position.toLowerCase(Locale.ROOT);
             if (!Set.of("start", "end", "before", "after").contains(normalized)) {
                 throw structural(patchId, index, "Position must be Start, End, Before, or After.");
             }
             boolean hasFind = operation.has("Find");
-            if (hasFind && (!operation.get("Find").isJsonObject())) {
+            if (hasFind && !operation.get("Find").isJsonObject()) {
                 throw structural(patchId, index, "Find must be an object.");
             }
             if (hasFind) validateMatcher(operation.get("Find"), "Find", patchId, index);
@@ -287,8 +329,7 @@ public final class PatchOperation {
 
     private static void validateInsert(JsonObject operation, String patchId, int index) {
         String position = operation.has("Position")
-                ? strictString(operation, "Position", patchId + " operation " + index)
-                : "End";
+                ? strictString(operation, "Position", patchId + " operation " + index) : "End";
         String normalized = position.toLowerCase(Locale.ROOT);
         if (!Set.of("start", "end", "before", "after").contains(normalized)) {
             throw structural(patchId, index, "Position must be Start, End, Before, or After.");
@@ -367,6 +408,14 @@ public final class PatchOperation {
         if (value == null || value.isJsonNull()) return null;
         if (!value.isJsonObject()) throw new IllegalArgumentException(name + " must be an object.");
         return value.getAsJsonObject();
+    }
+
+    private static PatchLanguage languageForVersion(int version) {
+        return switch (version) {
+            case 0 -> PatchLanguage.NEUTRAL;
+            case 2 -> PatchLanguage.STRICT_V2;
+            default -> PatchLanguage.LEGACY_V1;
+        };
     }
 
     private static JsonElement copy(JsonElement value) { return value == null ? null : value.deepCopy(); }
