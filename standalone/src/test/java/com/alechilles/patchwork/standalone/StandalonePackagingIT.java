@@ -40,13 +40,16 @@ class StandalonePackagingIT {
                 assertEquals("Alechilles", manifest.get("Group").getAsString());
                 assertEquals("Patchwork", manifest.get("Name").getAsString());
                 assertEquals("com.alechilles.patchwork.standalone.PatchworkPlugin", manifest.get("Main").getAsString());
-                assertFalse(manifest.get("IncludesAssetPack").getAsBoolean());
+                assertTrue(manifest.get("IncludesAssetPack").getAsBoolean());
             }
             assertNotNull(standalone.getJarEntry("com/alechilles/patchwork/standalone/PatchworkPlugin.class"));
             assertNotNull(standalone.getJarEntry("com/alechilles/patchwork/embedded/StandalonePatchworkBootstrap.class"));
             assertNotNull(standalone.getJarEntry("META-INF/maven/com.alechilles/patchwork-runtime/pom.properties"));
             assertNotNull(standalone.getJarEntry("icon-256.png"),
                     "The standalone artifact must publish its mod icon beside the manifest.");
+            assertNotNull(standalone.getJarEntry("Server/Patchwork/Patches/AnimalHusbandry/AH_Saddle_Bear.json"));
+            assertNotNull(standalone.getJarEntry("Server/Patchwork/Patches/HyDragon/RockDrake_Zone2_Cave_Volcanic_T2_Aggro.json"));
+            assertNotNull(standalone.getJarEntry("Server/Patchwork/Patches/Tamework/Items/Tamework_Tool_Capture_Crate_Patch.json"));
             assertEquals(1, standalone.stream().filter(entry -> entry.getName().equals("manifest.json")).count());
             assertFalse(standalone.stream().anyMatch(entry -> entry.getName().matches("META-INF/.*\\.(SF|DSA|RSA)")));
         }

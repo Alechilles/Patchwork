@@ -1,0 +1,22 @@
+{
+  "Id": "HyDragon_RockDrakeT1_Zone1_Cave_Forests_Aggro",
+  "When": { "ModInstalled": "Alechilles:HyDragon" },
+  "Target": "Server/NPC/Spawn/Beacons/Zone1/Zone1_Cave_Tier2/Zone1_Cave_Forests_Aggro.json",
+  "Priority": 0,
+  "Enabled": true,
+  "Operations": [
+    {
+      "Id": "append-rock-drake-t1",
+      "Op": "Insert",
+      "Path": "/NPCs",
+      "Position": "End",
+      "Existing": {
+        "Id": "RockDrakeT1"
+      },
+      "Value": {
+        "Weight": 5,
+        "Id": "RockDrakeT1"
+      }
+    }
+  ]
+}

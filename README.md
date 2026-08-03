@@ -8,6 +8,8 @@ Your patches ship alongside your mod. Patchwork gathers the applicable pieces, l
 
 The original files remain exactly where they were.
 
+Patchwork's standalone asset pack also carries the maintained compatibility definitions for Alec's Animal Husbandry, HyDragon, and Tamework. Those definitions activate only when their owning mod is installed.
+
 ***
 
 ## Patch only what you need
