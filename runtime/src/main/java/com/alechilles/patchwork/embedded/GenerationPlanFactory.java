@@ -6,6 +6,7 @@ import com.alechilles.patchwork.conditions.ModDataRootRegistry;
 import com.alechilles.patchwork.discovery.PatchTargetResolver;
 import com.alechilles.patchwork.discovery.PatchRoot;
 import com.alechilles.patchwork.engine.PatchMacroRegistry;
+import com.alechilles.patchwork.generation.GenerationAssetSnapshot;
 import com.alechilles.patchwork.generation.PatchGenerationService;
 import com.hypixel.hytale.common.util.java.ManifestUtil;
 import java.util.Objects;
@@ -49,13 +50,15 @@ final class GenerationPlanFactory {
     /** Takes exactly one input snapshot and creates a cache/resolver pair that cannot escape this pass. */
     PatchGenerationService.GenerationPlan createPlan() {
         HytaleRuntimeInputsSnapshotter.Inputs snapshot = Objects.requireNonNull(inputs.get(), "runtime input snapshot");
+        GenerationAssetSnapshot assets = GenerationAssetSnapshot.capture(snapshot.sources());
         passMetadata.accept(PassMetadata.from(snapshot));
         ConditionDocumentCache cache = Objects.requireNonNull(caches.get(), "condition document cache");
-        ConditionSourceResolver resolver = Objects.requireNonNull(resolvers.apply(snapshot.modDataRoots(), cache), "condition source resolver");
+        ConditionSourceResolver resolver = Objects.requireNonNull(resolvers.apply(snapshot.modDataRoots(), cache), "condition source resolver")
+                .withAssets(assets);
         String version = serverVersion.get();
         if (version == null || version.isBlank()) throw new IllegalStateException("Hytale server version is unavailable from ManifestUtil.getVersion().");
         return new PatchGenerationService(macros).generate(new PatchGenerationService.GenerationRequest(
-                snapshot.sources(), snapshot.installedIds(), snapshot.versions(), version, resolver));
+                assets, snapshot.installedIds(), snapshot.versions(), version, resolver));
     }
 
     /** Safe, immutable root state derived only from the pass's captured installed-plugin identifiers. */

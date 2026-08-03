@@ -3,6 +3,7 @@ package com.alechilles.patchwork.discovery;
 import com.alechilles.patchwork.engine.PatchDefinition;
 import com.alechilles.patchwork.format.PatchDefinitionReader;
 import com.alechilles.patchwork.format.Utf8Ordering;
+import com.alechilles.patchwork.generation.GenerationAssetSnapshot;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,48 +22,62 @@ public final class PatchScanner {
     /** Generated output pack that must never be treated as a patch input. */
     public static final String GENERATED_PACK_ID = "Alechilles:Patchwork_GeneratedPatches";
     private final PatchFileReader reader;
+    private final boolean useSnapshotBytes;
 
     /** Creates a scanner that reads directly from directory and archive sources. */
     public PatchScanner() {
-        this(PatchScanner::readDefault);
+        this(PatchScanner::readDefault, true);
     }
 
     PatchScanner(PatchFileReader reader) {
+        this(reader, false);
+    }
+
+    private PatchScanner(PatchFileReader reader, boolean useSnapshotBytes) {
         this.reader = java.util.Objects.requireNonNull(reader, "reader");
+        this.useSnapshotBytes = useSnapshotBytes;
     }
 
     /** Scans active root paths across sources and returns immutable definitions and diagnostics. */
     public ScanResult scan(List<PatchSource> sources, Set<String> installedPluginIds) {
+        return scan(GenerationAssetSnapshot.capture(sources), installedPluginIds);
+    }
+
+    /** Scans active root paths from one immutable source snapshot. */
+    public ScanResult scan(GenerationAssetSnapshot snapshot, Set<String> installedPluginIds) {
+        java.util.Objects.requireNonNull(snapshot, "snapshot");
         List<PatchDefinition> definitions = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
         List<String> failures = new ArrayList<>();
         Map<DuplicateKey, PatchRoot> accepted = new HashMap<>();
-        List<PatchSource> orderedSources = sources.stream().filter(source -> !GENERATED_PACK_ID.equals(source.sourcePackId()))
+        List<PatchSource> orderedSources = snapshot.sources().stream().filter(source -> !GENERATED_PACK_ID.equals(source.sourcePackId()))
                 .sorted(Comparator.comparingInt(PatchSource::sourcePackLoadOrder)
                         .thenComparing(PatchSource::sourcePackId, Utf8Ordering.UNSIGNED_BYTES)).toList();
         for (PatchRoot root : PatchRoot.activeRoots(Set.copyOf(installedPluginIds))) {
             for (PatchSource source : orderedSources) {
-                scanRoot(source, root, definitions, accepted, skipped, failures);
+                scanRoot(snapshot, source, root, definitions, accepted, skipped, failures);
             }
         }
         return new ScanResult(definitions, skipped, failures);
     }
 
-    private void scanRoot(PatchSource source, PatchRoot root, List<PatchDefinition> definitions,
+    private void scanRoot(GenerationAssetSnapshot snapshot, PatchSource source, PatchRoot root,
+                          List<PatchDefinition> definitions,
                           Map<DuplicateKey, PatchRoot> accepted, List<String> skipped, List<String> failures) {
-        try {
-            for (String assetPath : sourceFiles(source, root.path())) {
-                processFile(source, root, assetPath, definitions, accepted, skipped, failures);
-            }
-        } catch (Exception exception) {
-            failures.add("Failed to scan " + source.sourcePackId() + ":" + root.path() + ": " + exception.getMessage());
+        for (String assetPath : snapshot.definitionPaths(root)) {
+            GenerationAssetSnapshot.AssetRecord asset = snapshot.require(assetPath);
+            if (!asset.sourcePackId().equals(source.sourcePackId())
+                    || asset.sourcePackLoadOrder() != source.sourcePackLoadOrder()) continue;
+            processFile(source, asset, root, assetPath, definitions, accepted, skipped, failures);
         }
     }
 
-    private void processFile(PatchSource source, PatchRoot root, String assetPath, List<PatchDefinition> definitions,
+    private void processFile(PatchSource source, GenerationAssetSnapshot.AssetRecord asset, PatchRoot root,
+                             String assetPath, List<PatchDefinition> definitions,
                              Map<DuplicateKey, PatchRoot> accepted, List<String> skipped, List<String> failures) {
         try {
-            var rootObject = PatchDefinitionReader.parse(reader.read(source, assetPath), source.sourcePackId(), assetPath, source.sourcePackLoadOrder());
+            byte[] bytes = useSnapshotBytes ? asset.bytes() : reader.read(source, assetPath);
+            var rootObject = PatchDefinitionReader.parse(bytes, source.sourcePackId(), assetPath, source.sourcePackLoadOrder());
             List<PatchDefinition> parsed = PatchDefinition.parseAll(
                             rootObject,
                             source.sourcePackId(),

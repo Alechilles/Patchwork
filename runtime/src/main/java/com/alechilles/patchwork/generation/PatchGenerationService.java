@@ -35,8 +35,8 @@ public final class PatchGenerationService {
         this(new PatchScanner(), new PatchTargetResolver(), new PatchEngine(Objects.requireNonNull(macros, "macros")));
     }
     PatchGenerationService(PatchScanner scanner, PatchTargetResolver targetResolver, PatchEngine patchEngine) {
-        this(request -> scanner.scan(request.sources(), request.installedIds()),
-                (request, target) -> targetResolver.resolveDetailed(request.sources(), target),
+        this(request -> scanner.scan(request.assetSnapshot(), request.installedIds()),
+                (request, target) -> resolveSnapshot(request.assetSnapshot(), target),
                 (definition, request, resolved) -> new PatchConditionEvaluator().evaluate(
                         request.conditionsByPatchId().getOrDefault(definition.id(), definition.condition()),
                         new PatchConditionEvaluator.EvaluationContext(request.installedIds(), request.versions(), request.serverVersion(), resolved.target(), resolved.bytes(), request.conditionResolver(), request.sources(), resolved.sourcePackId())),
@@ -58,9 +58,8 @@ public final class PatchGenerationService {
         List<String> skipped = new ArrayList<>(scan.skipped());
         for (Map.Entry<String, List<PatchDefinition>> group : targets.entrySet()) planTarget(request, group.getKey(), group.getValue(), entries, rejected, skipped);
         GeneratedPackManifest manifest = new GeneratedPackManifest(entries);
-        List<String> sourcePackIds = request.sources().stream().map(PatchSource::sourcePackId)
-                .filter(id -> !PatchScanner.GENERATED_PACK_ID.equals(id)).distinct().sorted(Utf8Ordering.UNSIGNED_BYTES).toList();
-        return new GenerationPlan(manifest.entries(), new PatchStatusSnapshot(skipped, rejected, scan.failures()), manifest, sourcePackIds);
+        return new GenerationPlan(manifest.entries(), new PatchStatusSnapshot(skipped, rejected, scan.failures()), manifest,
+                request.assetSnapshot().sourcePackIds());
     }
     private void planTarget(GenerationRequest request, String target, List<PatchDefinition> definitions, List<GeneratedPackManifest.Entry> entries, Map<String, String> rejected, List<String> skipped) {
         PatchTargetResolver.Resolution resolved = targetResolver.resolve(request, target);
@@ -86,14 +85,63 @@ public final class PatchGenerationService {
         return eligible;
     }
     private static String safeMessage(RuntimeException failure) { return failure.getMessage() == null ? "Patch application failed." : failure.getMessage(); }
+    private static PatchTargetResolver.Resolution resolveSnapshot(GenerationAssetSnapshot assets, String target) {
+        final String normalized;
+        try {
+            normalized = PatchScanner.normalizeAssetPath(target);
+        } catch (IllegalArgumentException unsafe) {
+            return new PatchTargetResolver.Resolution(PatchTargetResolver.Status.FAILED, null, "Unsafe asset path.");
+        }
+        return assets.find(normalized)
+                .map(record -> new PatchTargetResolver.Resolution(PatchTargetResolver.Status.FOUND,
+                        new PatchTargetResolver.ResolvedTarget(record.sourcePackId(), record.sourcePackLoadOrder(),
+                                record.path(), record.bytes()), ""))
+                .orElseGet(() -> new PatchTargetResolver.Resolution(PatchTargetResolver.Status.MISSING, null,
+                        "Asset source is missing."));
+    }
     @FunctionalInterface interface ScanStage { PatchScanner.ScanResult scan(GenerationRequest request); }
     @FunctionalInterface interface ResolveStage { PatchTargetResolver.Resolution resolve(GenerationRequest request, String target); }
     @FunctionalInterface interface EvaluateStage { PatchConditionEvaluator.Evaluation evaluate(PatchDefinition definition, GenerationRequest request, PatchTargetResolver.ResolvedTarget resolvedTarget); }
     @FunctionalInterface interface ApplyStage { PatchEngine.PatchResult apply(com.google.gson.JsonObject source, List<PatchDefinition> definitions); }
     /** Immutable generation inputs; the resolver/cache instance is deliberately shared for the entire pass. */
-    public record GenerationRequest(List<PatchSource> sources, Set<String> installedIds, Map<String, String> versions, String serverVersion, ConditionSourceResolver conditionResolver, Map<String, PatchCondition> conditionsByPatchId) {
-        public GenerationRequest(List<PatchSource> sources, Set<String> installedIds, Map<String, String> versions, String serverVersion, ConditionSourceResolver conditionResolver) { this(sources, installedIds, versions, serverVersion, conditionResolver, Map.of()); }
-        public GenerationRequest { sources = List.copyOf(sources); installedIds = Set.copyOf(installedIds); versions = Collections.unmodifiableMap(new LinkedHashMap<>(versions)); serverVersion = Objects.requireNonNull(serverVersion); conditionResolver = Objects.requireNonNull(conditionResolver); conditionsByPatchId = Collections.unmodifiableMap(new LinkedHashMap<>(conditionsByPatchId)); }
+    public record GenerationRequest(GenerationAssetSnapshot assetSnapshot, Set<String> installedIds, Map<String, String> versions,
+                                    String serverVersion, ConditionSourceResolver conditionResolver,
+                                    Map<String, PatchCondition> conditionsByPatchId) {
+        public GenerationRequest(GenerationAssetSnapshot assetSnapshot, Set<String> installedIds,
+                                 Map<String, String> versions, String serverVersion,
+                                 ConditionSourceResolver conditionResolver) {
+            this(assetSnapshot, installedIds, versions, serverVersion, conditionResolver, Map.of());
+        }
+
+        /** Compatibility constructor for callers that still provide live filesystem sources. */
+        public GenerationRequest(List<PatchSource> sources, Set<String> installedIds,
+                                 Map<String, String> versions, String serverVersion,
+                                 ConditionSourceResolver conditionResolver,
+                                 Map<String, PatchCondition> conditionsByPatchId) {
+            this(GenerationAssetSnapshot.capture(sources), installedIds, versions, serverVersion,
+                    conditionResolver, conditionsByPatchId);
+        }
+
+        /** Compatibility constructor for callers that still provide live filesystem sources. */
+        public GenerationRequest(List<PatchSource> sources, Set<String> installedIds,
+                                 Map<String, String> versions, String serverVersion,
+                                 ConditionSourceResolver conditionResolver) {
+            this(sources, installedIds, versions, serverVersion, conditionResolver, Map.of());
+        }
+
+        public GenerationRequest {
+            assetSnapshot = Objects.requireNonNull(assetSnapshot, "assetSnapshot");
+            installedIds = Set.copyOf(installedIds);
+            versions = Collections.unmodifiableMap(new LinkedHashMap<>(versions));
+            serverVersion = Objects.requireNonNull(serverVersion);
+            conditionResolver = Objects.requireNonNull(conditionResolver);
+            conditionsByPatchId = Collections.unmodifiableMap(new LinkedHashMap<>(conditionsByPatchId));
+        }
+
+        /** Compatibility view of the captured source descriptors. */
+        public List<PatchSource> sources() {
+            return assetSnapshot.sources();
+        }
     }
     /** Immutable publication payload and its single matching status snapshot. */
     public record GenerationPlan(List<GeneratedPackManifest.Entry> entries, PatchStatusSnapshot status, GeneratedPackManifest manifest, List<String> sourcePackIds) {

@@ -61,6 +61,31 @@ final class GenerationPlanFactoryTest {
         assertEquals(1, second.entries().size());
     }
 
+    @Test void capturesAssetsBeforeResolverConstructionCanObserveBackingFileChanges() throws Exception {
+        Path pack = Files.createDirectories(temporary.resolve("capture-order"));
+        Files.createDirectories(pack.resolve("Server/Patchwork/Patches"));
+        Files.createDirectories(pack.resolve("Server"));
+        Files.writeString(pack.resolve("Server/Target.json"), "{\"value\":1}");
+        Files.writeString(pack.resolve("Server/Patchwork/Patches/target.json"),
+                "{\"Id\":\"target\",\"Target\":\"Server/Target.json\",\"Operations\":[{\"Op\":\"Replace\",\"Path\":\"/value\",\"Value\":2}]}");
+        GenerationPlanFactory factory = new GenerationPlanFactory(new PatchMacroRegistry(), () ->
+                new HytaleRuntimeInputsSnapshotter.Inputs(List.of(PatchSource.directory("Test:Pack", 0, pack)),
+                        Set.of(), Map.of(), new ModDataRootRegistry(Map.of()), List.of("Test:Pack")),
+                () -> "1", ConditionDocumentCache::new, (roots, cache) -> {
+                    try {
+                        Files.writeString(pack.resolve("Server/Target.json"), "not json");
+                    } catch (Exception failure) {
+                        throw new AssertionError(failure);
+                    }
+                    return new ConditionSourceResolver(new PatchTargetResolver(), roots, cache);
+                });
+
+        var plan = factory.createPlan();
+
+        assertEquals(List.of("Server/Target.json"), plan.entries().stream()
+                .map(com.alechilles.patchwork.generation.GeneratedPackManifest.Entry::target).toList());
+    }
+
     @Test void eachAdmittedReloadInvokesTheFreshPlanFactory() {
         AtomicInteger snapshots = new AtomicInteger();
         AtomicInteger caches = new AtomicInteger();

@@ -58,6 +58,50 @@ final class PatchGenerationServiceTest {
     }
 
     @Test
+    void generationUsesCapturedDefinitionsAndTargetsAfterBackingFilesChange() throws Exception {
+        Path pack = Files.createDirectories(temporary.resolve("captured/Server/Patchwork/Patches"));
+        Path root = pack.getParent().getParent().getParent();
+        Files.writeString(root.resolve("Server/Target.json"), "{\"value\":1}");
+        Files.writeString(pack.resolve("target.json"), """
+                {"Id":"target","Target":"Server/Target.json","Operations":[{"Op":"Replace","Path":"/value","Value":2}]}
+                """);
+        PatchSource source = PatchSource.directory("Test:Pack", 0, root);
+        GenerationAssetSnapshot assets = GenerationAssetSnapshot.capture(List.of(source));
+        Files.writeString(root.resolve("Server/Target.json"), "not json");
+        Files.writeString(pack.resolve("target.json"), "not json");
+
+        ConditionSourceResolver resolver = resolver().withAssets(assets);
+        var plan = new PatchGenerationService().generate(new PatchGenerationService.GenerationRequest(
+                assets, Set.of(), Map.of(), "1", resolver));
+
+        assertEquals(List.of("Server/Target.json"), plan.entries().stream()
+                .map(GeneratedPackManifest.Entry::target).toList());
+        assertEquals("{\"value\":2}", new String(plan.entries().getFirst().bytes()));
+    }
+
+    @Test
+    void assetConditionsUseTheSameCapturedSnapshotAsTargets() throws Exception {
+        Path patches = Files.createDirectories(temporary.resolve("asset-condition/Server/Patchwork/Patches"));
+        Path root = patches.getParent().getParent().getParent();
+        Files.writeString(root.resolve("Server/Target.json"), "{\"value\":1}");
+        Files.writeString(root.resolve("Server/Condition.json"), "{\"enabled\":true}");
+        Files.writeString(patches.resolve("condition.json"), """
+                {"Id":"condition","Target":"Server/Target.json","Operations":[{"Op":"Replace","Path":"/value","Value":2}]}
+                """);
+        PatchSource source = PatchSource.directory("Test:Pack", 0, root);
+        GenerationAssetSnapshot assets = GenerationAssetSnapshot.capture(List.of(source));
+        Files.writeString(root.resolve("Server/Condition.json"), "{\"enabled\":false}");
+        PatchCondition condition = new PatchCondition.JsonPathEquals(
+                new ConditionSource.Asset("Server/Condition.json"), "/enabled", JsonParser.parseString("true"));
+
+        var plan = new PatchGenerationService().generate(new PatchGenerationService.GenerationRequest(
+                assets, Set.of(), Map.of(), "1", resolver().withAssets(assets), Map.of("condition", condition)));
+
+        assertEquals(List.of("Server/Target.json"), plan.entries().stream()
+                .map(GeneratedPackManifest.Entry::target).toList());
+    }
+
+    @Test
     void omitsTargetWhenAllDefinitionsAreNonApplicable() throws Exception {
         Path pack = Files.createDirectories(temporary.resolve("nonapplicable"));
         Files.createDirectories(pack.resolve("Server/Patchwork/Patches"));

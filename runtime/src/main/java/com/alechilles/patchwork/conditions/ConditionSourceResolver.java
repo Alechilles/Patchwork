@@ -3,6 +3,7 @@ package com.alechilles.patchwork.conditions;
 import com.alechilles.patchwork.discovery.PatchSource;
 import com.alechilles.patchwork.discovery.PatchScanner;
 import com.alechilles.patchwork.discovery.PatchTargetResolver;
+import com.alechilles.patchwork.generation.GenerationAssetSnapshot;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import java.nio.charset.StandardCharsets;
@@ -15,9 +16,26 @@ public final class ConditionSourceResolver {
     private final PatchTargetResolver targetResolver;
     private final ModDataRootRegistry modDataRoots;
     private final ConditionDocumentCache cache;
+    private final GenerationAssetSnapshot assets;
     private final AtomicBoolean claimed = new AtomicBoolean();
     /** Creates a resolver for exactly one generation pass. */
-    public ConditionSourceResolver(PatchTargetResolver targetResolver, ModDataRootRegistry modDataRoots, ConditionDocumentCache cache) { this.targetResolver = Objects.requireNonNull(targetResolver); this.modDataRoots = Objects.requireNonNull(modDataRoots); this.cache = Objects.requireNonNull(cache); }
+    public ConditionSourceResolver(PatchTargetResolver targetResolver, ModDataRootRegistry modDataRoots, ConditionDocumentCache cache) {
+        this(targetResolver, modDataRoots, cache, null);
+    }
+
+    private ConditionSourceResolver(PatchTargetResolver targetResolver, ModDataRootRegistry modDataRoots,
+                                    ConditionDocumentCache cache, GenerationAssetSnapshot assets) {
+        this.targetResolver = Objects.requireNonNull(targetResolver);
+        this.modDataRoots = Objects.requireNonNull(modDataRoots);
+        this.cache = Objects.requireNonNull(cache);
+        this.assets = assets;
+    }
+
+    /** Returns a resolver whose asset reads come from one immutable generation snapshot. */
+    public ConditionSourceResolver withAssets(GenerationAssetSnapshot assets) {
+        return new ConditionSourceResolver(targetResolver, modDataRoots, cache,
+                Objects.requireNonNull(assets, "assets"));
+    }
     /** Resolves target bytes, game assets, or ModData with first-snapshot cache semantics. */
     public Result resolve(ConditionSource source, String targetPath, byte[] targetBytes, List<PatchSource> sources) {
         final ConditionDocumentCache.SourceKey key;
@@ -33,11 +51,24 @@ public final class ConditionSourceResolver {
         if (!claimed.compareAndSet(false, true)) throw new IllegalStateException("ConditionSourceResolver is single-use; create a fresh resolver/cache for each generation pass.");
     }
     /** Checks an asset without parsing it as JSON. */
-    public PatchTargetResolver.Resolution assetResolution(List<PatchSource> sources, String path) { return targetResolver.resolveDetailed(sources, path); }
+    public PatchTargetResolver.Resolution assetResolution(List<PatchSource> sources, String path) {
+        if (assets == null) return targetResolver.resolveDetailed(sources, path);
+        try {
+            return assets.find(path)
+                    .map(record -> new PatchTargetResolver.Resolution(PatchTargetResolver.Status.FOUND,
+                            new PatchTargetResolver.ResolvedTarget(record.sourcePackId(), record.sourcePackLoadOrder(),
+                                    record.path(), record.bytes()), ""))
+                    .orElseGet(() -> new PatchTargetResolver.Resolution(PatchTargetResolver.Status.MISSING, null,
+                            "Asset source is missing."));
+        } catch (IllegalArgumentException unsafe) {
+            return new PatchTargetResolver.Resolution(PatchTargetResolver.Status.FAILED, null,
+                    "Unsafe asset path.");
+        }
+    }
     private ConditionDocumentCache.Snapshot read(ConditionSource source, String target, byte[] bytes, List<PatchSource> sources) {
         if (source instanceof ConditionSource.Target) return parse(bytes, "Target document is missing.", "Target JSON is malformed.");
         if (source instanceof ConditionSource.Asset asset) {
-            var found = targetResolver.resolveDetailed(sources, asset.path());
+            var found = assetResolution(sources, asset.path());
             return switch (found.status()) { case FOUND -> parse(found.resolvedTarget().bytes(), "", "Asset JSON is malformed: " + asset.path()); case MISSING -> missing("Asset source is missing: " + asset.path()); case FAILED -> failed(found.diagnostic()); };
         }
         ConditionSource.ModData mod = (ConditionSource.ModData) source;
