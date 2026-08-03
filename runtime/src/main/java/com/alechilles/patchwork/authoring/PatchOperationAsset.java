@@ -81,7 +81,7 @@ final class PatchOperationAsset {
             .documentKey(Position.Before, "Place the entry immediately before the first entry matching Find. Find is required.")
             .documentKey(Position.After, "Place the entry immediately after the first entry matching Find. Find is required.");
     private static final EnumCodec<MatchPolicy> MATCH_POLICY_CODEC = new EnumCodec<>(MatchPolicy.class)
-            .documentKey(MatchPolicy.ExactlyOne, "Require exactly one matching entry; zero or multiple matches fail. This is the default.")
+            .documentKey(MatchPolicy.ExactlyOne, "Require exactly one matching entry; zero or multiple matches fail for merge, replace, remove, and move operations. UpsertMatching inserts one Value object when zero entries match. This is the default.")
             .documentKey(MatchPolicy.First, "Use only the first matching array entry.")
             .documentKey(MatchPolicy.Last, "Use only the last matching array entry.")
             .documentKey(MatchPolicy.All, "Use every matching array entry.");
@@ -119,7 +119,7 @@ final class PatchOperationAsset {
             .add()
             .append(new KeyedCodec<>("MatchPolicy", MATCH_POLICY_CODEC),
                     (operation, value) -> operation.matchPolicy = value, operation -> operation.matchPolicy)
-            .documentation("How ReplaceMatching, RemoveMatching, MergeMatching, or UpsertMatching chooses among matches. Defaults to ExactlyOne. MoveMatching always requires exactly one match.")
+            .documentation("How ReplaceMatching, RemoveMatching, MergeMatching, or UpsertMatching chooses among matches. Defaults to ExactlyOne; UpsertMatching inserts one Value object on zero matches regardless of policy. MoveMatching always requires exactly one match.")
             .add()
             .append(new KeyedCodec<>("Find", PatchMatcherCodec.INSTANCE),
                     (operation, value) -> operation.find = value, operation -> operation.find)

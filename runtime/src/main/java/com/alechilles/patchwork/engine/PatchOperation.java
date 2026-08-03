@@ -294,15 +294,15 @@ public final class PatchOperation {
             validateInsert(operation, patchId, index);
             return;
         }
-        if ("UpsertMatching".equals(op)) {
-            validateRelativePosition(operation, patchId, index, "UpsertMatching");
-            return;
-        }
         if (operation.has("MatchPolicy")) {
             String policy = strictString(operation, "MatchPolicy", patchId + " operation " + index);
             if (!Set.of("exactlyone", "first", "last", "all").contains(policy.toLowerCase(Locale.ROOT))) {
                 throw structural(patchId, index, "MatchPolicy must be ExactlyOne, First, Last, or All.");
             }
+        }
+        if ("UpsertMatching".equals(op)) {
+            validateRelativePosition(operation, patchId, index, "UpsertMatching");
+            return;
         }
         if ("MoveMatching".equals(op)) {
             validateRelativePosition(operation, patchId, index, "MoveMatching");

@@ -1,0 +1,13 @@
+{
+  "Id": "invalid-upsert-policy",
+  "Target": "Server/Test/Rows.json",
+  "Operations": [
+    {
+      "Op": "UpsertMatching",
+      "Path": "/Rows",
+      "Match": { "Id": "missing" },
+      "MatchPolicy": "Bogus",
+      "Value": { "Id": "missing" }
+    }
+  ]
+}

@@ -36,6 +36,8 @@ final class PatchNeutralSchemaTest {
     void rejectsUnknownRootFieldsAndOperationNames() {
         assertInvalid(readResource("authoring-kit/neutral/invalid/unknown-root-field.json"), "unknown-root");
         assertInvalid(readResource("authoring-kit/neutral/invalid/unknown-operation.json"), "unknown-operation");
+        assertInvalid(readResource("authoring-kit/neutral/invalid/upsert-invalid-match-policy.json"),
+                "upsert-invalid-match-policy");
     }
 
     @Test
