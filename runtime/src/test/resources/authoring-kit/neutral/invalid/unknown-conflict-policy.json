@@ -1,0 +1,6 @@
+{
+  "Id": "unknown-conflict-policy",
+  "Target": "Server/Test/Conflict.json",
+  "ConflictPolicy": "IgnoreEverything",
+  "Operations": []
+}

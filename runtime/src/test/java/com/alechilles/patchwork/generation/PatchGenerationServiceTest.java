@@ -18,18 +18,49 @@ import com.alechilles.patchwork.discovery.PatchTargetResolver;
 import com.alechilles.patchwork.engine.PatchDefinition;
 import com.alechilles.patchwork.engine.PatchEngine;
 import com.alechilles.patchwork.conditions.PatchConditionEvaluator;
+import com.alechilles.patchwork.conflict.ConflictPolicy;
+import com.alechilles.patchwork.format.PatchLanguage;
 import com.google.gson.JsonParser;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /** Tests pure generation planning and target isolation. */
 final class PatchGenerationServiceTest {
     @TempDir Path temporary;
+
+    @Test
+    void rejectStopsOnlyAffectedTargetAndDoesNotApplyLaterDefinitions() {
+        PatchDefinition reporter = neutralDefinition("first", "Server/Conflict.json", "/value", 2, ConflictPolicy.REPORT);
+        PatchDefinition rejecter = neutralDefinition("reject", "Server/Conflict.json", "/value", 3, ConflictPolicy.REJECT);
+        PatchDefinition later = neutralDefinition("z-later", "Server/Conflict.json", "/later", 4, ConflictPolicy.REPORT);
+        PatchDefinition unrelated = neutralDefinition("unrelated", "Server/Unrelated.json", "/value", 5, ConflictPolicy.REPORT);
+        AtomicInteger applied = new AtomicInteger();
+        PatchEngine engine = new PatchEngine();
+        PatchGenerationService service = new PatchGenerationService(
+                request -> new PatchScanner.ScanResult(List.of(reporter, rejecter, later, unrelated), List.of(), List.of()),
+                (request, target) -> new PatchTargetResolver.Resolution(PatchTargetResolver.Status.FOUND,
+                        new PatchTargetResolver.ResolvedTarget("Pack:Base", 0, target, "{\"value\":1}".getBytes()), ""),
+                (definition, request, resolved) -> new PatchConditionEvaluator.Evaluation(PatchConditionEvaluator.Status.MATCHED, ""),
+                engine::apply,
+                (source, definition, context, order) -> {
+                    applied.incrementAndGet();
+                    return engine.applyDefinition(source, definition, context, order);
+                });
+
+        PatchGenerationService.GenerationPlan plan = service.generate(request());
+
+        assertTrue(plan.status().rejectedTargets().containsKey("Server/Conflict.json"));
+        assertFalse(plan.entries().stream().anyMatch(entry -> entry.target().equals("Server/Conflict.json")));
+        assertTrue(plan.entries().stream().anyMatch(entry -> entry.target().equals("Server/Unrelated.json")));
+        assertEquals(3, applied.get(), "later definition must not run after Reject");
+        assertEquals(1, plan.conflicts().materialCount());
+    }
 
     @Test
     void plansSuccessfulTargetsDeterministicallyAndRejectsOnlyFailedTarget() throws Exception {
@@ -408,6 +439,13 @@ final class PatchGenerationServiceTest {
 
     private static PatchDefinition definition(String id, String target, String path) {
         return PatchDefinition.parse(JsonParser.parseString("{\"Id\":\"" + id + "\",\"Target\":\"" + target + "\",\"Operations\":[{\"Op\":\"Replace\",\"Path\":\"" + path + "\",\"Value\":2}]}" ).getAsJsonObject(), "test", id + ".json");
+    }
+
+    private static PatchDefinition neutralDefinition(String id, String target, String path, int value, ConflictPolicy policy) {
+        String json = "{\"Id\":\"" + id + "\",\"Target\":\"" + target + "\",\"ConflictPolicy\":\""
+                + policy.name().charAt(0) + policy.name().substring(1).toLowerCase() + "\",\"Operations\":[{\"Op\":\"Replace\",\"Path\":\""
+                + path + "\",\"Value\":" + value + "}]}";
+        return PatchDefinition.parseAll(JsonParser.parseString(json).getAsJsonObject(), "test", id + ".json", 0, PatchLanguage.NEUTRAL).getFirst();
     }
 
     private PatchGenerationService.GenerationRequest request() {

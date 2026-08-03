@@ -12,6 +12,7 @@ public final class PatchworkCommandRoot extends AbstractCommandCollection {
         requirePermission(permission); setPermissionGroups(defaultGroup);
         addSubCommand(new PatchworkStatusCommand(actions));
         addSubCommand(new PatchworkReloadCommand(actions));
+        addSubCommand(new PatchworkConflictsCommand(actions));
         addSubCommand(new PatchworkSelfTestCommand(actions));
     }
 }

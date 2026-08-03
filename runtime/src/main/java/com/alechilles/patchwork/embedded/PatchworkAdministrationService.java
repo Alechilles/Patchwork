@@ -4,6 +4,8 @@ import com.alechilles.patchwork.command.PatchworkCommandActions;
 import com.alechilles.patchwork.coordinator.PatchworkCoordinatorRegistry;
 import com.alechilles.patchwork.generation.PatchGenerationService;
 import com.alechilles.patchwork.generation.PatchStatusSnapshot;
+import com.alechilles.patchwork.conflict.ConflictRecord;
+import com.alechilles.patchwork.conflict.ConflictReport;
 import com.alechilles.patchwork.generation.StartupPackPublisher;
 import com.alechilles.patchwork.reload.PatchReloadCoordinator;
 import com.alechilles.patchwork.selftest.PatchworkSelfTestPack;
@@ -40,6 +42,7 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     private PatchReloadCoordinator.ReloadOutcome lastReload;
     private long generationEpoch;
     private PatchStatusSnapshot generationStatus = new PatchStatusSnapshot(List.of(), Map.of(), List.of());
+    private ConflictReport conflictReport = ConflictReport.empty();
     private String neutralRoot = "unavailable";
     private List<String> legacyRoots = List.of();
 
@@ -64,6 +67,7 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
             epoch = value; active = true; paused = false;
             inventory = Map.of(); inventoryKnown = false; lastReload = null;
             generationEpoch = 0; generationStatus = new PatchStatusSnapshot(List.of(), Map.of(), List.of());
+            conflictReport = ConflictReport.empty();
         }
     }
 
@@ -75,7 +79,7 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     /** Records a published startup plan and its status at the elected ownership epoch. */
     void seedStartup(long publishedEpoch, PatchGenerationService.GenerationPlan plan) {
         Map<String, byte[]> published = inventory(Objects.requireNonNull(plan, "plan"));
-        synchronized (gate) { if (active && epoch == publishedEpoch) { inventory = published; inventoryKnown = true; generationEpoch = publishedEpoch; generationStatus = plan.status(); } }
+        synchronized (gate) { if (active && epoch == publishedEpoch) { inventory = published; inventoryKnown = true; generationEpoch = publishedEpoch; generationStatus = status(plan); conflictReport = plan.conflicts(); } }
     }
 
     void seedPublishedInventory(PatchGenerationService.GenerationPlan plan, long publishedEpoch) { seedStartup(publishedEpoch, plan); }
@@ -120,6 +124,12 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
         return CompletableFuture.completedFuture(snapshot.render());
     }
 
+    @Override public CompletionStage<List<String>> conflicts(String target) {
+        ConflictReport snapshot;
+        synchronized (gate) { snapshot = conflictReport; }
+        return CompletableFuture.completedFuture(renderConflicts(snapshot, target));
+    }
+
     @Override public CompletionStage<List<String>> reload() {
         long admittedEpoch = admit();
         if (admittedEpoch < 0) return CompletableFuture.completedFuture(List.of("Patchwork reload was not started: runtime is inactive or busy."));
@@ -129,11 +139,12 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
                 Map<String, byte[]> prior = snapshotOrFail();
                 if (!stillActive(admittedEpoch)) throw new IllegalStateException("Patchwork reload was fenced.");
                 PatchGenerationService.GenerationPlan plan = generation.get();
-                Map<String, byte[]> next = inventory(plan);
+                Map<String, byte[]> next = inventory(plan, prior);
                 synchronized (gate) {
                     if (!active || epoch != admittedEpoch) throw new IllegalStateException("Patchwork reload was fenced.");
                     generationEpoch = admittedEpoch;
-                    generationStatus = plan.status();
+                    generationStatus = status(plan);
+                    conflictReport = plan.conflicts();
                 }
                 List<PatchReloadCoordinator.TargetUpdate> updates = updates(prior, next);
                 if (!stillActive(admittedEpoch)) throw new IllegalStateException("Patchwork reload was fenced.");
@@ -182,6 +193,19 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
         plan.entries().stream().sorted(Comparator.comparing(entry -> entry.target())).forEach(entry -> next.put(entry.target(), entry.bytes()));
         return Map.copyOf(next);
     }
+    private static PatchStatusSnapshot status(PatchGenerationService.GenerationPlan plan) {
+        PatchStatusSnapshot status = plan.status();
+        if (status.conflicts() == plan.conflicts() || status.conflicts().records().equals(plan.conflicts().records())) return status;
+        return new PatchStatusSnapshot(status.skipped(), status.rejectedTargets(), status.scanFailures(), plan.conflicts());
+    }
+    private static Map<String, byte[]> inventory(PatchGenerationService.GenerationPlan plan, Map<String, byte[]> prior) {
+        Map<String, byte[]> next = new LinkedHashMap<>(inventory(plan));
+        plan.status().rejectedTargets().keySet().forEach(target -> {
+            byte[] bytes = prior.get(target);
+            if (bytes != null) next.put(target, bytes.clone());
+        });
+        return Map.copyOf(next);
+    }
     private static List<PatchReloadCoordinator.TargetUpdate> updates(Map<String, byte[]> old, Map<String, byte[]> next) {
         return java.util.stream.Stream.concat(old.keySet().stream(), next.keySet().stream()).distinct().sorted()
                 .filter(target -> !java.util.Arrays.equals(old.get(target), next.get(target)))
@@ -204,6 +228,27 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
         if (!result.completed() && result.caseOutcomes().isEmpty()) lines.add("Fixtures: none completed");
         lines.add("Cleanup: " + (result.cleanupSucceeded() ? "complete" : "incomplete"));
         return List.copyOf(lines);
+    }
+
+    private static List<String> renderConflicts(ConflictReport report, String target) {
+        List<ConflictRecord> rows = report.forTarget(target);
+        List<String> lines = new ArrayList<>();
+        lines.add("Conflicts: " + report.materialCount() + " material, " + report.redundantCount() + " redundant");
+        if (target != null) lines.add("Target filter: " + target + " (" + rows.size() + " row(s))");
+        rows.stream().limit(PatchworkAdministrationSnapshot.MAX_DETAIL_ROWS).forEach(row -> lines.add(formatConflict(row)));
+        if (rows.size() > PatchworkAdministrationSnapshot.MAX_DETAIL_ROWS) {
+            lines.add("Additional conflict rows: " + (rows.size() - PatchworkAdministrationSnapshot.MAX_DETAIL_ROWS));
+        }
+        return List.copyOf(lines);
+    }
+
+    private static String formatConflict(ConflictRecord row) {
+        ConflictRecord.EffectRef earlier = row.earlier();
+        ConflictRecord.EffectRef later = row.later();
+        return row.target() + " " + row.path() + " (" + row.effectKind().name().toLowerCase().replace('_', '-')
+                + ", " + row.scope().name().toLowerCase().replace('_', '-') + ", " + row.classification().name().toLowerCase().replace('_', '-')
+                + ") earlier " + earlier.sourcePackId() + ":" + earlier.patchId() + ":" + earlier.operationId() + "@" + earlier.operationOrder()
+                + ", later " + later.sourcePackId() + ":" + later.patchId() + ":" + later.operationId() + "@" + later.operationOrder();
     }
     private static String selfTestCaseLabel(String target) {
         String name = target.substring(target.lastIndexOf('/') + 1);

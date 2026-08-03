@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.stream.Stream;
 
 import com.alechilles.patchwork.conditions.PatchCondition;
+import com.alechilles.patchwork.conflict.ConflictPolicy;
 import com.alechilles.patchwork.format.PatchDefinitionReader;
 import com.alechilles.patchwork.format.PatchLanguage;
 import com.alechilles.patchwork.format.Utf8Ordering;
@@ -24,6 +25,38 @@ import org.junit.jupiter.api.Test;
 
 /** Tests parsing and deterministic ordering of patch definitions. */
 final class PatchDefinitionTest {
+
+    @Test
+    void neutralConflictPolicyDefaultsToReportAndAcceptsCaseInsensitiveChoices() {
+        PatchDefinition defaultPolicy = parseNeutral(object("""
+                {"Id":"default","Target":"Server/A.json","Operations":[]}
+                """));
+        PatchDefinition allowed = parseNeutral(object("""
+                {"Id":"allowed","Target":"Server/A.json","ConflictPolicy":"aLLoW","Operations":[]}
+                """));
+        PatchDefinition rejected = parseNeutral(object("""
+                {"Id":"rejected","Target":"Server/A.json","ConflictPolicy":"Reject","Operations":[]}
+                """));
+
+        assertEquals(ConflictPolicy.REPORT, defaultPolicy.conflictPolicy());
+        assertEquals(ConflictPolicy.ALLOW, allowed.conflictPolicy());
+        assertEquals(ConflictPolicy.REJECT, rejected.conflictPolicy());
+        assertThrows(IllegalArgumentException.class, () -> parseNeutral(object("""
+                {"Id":"unknown","Target":"Server/A.json","ConflictPolicy":"IgnoreEverything","Operations":[]}
+                """)));
+    }
+
+    @Test
+    void explicitFormatDefinitionsDoNotAcceptNeutralConflictPolicy() {
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parse(object("""
+                {"FormatVersion":2,"Id":"v2","Target":"Server/A.json","ConflictPolicy":"Reject",
+                 "Operations":[{"Op":"RequireFormat","Version":2}]}
+                """), "pack", "v2.json"));
+    }
+
+    private static PatchDefinition parseNeutral(JsonObject root) {
+        return PatchDefinition.parseAll(root, "pack", "neutral.json", 0, PatchLanguage.NEUTRAL).getFirst();
+    }
 
     @Test
     void parsesMultipleTargetsAndSortsByPriorityIdThenSourcePackLoadOrder() {

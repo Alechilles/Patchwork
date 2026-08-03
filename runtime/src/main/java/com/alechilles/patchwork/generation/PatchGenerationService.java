@@ -3,6 +3,9 @@ package com.alechilles.patchwork.generation;
 import com.alechilles.patchwork.conditions.ConditionSourceResolver;
 import com.alechilles.patchwork.conditions.PatchCondition;
 import com.alechilles.patchwork.conditions.PatchConditionEvaluator;
+import com.alechilles.patchwork.conflict.ConflictAnalyzer;
+import com.alechilles.patchwork.conflict.ConflictRecord;
+import com.alechilles.patchwork.conflict.ConflictReport;
 import com.alechilles.patchwork.discovery.PatchScanner;
 import com.alechilles.patchwork.discovery.PatchSource;
 import com.alechilles.patchwork.discovery.PatchTargetResolver;
@@ -12,7 +15,9 @@ import com.alechilles.patchwork.discovery.PatchRoot;
 import com.alechilles.patchwork.engine.PatchDefinition;
 import com.alechilles.patchwork.engine.PatchEngine;
 import com.alechilles.patchwork.engine.PatchMacroRegistry;
+import com.alechilles.patchwork.engine.MutationEffect;
 import com.alechilles.patchwork.format.Utf8Ordering;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -31,7 +36,9 @@ public final class PatchGenerationService {
     private final ResolveStage targetResolver;
     private final EvaluateStage conditionEvaluator;
     private final ApplyStage patchEngine;
+    private final DefinitionApplyStage definitionApply;
     private final PatchTargetExpander targetExpander;
+    private final ConflictAnalyzer conflictAnalyzer;
     /** Creates a service with production discovery, resolution, and JSON application collaborators. */
     public PatchGenerationService() {
         this(new PatchScanner(), new PatchTargetResolver(), new PatchEngine());
@@ -46,12 +53,27 @@ public final class PatchGenerationService {
                 (definition, request, resolved) -> new PatchConditionEvaluator().evaluate(
                         request.conditionsByPatchId().getOrDefault(definition.id(), definition.condition()),
                         new PatchConditionEvaluator.EvaluationContext(request.installedIds(), request.versions(), request.serverVersion(), resolved.target(), resolved.bytes(), request.conditionResolver(), request.sources(), resolved.sourcePackId())),
-                patchEngine::apply);
+                patchEngine::apply,
+                patchEngine::applyDefinition);
+    }
+    PatchGenerationService(ScanStage scanner, ResolveStage targetResolver, EvaluateStage conditionEvaluator,
+                           ApplyStage patchEngine, DefinitionApplyStage definitionApply) {
+        this.scanner = Objects.requireNonNull(scanner); this.targetResolver = Objects.requireNonNull(targetResolver);
+        this.conditionEvaluator = Objects.requireNonNull(conditionEvaluator); this.patchEngine = Objects.requireNonNull(patchEngine);
+        this.definitionApply = Objects.requireNonNull(definitionApply, "definitionApply");
+        this.targetExpander = new PatchTargetExpander();
+        this.conflictAnalyzer = new ConflictAnalyzer();
     }
     PatchGenerationService(ScanStage scanner, ResolveStage targetResolver, EvaluateStage conditionEvaluator, ApplyStage patchEngine) {
         this.scanner = Objects.requireNonNull(scanner); this.targetResolver = Objects.requireNonNull(targetResolver);
         this.conditionEvaluator = Objects.requireNonNull(conditionEvaluator); this.patchEngine = Objects.requireNonNull(patchEngine);
         this.targetExpander = new PatchTargetExpander();
+        this.definitionApply = (source, definition, context, firstOperationOrder) -> {
+            PatchEngine.PatchResult result = patchEngine.apply(source, List.of(definition), context);
+            long nextOrder = firstOperationOrder + definition.operations().size();
+            return new PatchEngine.DefinitionResult(result.patched(), result.applied(), result.skipped(), result.effects(), nextOrder);
+        };
+        this.conflictAnalyzer = new ConflictAnalyzer();
     }
     /** Scans and applies definitions into a pure, deterministic plan; a rejected target never blocks unrelated targets. */
     public GenerationPlan generate(GenerationRequest request) {
@@ -89,12 +111,19 @@ public final class PatchGenerationService {
         }
         List<GeneratedPackManifest.Entry> entries = new ArrayList<>();
         Map<String, String> rejected = new LinkedHashMap<>();
-        for (Map.Entry<String, List<PatchDefinition>> group : targets.entrySet()) planTarget(request, group.getKey(), group.getValue(), entries, rejected, skipped);
+        List<ConflictRecord> conflictRecords = new ArrayList<>();
+        for (Map.Entry<String, List<PatchDefinition>> group : targets.entrySet()) {
+            planTarget(request, group.getKey(), group.getValue(), entries, rejected, skipped, conflictRecords);
+        }
         GeneratedPackManifest manifest = new GeneratedPackManifest(entries);
-        return new GenerationPlan(manifest.entries(), new PatchStatusSnapshot(skipped, rejected, scan.failures()), manifest,
-                request.assetSnapshot().sourcePackIds(), dependencyBuilder.build());
+        ConflictReport conflicts = new ConflictReport(conflictRecords);
+        PatchStatusSnapshot status = new PatchStatusSnapshot(skipped, rejected, scan.failures(), conflicts);
+        return new GenerationPlan(manifest.entries(), status, manifest,
+                request.assetSnapshot().sourcePackIds(), dependencyBuilder.build(), conflicts);
     }
-    private void planTarget(GenerationRequest request, String target, List<PatchDefinition> definitions, List<GeneratedPackManifest.Entry> entries, Map<String, String> rejected, List<String> skipped) {
+    private void planTarget(GenerationRequest request, String target, List<PatchDefinition> definitions,
+                            List<GeneratedPackManifest.Entry> entries, Map<String, String> rejected, List<String> skipped,
+                            List<ConflictRecord> conflictRecords) {
         PatchTargetResolver.Resolution resolved = targetResolver.resolve(request, target);
         if (resolved.status() != PatchTargetResolver.Status.FOUND) { rejected.put(target, resolved.diagnostic()); return; }
         try {
@@ -103,10 +132,28 @@ public final class PatchGenerationService {
             if (!parsed.isJsonObject()) throw new IllegalArgumentException("Target JSON must be an object.");
             List<PatchDefinition> eligible = eligibleDefinitions(request, resolvedTarget, definitions, skipped);
             if (eligible.isEmpty()) return;
-            PatchEngine.PatchResult result = patchEngine.apply(parsed.getAsJsonObject(), eligible,
-                    new PatchEngine.ApplicationContext(target, request.assetSnapshot()));
-            skipped.addAll(result.skipped());
-            entries.add(new GeneratedPackManifest.Entry(target, result.patched().toString().getBytes(StandardCharsets.UTF_8)));
+            JsonObject working = parsed.getAsJsonObject().deepCopy();
+            List<MutationEffect> acceptedEffects = List.of();
+            List<ConflictRecord> targetConflicts = new ArrayList<>();
+            long operationOrder = 0;
+            PatchEngine.ApplicationContext context = new PatchEngine.ApplicationContext(target, request.assetSnapshot());
+            for (PatchDefinition definition : eligible.stream().sorted(PatchDefinition.ORDERING).toList()) {
+                PatchEngine.DefinitionResult candidate = definitionApply.apply(working, definition, context, operationOrder);
+                ConflictAnalyzer.Analysis analysis = conflictAnalyzer.analyze(
+                        acceptedEffects, candidate.effects(), definition.conflictPolicy());
+                targetConflicts.addAll(analysis.conflicts());
+                skipped.addAll(candidate.skipped());
+                if (analysis.rejected()) {
+                    conflictRecords.addAll(targetConflicts);
+                    rejected.put(target, "Conflict rejected by patch '" + definition.id() + "' (target-local).");
+                    return;
+                }
+                working = candidate.patched();
+                acceptedEffects = analysis.acceptedEffects();
+                operationOrder = candidate.nextOperationOrder();
+            }
+            conflictRecords.addAll(targetConflicts);
+            entries.add(new GeneratedPackManifest.Entry(target, working.toString().getBytes(StandardCharsets.UTF_8)));
         } catch (RuntimeException failure) { rejected.put(target, safeMessage(failure)); }
     }
     private List<PatchDefinition> eligibleDefinitions(GenerationRequest request, PatchTargetResolver.ResolvedTarget resolvedTarget, List<PatchDefinition> definitions, List<String> skipped) {
@@ -144,6 +191,10 @@ public final class PatchGenerationService {
     @FunctionalInterface interface ApplyStage {
         PatchEngine.PatchResult apply(com.google.gson.JsonObject source, List<PatchDefinition> definitions,
                                       PatchEngine.ApplicationContext context);
+    }
+    @FunctionalInterface interface DefinitionApplyStage {
+        PatchEngine.DefinitionResult apply(com.google.gson.JsonObject source, PatchDefinition definition,
+                                           PatchEngine.ApplicationContext context, long firstOperationOrder);
     }
     /** Immutable generation inputs; the resolver/cache instance is deliberately shared for the entire pass. */
     public record GenerationRequest(GenerationAssetSnapshot assetSnapshot, Set<String> installedIds, Map<String, String> versions,
@@ -191,26 +242,32 @@ public final class PatchGenerationService {
             PatchStatusSnapshot status,
             GeneratedPackManifest manifest,
             List<String> sourcePackIds,
-            GenerationDependencyIndex dependencies) {
+            GenerationDependencyIndex dependencies,
+            ConflictReport conflicts) {
         public GenerationPlan(List<GeneratedPackManifest.Entry> entries, PatchStatusSnapshot status, GeneratedPackManifest manifest) {
-            this(entries, status, manifest, List.of(), GenerationDependencyIndex.empty());
+            this(entries, status, manifest, List.of(), GenerationDependencyIndex.empty(), ConflictReport.empty());
         }
         public GenerationPlan(List<GeneratedPackManifest.Entry> entries, PatchStatusSnapshot status,
                               GeneratedPackManifest manifest, List<String> sourcePackIds) {
-            this(entries, status, manifest, sourcePackIds, GenerationDependencyIndex.empty());
+            this(entries, status, manifest, sourcePackIds, GenerationDependencyIndex.empty(), ConflictReport.empty());
         }
         public GenerationPlan(List<GeneratedPackManifest.Entry> entries, PatchStatusSnapshot status,
                               GeneratedPackManifest manifest, GenerationDependencyIndex dependencies) {
-            this(entries, status, manifest, List.of(), dependencies);
+            this(entries, status, manifest, List.of(), dependencies, ConflictReport.empty());
         }
         public GenerationPlan(List<GeneratedPackManifest.Entry> entries, PatchStatusSnapshot status,
                               GeneratedPackManifest manifest, GenerationDependencyIndex dependencies,
                               List<String> sourcePackIds) {
-            this(entries, status, manifest, sourcePackIds, dependencies);
+            this(entries, status, manifest, sourcePackIds, dependencies, ConflictReport.empty());
+        }
+        public GenerationPlan(List<GeneratedPackManifest.Entry> entries, PatchStatusSnapshot status,
+                              GeneratedPackManifest manifest, ConflictReport conflicts) {
+            this(entries, status, manifest, List.of(), GenerationDependencyIndex.empty(), conflicts);
         }
         public GenerationPlan {
             manifest = Objects.requireNonNull(manifest); status = Objects.requireNonNull(status);
             dependencies = Objects.requireNonNull(dependencies, "dependencies");
+            conflicts = conflicts == null ? ConflictReport.empty() : conflicts;
             GeneratedPackManifest canonical = new GeneratedPackManifest(entries);
             if (!sameEntries(canonical.entries(), manifest.entries())) throw new IllegalArgumentException("Plan entries must match the manifest.");
             entries = canonical.entries();

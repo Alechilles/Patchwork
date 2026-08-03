@@ -2,6 +2,7 @@ package com.alechilles.patchwork.engine;
 
 import com.alechilles.patchwork.conditions.PatchCondition;
 import com.alechilles.patchwork.conditions.PatchConditionParser;
+import com.alechilles.patchwork.conflict.ConflictPolicy;
 import com.alechilles.patchwork.discovery.PatchTargetSelector;
 import com.alechilles.patchwork.format.PatchFormat;
 import com.alechilles.patchwork.format.PatchLanguage;
@@ -15,6 +16,8 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Locale;
+import java.util.Objects;
 
 /** Parsed Patchwork definition associated with one target asset and source location. */
 public final class PatchDefinition {
@@ -32,6 +35,7 @@ public final class PatchDefinition {
     private final int priority;
     private final int sourcePackLoadOrder;
     private final boolean enabled;
+    private final ConflictPolicy conflictPolicy;
     private final List<PatchOperation> operations;
     private final PatchCondition condition;
     private final PatchLanguage language;
@@ -41,6 +45,7 @@ public final class PatchDefinition {
             String target,
             int priority,
             boolean enabled,
+            ConflictPolicy conflictPolicy,
             List<PatchOperation> operations,
             String sourcePack,
             String sourcePath,
@@ -52,6 +57,7 @@ public final class PatchDefinition {
         this.target = this.targetSelector.expression();
         this.priority = priority;
         this.enabled = enabled;
+        this.conflictPolicy = Objects.requireNonNull(conflictPolicy, "conflictPolicy");
         this.operations = List.copyOf(operations);
         this.sourcePack = sourcePack;
         this.sourcePath = sourcePath;
@@ -143,6 +149,7 @@ public final class PatchDefinition {
                     target,
                     readInt(root, "Priority", 0),
                     readBoolean(root, "Enabled", true),
+                    readConflictPolicy(root, language),
                     operations,
                     sourcePack,
                     sourcePath,
@@ -179,6 +186,7 @@ public final class PatchDefinition {
                 bound.expression(),
                 priority,
                 enabled,
+                conflictPolicy,
                 operations,
                 sourcePack,
                 sourcePath,
@@ -188,6 +196,8 @@ public final class PatchDefinition {
     }
     public int priority() { return priority; }
     public boolean enabled() { return enabled; }
+    /** Returns the action for overlaps introduced by this definition. */
+    public ConflictPolicy conflictPolicy() { return conflictPolicy; }
     public List<PatchOperation> operations() { return operations; }
     public String sourcePack() { return sourcePack; }
     public String sourcePath() { return sourcePath; }
@@ -202,6 +212,7 @@ public final class PatchDefinition {
     public String getTarget() { return target(); }
     public int getPriority() { return priority(); }
     public boolean isEnabled() { return enabled(); }
+    public ConflictPolicy getConflictPolicy() { return conflictPolicy(); }
     public List<PatchOperation> getOperations() { return operations(); }
     public String getSourcePack() { return sourcePack(); }
     public String getSourcePath() { return sourcePath(); }
@@ -286,7 +297,7 @@ public final class PatchDefinition {
 
     private static void validateClosedRootFields(JsonObject root, PatchLanguage language) {
         Set<String> allowed = language == PatchLanguage.NEUTRAL
-                ? Set.of("Id", "Target", "Targets", "Priority", "Enabled", "When", "Operations")
+                ? Set.of("Id", "Target", "Targets", "Priority", "Enabled", "ConflictPolicy", "When", "Operations")
                 : Set.of("FormatVersion", "Id", "Target", "Targets", "Priority", "Enabled", "When", "Operations");
         for (String name : root.keySet()) {
             if (!allowed.contains(name)) {
@@ -295,6 +306,17 @@ public final class PatchDefinition {
                                 + " patch definition contains unknown root field '" + name + "'.");
             }
         }
+    }
+
+    private static ConflictPolicy readConflictPolicy(JsonObject root, PatchLanguage language) {
+        if (language != PatchLanguage.NEUTRAL) return ConflictPolicy.REPORT;
+        String value = readString(root, "ConflictPolicy", "Report");
+        return switch (value.toLowerCase(Locale.ROOT)) {
+            case "report" -> ConflictPolicy.REPORT;
+            case "allow" -> ConflictPolicy.ALLOW;
+            case "reject" -> ConflictPolicy.REJECT;
+            default -> throw new IllegalArgumentException("ConflictPolicy must be Report, Allow, or Reject.");
+        };
     }
 
     private static List<String> readTargets(JsonObject root, String id) {

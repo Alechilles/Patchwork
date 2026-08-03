@@ -28,6 +28,7 @@ final class PatchNeutralSchemaTest {
         assertValid(readResource("authoring-kit/neutral/valid/overlay-from-asset.json"), "overlay-from-asset");
         assertValid(readResource("authoring-kit/neutral/valid/merge-object-from-asset.json"), "merge-object-from-asset");
         assertValid(readResource("authoring-kit/neutral/valid/glob-targets.json"), "glob-targets");
+        assertValid(readResource("authoring-kit/neutral/valid/conflict-policy.json"), "conflict-policy");
         assertInvalid(readResource("authoring-kit/neutral/invalid/upsert-relative-without-find.json"),
                 "upsert-relative-without-find");
         assertInvalid(readResource("authoring-kit/neutral/invalid/source-glob.json"), "source-glob");
@@ -43,6 +44,8 @@ final class PatchNeutralSchemaTest {
         assertInvalid(readResource("authoring-kit/neutral/invalid/unknown-operation.json"), "unknown-operation");
         assertInvalid(readResource("authoring-kit/neutral/invalid/upsert-invalid-match-policy.json"),
                 "upsert-invalid-match-policy");
+        assertInvalid(readResource("authoring-kit/neutral/invalid/unknown-conflict-policy.json"),
+                "unknown-conflict-policy");
     }
 
     @Test

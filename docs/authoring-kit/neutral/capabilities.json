@@ -7,6 +7,7 @@
   "versionFieldRequired": false,
   "supportedFormatVersions": [1, 2],
   "macroDescriptorVersion": null,
+  "conflictPolicies": ["Report", "Allow", "Reject"],
   "targetSelectors": {
     "exact": true,
     "globPrefix": "glob:",

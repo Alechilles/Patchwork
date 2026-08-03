@@ -9,6 +9,9 @@ import com.alechilles.patchwork.generation.GeneratedPackManifest;
 import com.alechilles.patchwork.generation.PatchGenerationService;
 import com.alechilles.patchwork.generation.PatchStatusSnapshot;
 import com.alechilles.patchwork.generation.GeneratedPackLayout;
+import com.alechilles.patchwork.conflict.ConflictRecord;
+import com.alechilles.patchwork.conflict.ConflictReport;
+import com.alechilles.patchwork.engine.MutationEffect;
 import com.alechilles.patchwork.reload.PatchReloadCoordinator;
 import com.alechilles.patchwork.selftest.PatchworkSelfTestReloadHandle;
 import com.alechilles.patchwork.selftest.PatchworkSelfTestRunner;
@@ -45,6 +48,38 @@ final class PatchworkAdministrationServiceTest {
         assertEquals(List.of("a.json", "b.json"), observed.getFirst().updates().stream().map(PatchReloadCoordinator.TargetUpdate::target).toList());
         assertEquals(null, observed.getFirst().updates().getFirst().bytes());
         assertArrayEquals("new".getBytes(), observed.getFirst().updates().get(1).bytes());
+    }
+
+    @Test void rejectedTargetRetainsPreviouslyPublishedBytesDuringReload() {
+        List<PatchReloadCoordinator.ReloadPlan> observed = new ArrayList<>();
+        PatchworkAdministrationService service = service(
+                () -> rejectedPlan("a.json", "b.json", "new"),
+                request -> { observed.add(request.generator().get()); return outcome(5, List.of()); },
+                () -> Map.of("a.json", "old".getBytes()));
+        service.activate(5);
+        service.seedPublishedInventory(plan("a.json", "old"));
+
+        join(service.reload());
+
+        assertEquals(List.of("b.json"), observed.getFirst().updates().stream()
+                .map(PatchReloadCoordinator.TargetUpdate::target).toList());
+        assertArrayEquals("new".getBytes(), observed.getFirst().updates().getFirst().bytes());
+    }
+
+    @Test void statusAndConflictActionRenderDeterministicValueRedactedRows() {
+        ConflictRecord row = new ConflictRecord("Server/A.json", "/Value", MutationEffect.Kind.WRITE,
+                new ConflictRecord.EffectRef("Pack:A", "first", "op", 0),
+                new ConflictRecord.EffectRef("Pack:B", "second", "op", 1),
+                ConflictRecord.Scope.CROSS_PACK, ConflictRecord.Classification.MATERIAL_OVERLAP);
+        ConflictReport report = new ConflictReport(List.of(row));
+        PatchworkAdministrationService service = service(() -> planWithConflicts(report), request -> outcome(6, List.of()));
+        service.activate(6);
+        service.seedStartup(6, planWithConflicts(report));
+
+        assertTrue(String.join("\n", join(service.status())).contains("Conflicts: 1 material, 0 redundant"));
+        List<String> lines = join(service.conflicts("Server/A.json"));
+        assertTrue(lines.stream().anyMatch(line -> line.contains("Server/A.json")));
+        assertFalse(lines.stream().anyMatch(line -> line.contains("valueFingerprint")));
     }
 
     @Test void reloadAlwaysDiffsTheActualGeneratedInventoryInsteadOfTheCandidateBaseline() {
@@ -270,6 +305,16 @@ final class PatchworkAdministrationServiceTest {
     private static PatchGenerationService.GenerationPlan plan(String target, String bytes) {
         List<GeneratedPackManifest.Entry> entries = List.of(new GeneratedPackManifest.Entry(target, bytes.getBytes()));
         return new PatchGenerationService.GenerationPlan(entries, new PatchStatusSnapshot(List.of(), java.util.Map.of(), List.of()), new GeneratedPackManifest(entries), List.of("Example:Pack"));
+    }
+    private static PatchGenerationService.GenerationPlan rejectedPlan(String rejected, String target, String bytes) {
+        List<GeneratedPackManifest.Entry> entries = List.of(new GeneratedPackManifest.Entry(target, bytes.getBytes()));
+        PatchStatusSnapshot status = new PatchStatusSnapshot(List.of(), Map.of(rejected, "Conflict rejected"), List.of());
+        return new PatchGenerationService.GenerationPlan(entries, status, new GeneratedPackManifest(entries), List.of("Example:Pack"));
+    }
+    private static PatchGenerationService.GenerationPlan planWithConflicts(ConflictReport report) {
+        List<GeneratedPackManifest.Entry> entries = List.of(new GeneratedPackManifest.Entry("Server/A.json", "a".getBytes()));
+        PatchStatusSnapshot status = new PatchStatusSnapshot(List.of(), Map.of(), List.of(), report);
+        return new PatchGenerationService.GenerationPlan(entries, status, new GeneratedPackManifest(entries), report);
     }
     private static PatchReloadCoordinator.ReloadOutcome outcome(long epoch, List<PatchReloadCoordinator.TargetOutcome> targets) {
         return new PatchReloadCoordinator.ReloadOutcome(true, epoch, PatchReloadCoordinator.ManifestState.COMMITTED, targets, PatchReloadCoordinator.IntegrityState.RECONCILED, "SECRET_DIAGNOSTIC");

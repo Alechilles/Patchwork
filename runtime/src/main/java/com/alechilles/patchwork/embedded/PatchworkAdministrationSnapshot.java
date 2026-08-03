@@ -36,6 +36,8 @@ record PatchworkAdministrationSnapshot(boolean active, long epoch, Map<String, ?
         lines.add("Last generation: epoch " + generationEpoch + ", generated " + (inventoryKnown ? generatedTargets.size() : "inventory unknown")
                 + ", skipped " + generationStatus.skipped().size() + ", failed "
                 + (generationStatus.rejectedTargets().size() + generationStatus.scanFailures().size()));
+        lines.add("Conflicts: " + generationStatus.conflicts().materialCount() + " material, "
+                + generationStatus.conflicts().redundantCount() + " redundant");
         if (reload != null) lines.add("Last reload: epoch " + reload.epoch() + ", " + (reload.started() ? "started" : "not started")
                 + ", manifest " + reload.manifestState().name().toLowerCase().replace('_', '-')
                 + ", integrity " + reload.integrityState().name().toLowerCase().replace('_', '-'));

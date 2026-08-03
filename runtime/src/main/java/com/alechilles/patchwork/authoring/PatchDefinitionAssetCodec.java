@@ -22,7 +22,7 @@ import org.bson.BsonValue;
 /** Asset-codec adapter that publishes only fields belonging to the portable Patchwork format. */
 final class PatchDefinitionAssetCodec implements AssetCodec<String, PatchDefinitionAsset> {
     private static final Set<String> PORTABLE_FIELDS = Set.of(
-            "Id", "Target", "Targets", "Priority", "Enabled", "When", "Operations");
+            "Id", "Target", "Targets", "Priority", "Enabled", "ConflictPolicy", "When", "Operations");
     private final AssetBuilderCodec<String, PatchDefinitionAsset> delegate;
 
     PatchDefinitionAssetCodec(AssetBuilderCodec<String, PatchDefinitionAsset> delegate) {

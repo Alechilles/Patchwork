@@ -243,7 +243,7 @@ final class PatchDefinitionAssetTest {
         var definitionSchema = (ObjectSchema) PatchDefinitionAsset.CODEC.toSchema(new SchemaContext());
         var definitionProperties = definitionSchema.getProperties();
         assertEquals(Set.of(
-                        "Id", "Target", "Targets", "Priority", "Enabled", "When", "Operations"),
+                        "Id", "Target", "Targets", "Priority", "Enabled", "ConflictPolicy", "When", "Operations"),
                 definitionProperties.keySet(),
                 "native schema must not expose Hytale Parent or Tags wrapper fields");
 

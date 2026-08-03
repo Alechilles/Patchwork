@@ -23,4 +23,7 @@ public interface PatchworkCommandActions {
 
     /** Starts an admitted isolated self-test, or returns a non-started result line. */
     CompletionStage<List<String>> selfTest();
+
+    /** Returns the latest value-redacted conflict rows, optionally filtered to one target. */
+    CompletionStage<List<String>> conflicts(String target);
 }
