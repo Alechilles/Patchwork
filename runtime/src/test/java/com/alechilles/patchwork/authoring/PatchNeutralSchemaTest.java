@@ -3,8 +3,12 @@ package com.alechilles.patchwork.authoring;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.alechilles.patchwork.conflict.ConflictPolicy;
+import com.alechilles.patchwork.engine.PatchDefinition;
+import com.alechilles.patchwork.format.PatchLanguage;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.JsonParser;
 import com.networknt.schema.JsonSchema;
 import com.networknt.schema.JsonSchemaFactory;
 import com.networknt.schema.SpecVersion;
@@ -39,6 +43,20 @@ final class PatchNeutralSchemaTest {
     }
 
     @Test
+    void schemaAndRuntimeAcceptCaseInsensitiveConflictPolicy() throws IOException {
+        String text = """
+                {"Id":"case-insensitive","Target":"Server/Test/Conflict.json",
+                 "ConflictPolicy":"aLLoW","Operations":[]}
+                """;
+        JsonNode document = JSON.readTree(text);
+        assertValid(document, "case-insensitive-conflict-policy");
+        PatchDefinition definition = PatchDefinition.parseAll(
+                JsonParser.parseString(text).getAsJsonObject(), "pack", "case-insensitive.json", 0, PatchLanguage.NEUTRAL)
+                .getFirst();
+        assertEquals(ConflictPolicy.ALLOW, definition.conflictPolicy());
+    }
+
+    @Test
     void rejectsUnknownRootFieldsAndOperationNames() {
         assertInvalid(readResource("authoring-kit/neutral/invalid/unknown-root-field.json"), "unknown-root");
         assertInvalid(readResource("authoring-kit/neutral/invalid/unknown-operation.json"), "unknown-operation");
@@ -55,6 +73,7 @@ final class PatchNeutralSchemaTest {
         JsonNode capabilities = JSON.readTree(Files.readString(path));
         assertEquals("neutral", capabilities.get("profile").asText());
         assertEquals(false, capabilities.get("versionFieldRequired").asBoolean());
+        assertEquals(true, capabilities.get("conflictPolicyCaseInsensitive").asBoolean());
         Set<String> operations = StreamSupport.stream(capabilities.get("operations").spliterator(), false)
                 .map(JsonNode::asText)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());

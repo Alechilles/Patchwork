@@ -82,6 +82,24 @@ final class PatchworkAdministrationServiceTest {
         assertFalse(lines.stream().anyMatch(line -> line.contains("valueFingerprint")));
     }
 
+    @Test void targetConflictActionReportsCountsOnlyForTheFilteredTarget() {
+        ConflictRecord material = new ConflictRecord("Server/A.json", "/Value", MutationEffect.Kind.WRITE,
+                new ConflictRecord.EffectRef("Pack:A", "first", "op", 0),
+                new ConflictRecord.EffectRef("Pack:B", "second", "op", 1),
+                ConflictRecord.Scope.CROSS_PACK, ConflictRecord.Classification.MATERIAL_OVERLAP);
+        ConflictRecord redundant = new ConflictRecord("Server/B.json", "/Value", MutationEffect.Kind.WRITE,
+                new ConflictRecord.EffectRef("Pack:C", "first", "op", 0),
+                new ConflictRecord.EffectRef("Pack:D", "second", "op", 1),
+                ConflictRecord.Scope.CROSS_PACK, ConflictRecord.Classification.REDUNDANT_IDENTICAL);
+        ConflictReport report = new ConflictReport(List.of(material, redundant));
+        PatchworkAdministrationService service = service(() -> planWithConflicts(report), request -> outcome(6, List.of()));
+        service.activate(6);
+        service.seedStartup(6, planWithConflicts(report));
+
+        assertEquals("Conflicts: 1 material, 0 redundant", join(service.conflicts("Server/A.json")).getFirst());
+        assertEquals("Conflicts: 0 material, 1 redundant", join(service.conflicts("Server/B.json")).getFirst());
+    }
+
     @Test void reloadAlwaysDiffsTheActualGeneratedInventoryInsteadOfTheCandidateBaseline() {
         List<PatchReloadCoordinator.ReloadPlan> observed = new ArrayList<>();
         java.util.concurrent.atomic.AtomicReference<Map<String, byte[]>> actual = new java.util.concurrent.atomic.AtomicReference<>(Map.of("a.json", "a".getBytes()));

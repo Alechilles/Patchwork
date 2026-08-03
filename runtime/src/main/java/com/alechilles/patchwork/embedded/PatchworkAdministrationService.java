@@ -233,8 +233,9 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
 
     private static List<String> renderConflicts(ConflictReport report, String target) {
         List<ConflictRecord> rows = report.forTarget(target);
+        ConflictReport scoped = target == null ? report : new ConflictReport(rows);
         List<String> lines = new ArrayList<>();
-        lines.add("Conflicts: " + report.materialCount() + " material, " + report.redundantCount() + " redundant");
+        lines.add("Conflicts: " + scoped.materialCount() + " material, " + scoped.redundantCount() + " redundant");
         if (target != null) lines.add("Target filter: " + target + " (" + rows.size() + " row(s))");
         rows.stream().limit(PatchworkAdministrationSnapshot.MAX_DETAIL_ROWS).forEach(row -> lines.add(formatConflict(row)));
         if (rows.size() > PatchworkAdministrationSnapshot.MAX_DETAIL_ROWS) {

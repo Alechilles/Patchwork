@@ -1,7 +1,7 @@
 {
   "Id": "conflict-policy",
   "Target": "Server/Test/Conflict.json",
-  "ConflictPolicy": "Reject",
+  "ConflictPolicy": "aLLoW",
   "Operations": [
     {"Op": "Replace", "Path": "/Value", "Value": 2}
   ]
