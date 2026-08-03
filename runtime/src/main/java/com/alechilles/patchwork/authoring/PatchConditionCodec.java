@@ -5,6 +5,7 @@ import com.hypixel.hytale.codec.ExtraInfo;
 import com.hypixel.hytale.codec.schema.NamedSchema;
 import com.hypixel.hytale.codec.schema.SchemaContext;
 import com.hypixel.hytale.codec.schema.config.ArraySchema;
+import com.hypixel.hytale.codec.schema.config.BooleanSchema;
 import com.hypixel.hytale.codec.schema.config.ObjectSchema;
 import com.hypixel.hytale.codec.schema.config.Schema;
 import com.hypixel.hytale.codec.schema.config.StringSchema;
@@ -66,8 +67,7 @@ final class PatchConditionCodec implements Codec<BsonDocument>, NamedSchema {
                         "AssetExists", "Applies only when the referenced asset exists."),
                 conditionVariant("AssetMissing", assetReferenceSchema(),
                         "AssetMissing", "Applies only when the referenced asset is missing."),
-                conditionVariant("TargetExists", documented(Codec.BOOLEAN.toSchema(context), "Must exist",
-                                "Set to true to require the patch target to exist before this patch is eligible."),
+                conditionVariant("TargetExists", targetExistsSchema(context),
                         "TargetExists", "Applies only when this patch's target asset exists."),
                 conditionVariant("TargetProvidedBy", nonblankString("Provider mod ID",
                                 "Namespaced ID of the mod that must currently provide the target asset."),
@@ -92,6 +92,13 @@ final class PatchConditionCodec implements Codec<BsonDocument>, NamedSchema {
         values.setMinItems(1);
         documented(values, "Nested conditions", "Add one or more conditions to this group.");
         return conditionVariant(key, values, title, documentation);
+    }
+
+    private static BooleanSchema targetExistsSchema(SchemaContext context) {
+        BooleanSchema targetExists = documented((BooleanSchema) Codec.BOOLEAN.toSchema(context), "Must exist",
+                "Keep enabled to require the patch target to exist before this patch is eligible.");
+        targetExists.setDefault(true);
+        return targetExists;
     }
 
     private static ObjectSchema conditionVariant(
@@ -139,6 +146,12 @@ final class PatchConditionCodec implements Codec<BsonDocument>, NamedSchema {
         properties.put("Above", versionString("Exclusive minimum", "Requires a version newer than this one."));
         properties.put("Below", versionString("Exclusive maximum", "Requires a version older than this one."));
         comparison.setProperties(properties);
+        comparison.setAnyOf(
+                required("Equals"),
+                required("AtLeast"),
+                required("AtMost"),
+                required("Above"),
+                required("Below"));
         return comparison;
     }
 
@@ -166,7 +179,16 @@ final class PatchConditionCodec implements Codec<BsonDocument>, NamedSchema {
         }
         fields.setProperties(properties);
         fields.setRequired("Path");
+        if (includeExpectedValue) {
+            fields.setAnyOf(required("Value"), required("Equals"));
+        }
         return fields;
+    }
+
+    private static Schema required(String field) {
+        Schema schema = new Schema();
+        schema.setRequired(field);
+        return schema;
     }
 
     private static Schema sourceSchema() {

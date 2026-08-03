@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.hypixel.hytale.codec.EmptyExtraInfo;
 import com.hypixel.hytale.codec.schema.SchemaContext;
 import com.hypixel.hytale.codec.schema.config.ArraySchema;
+import com.hypixel.hytale.codec.schema.config.BooleanSchema;
 import com.hypixel.hytale.codec.schema.config.ObjectSchema;
 import com.hypixel.hytale.codec.schema.config.Schema;
 import java.util.Arrays;
@@ -32,6 +33,27 @@ final class PatchNativeAuthoringSchemaTest {
                 variantTitles(condition));
         assertTrue(containsRef(condition, "other.json#/definitions/PatchCondition"));
         assertEveryChoiceDocumented(condition);
+    }
+
+    @Test
+    void conditionChoicesPreventKnownInvalidEmptyStates() {
+        SchemaContext context = new SchemaContext();
+        PatchDefinitionAsset.CODEC.toSchema(context);
+        Schema condition = context.getOtherDefinitions().get("PatchCondition");
+
+        BooleanSchema targetExists = (BooleanSchema) variant(condition, "TargetExists")
+                .getProperties().get("TargetExists");
+        assertEquals(Boolean.TRUE, targetExists.getDefault());
+
+        Set<String> comparisonFields = Set.of("Equals", "AtLeast", "AtMost", "Above", "Below");
+        for (String title : List.of("ModVersion", "ServerVersion", "GameVersion")) {
+            ObjectSchema comparison = (ObjectSchema) variant(condition, title).getProperties().get(title);
+            assertRequiredAlternatives(comparison, comparisonFields);
+        }
+
+        ObjectSchema jsonPathEquals = (ObjectSchema) variant(condition, "JsonPathEquals")
+                .getProperties().get("JsonPathEquals");
+        assertRequiredAlternatives(jsonPathEquals, Set.of("Value", "Equals"));
     }
 
     @Test
@@ -91,6 +113,20 @@ final class PatchNativeAuthoringSchemaTest {
         return Arrays.stream(schema.getOneOf())
                 .map(Schema::getTitle)
                 .collect(Collectors.toUnmodifiableSet());
+    }
+
+    private static ObjectSchema variant(Schema schema, String title) {
+        return (ObjectSchema) Arrays.stream(schema.getOneOf())
+                .filter(choice -> title.equals(choice.getTitle()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static void assertRequiredAlternatives(Schema schema, Set<String> expectedFields) {
+        assertNotNull(schema.getAnyOf());
+        assertEquals(expectedFields, Arrays.stream(schema.getAnyOf())
+                .map(alternative -> alternative.getRequired()[0])
+                .collect(Collectors.toUnmodifiableSet()));
     }
 
     private static void assertEveryChoiceDocumented(Schema schema) {
