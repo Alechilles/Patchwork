@@ -21,6 +21,7 @@
 ### Fixed
 
 - Added the missing standalone mod icon at the artifact root beside `manifest.json`.
+- Fixed recursive Patchwork authoring schemas failing to mount in Hytale's Asset Editor because their shared definitions were placed in the editor-omitted `other.json` schema file.
 - Fixed target resolution for registered asset packs installed through symbolic links or Windows junctions.
 
 ### Removed

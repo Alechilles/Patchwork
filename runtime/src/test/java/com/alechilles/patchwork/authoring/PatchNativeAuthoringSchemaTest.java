@@ -2,6 +2,7 @@ package com.alechilles.patchwork.authoring;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hypixel.hytale.codec.EmptyExtraInfo;
@@ -18,20 +19,48 @@ import org.junit.jupiter.api.Test;
 
 final class PatchNativeAuthoringSchemaTest {
     @Test
-    void whenUsesDocumentedNamedRecursiveConditionChoices() {
+    void patchworkDefinitionsUseSchemaFileTransmittedToAssetEditor() {
+        SchemaContext context = new SchemaContext();
+        PatchDefinitionAsset.CODEC.toSchema(context);
+        Set<String> patchworkDefinitions = Set.of(
+                "Alechilles.Patchwork.PatchCondition", "Alechilles.Patchwork.PatchMatcher",
+                "Alechilles.Patchwork.PatchMatcherValue", "Alechilles.Patchwork.PatchJsonValue",
+                "Alechilles.Patchwork.PatchJsonObject");
+
+        assertTrue(context.getOtherDefinitions().isEmpty(),
+                "Hytale Asset Editor removes other.json before transmitting schemas");
+        assertTrue(context.getDefinitions().keySet().containsAll(patchworkDefinitions),
+                "Patchwork references must resolve through transmitted common.json definitions");
+    }
+
+    @Test
+    void patchworkDefinitionsDoNotOverwriteExistingCommonSchemaNames() {
+        SchemaContext context = new SchemaContext();
+        Schema existing = new Schema();
+        context.getDefinitions().put("Alechilles.Patchwork.PatchCondition", existing);
+
+        Schema condition = PatchConditionCodec.INSTANCE.toSchema(context);
+
+        assertSame(existing, context.getDefinitions().get("Alechilles.Patchwork.PatchCondition"));
+        assertEquals("common.json#/definitions/Alechilles.Patchwork.PatchCondition@1", condition.getRef());
+        assertNotNull(context.getDefinitions().get("Alechilles.Patchwork.PatchCondition@1"));
+    }
+
+    @Test
+    void whenUsesDocumentedRecursiveConditionChoices() {
         SchemaContext context = new SchemaContext();
         ObjectSchema definition = (ObjectSchema) PatchDefinitionAsset.CODEC.toSchema(context);
 
         Schema when = definition.getProperties().get("When");
-        assertTrue(containsRef(when, "other.json#/definitions/PatchCondition"));
-        Schema condition = context.getOtherDefinitions().get("PatchCondition");
+        assertTrue(containsRef(when, "common.json#/definitions/Alechilles.Patchwork.PatchCondition"));
+        Schema condition = context.getDefinitions().get("Alechilles.Patchwork.PatchCondition");
         assertNotNull(condition);
         assertEquals(Set.of(
                         "ModInstalled", "ModVersion", "ServerVersion", "GameVersion",
                         "AssetExists", "AssetMissing", "TargetExists", "TargetProvidedBy",
                         "JsonPathExists", "JsonPathEquals", "All", "Any", "Not"),
                 variantTitles(condition));
-        assertTrue(containsRef(condition, "other.json#/definitions/PatchCondition"));
+        assertTrue(containsRef(condition, "common.json#/definitions/Alechilles.Patchwork.PatchCondition"));
         assertEveryChoiceDocumented(condition);
     }
 
@@ -39,7 +68,7 @@ final class PatchNativeAuthoringSchemaTest {
     void conditionChoicesPreventKnownInvalidEmptyStates() {
         SchemaContext context = new SchemaContext();
         PatchDefinitionAsset.CODEC.toSchema(context);
-        Schema condition = context.getOtherDefinitions().get("PatchCondition");
+        Schema condition = context.getDefinitions().get("Alechilles.Patchwork.PatchCondition");
 
         BooleanSchema targetExists = (BooleanSchema) variant(condition, "TargetExists")
                 .getProperties().get("TargetExists");
@@ -63,15 +92,15 @@ final class PatchNativeAuthoringSchemaTest {
 
         for (String field : List.of("Match", "Find", "Existing")) {
             assertTrue(containsRef(operation.getProperties().get(field),
-                    "other.json#/definitions/PatchMatcher"), field);
+                    "common.json#/definitions/Alechilles.Patchwork.PatchMatcher"), field);
         }
-        Schema matcher = context.getOtherDefinitions().get("PatchMatcher");
+        Schema matcher = context.getDefinitions().get("Alechilles.Patchwork.PatchMatcher");
         assertNotNull(matcher);
         assertEquals(Set.of("Exact value", "Contains", "Object fields"), variantTitles(matcher));
         assertTrue(containsProperty(matcher, "$Equals"));
         assertTrue(containsProperty(matcher, "$Contains"));
-        assertTrue(containsRef(matcher, "other.json#/definitions/PatchMatcher"));
-        assertTrue(context.getOtherDefinitions().containsKey("PatchMatcherValue"));
+        assertTrue(containsRef(matcher, "common.json#/definitions/Alechilles.Patchwork.PatchMatcher"));
+        assertTrue(context.getDefinitions().containsKey("Alechilles.Patchwork.PatchMatcherValue"));
         assertEveryChoiceDocumented(matcher);
     }
 
@@ -81,29 +110,31 @@ final class PatchNativeAuthoringSchemaTest {
         ObjectSchema operation = PatchOperationAsset.CODEC.toSchema(context);
 
         assertTrue(containsRef(operation.getProperties().get("Value"),
-                "other.json#/definitions/PatchJsonValue"));
+                "common.json#/definitions/Alechilles.Patchwork.PatchJsonValue"));
         assertTrue(containsRef(operation.getProperties().get("Options"),
-                "other.json#/definitions/PatchJsonObject"));
-        Schema value = context.getOtherDefinitions().get("PatchJsonValue");
+                "common.json#/definitions/Alechilles.Patchwork.PatchJsonObject"));
+        Schema value = context.getDefinitions().get("Alechilles.Patchwork.PatchJsonValue");
         assertNotNull(value);
         assertEquals(Set.of("Null", "Boolean", "Number", "String", "Array", "Object"),
                 variantTitles(value));
-        assertTrue(containsRef(value, "other.json#/definitions/PatchJsonValue"));
-        assertTrue(containsRef(value, "other.json#/definitions/PatchJsonObject"));
+        assertTrue(containsRef(value, "common.json#/definitions/Alechilles.Patchwork.PatchJsonValue"));
+        assertTrue(containsRef(value, "common.json#/definitions/Alechilles.Patchwork.PatchJsonObject"));
         assertEveryChoiceDocumented(value);
     }
 
     @Test
-    void namedRecursiveDefinitionsSerializeAndDocumentEveryExplicitProperty() {
+    void recursiveDefinitionsSerializeAndDocumentEveryExplicitProperty() {
         SchemaContext context = new SchemaContext();
         PatchDefinitionAsset.CODEC.toSchema(context);
         PatchOperationAsset.CODEC.toSchema(context);
 
-        assertEquals(Set.of(
-                        "PatchCondition", "PatchMatcher", "PatchMatcherValue",
-                        "PatchJsonValue", "PatchJsonObject"),
-                context.getOtherDefinitions().keySet());
-        context.getOtherDefinitions().forEach((name, schema) -> {
+        Set<String> patchworkDefinitions = Set.of(
+                "Alechilles.Patchwork.PatchCondition", "Alechilles.Patchwork.PatchMatcher",
+                "Alechilles.Patchwork.PatchMatcherValue", "Alechilles.Patchwork.PatchJsonValue",
+                "Alechilles.Patchwork.PatchJsonObject");
+        assertTrue(context.getDefinitions().keySet().containsAll(patchworkDefinitions));
+        patchworkDefinitions.forEach(name -> {
+            Schema schema = context.getDefinitions().get(name);
             assertNotNull(Schema.CODEC.encode(schema, EmptyExtraInfo.EMPTY), name);
             assertExplicitPropertiesDocumented(schema);
         });

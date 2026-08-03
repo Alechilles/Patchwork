@@ -2,7 +2,6 @@ package com.alechilles.patchwork.authoring;
 
 import com.hypixel.hytale.codec.Codec;
 import com.hypixel.hytale.codec.ExtraInfo;
-import com.hypixel.hytale.codec.schema.NamedSchema;
 import com.hypixel.hytale.codec.schema.SchemaContext;
 import com.hypixel.hytale.codec.schema.config.ObjectSchema;
 import com.hypixel.hytale.codec.schema.config.Schema;
@@ -15,7 +14,7 @@ import org.bson.BsonDocument;
 import org.bson.BsonValue;
 
 /** Lossless BSON codec with a recursive schema for Patchwork matchers. */
-final class PatchMatcherCodec implements Codec<BsonDocument>, NamedSchema {
+final class PatchMatcherCodec implements Codec<BsonDocument> {
     static final PatchMatcherCodec INSTANCE = new PatchMatcherCodec();
 
     private PatchMatcherCodec() {
@@ -37,17 +36,13 @@ final class PatchMatcherCodec implements Codec<BsonDocument>, NamedSchema {
         return RawJsonReader.readBsonValue(reader).asDocument();
     }
 
-    @Override
-    public String getSchemaName() {
-        return "PatchMatcher";
-    }
-
     @Nonnull
     @Override
     public Schema toSchema(@Nonnull SchemaContext context) {
-        if (context.getRawDefinition(INSTANCE) == null) {
-            return context.refDefinition(INSTANCE);
-        }
+        return PatchSchemaDefinitions.ref(context, "PatchMatcher", () -> definitionSchema(context));
+    }
+
+    private static Schema definitionSchema(SchemaContext context) {
         Schema matcher = documented(new Schema(), "Patch matcher",
                 "Choose an exact value, an array-contains matcher, or ordinary object fields to match.");
         matcher.setOneOf(exactValueVariant(context), containsVariant(context), ordinaryFieldsVariant(context));
@@ -58,7 +53,7 @@ final class PatchMatcherCodec implements Codec<BsonDocument>, NamedSchema {
         ObjectSchema exact = documented(closedObject(), "Exact value",
                 "Matches only when the candidate is exactly equal to the supplied JSON value.");
         exact.setProperties(Map.of("$Equals",
-                documented(context.refDefinition(PatchJsonValueCodec.INSTANCE), "Expected JSON value",
+                documented(PatchJsonValueCodec.INSTANCE.toSchema(context), "Expected JSON value",
                         "The complete value the candidate must equal.")));
         exact.setRequired("$Equals");
         return exact;
@@ -68,7 +63,7 @@ final class PatchMatcherCodec implements Codec<BsonDocument>, NamedSchema {
         ObjectSchema contains = documented(closedObject(), "Contains",
                 "Matches an array when at least one entry satisfies the nested matcher.");
         contains.setProperties(Map.of("$Contains",
-                documented(context.refDefinition(INSTANCE), "Nested matcher",
+                documented(INSTANCE.toSchema(context), "Nested matcher",
                         "Matcher applied to each candidate array entry.")));
         contains.setRequired("$Contains");
         return contains;
@@ -80,7 +75,7 @@ final class PatchMatcherCodec implements Codec<BsonDocument>, NamedSchema {
         StringSchema propertyNames = new StringSchema();
         propertyNames.setPattern("^(?!\\$).+");
         fields.setPropertyNames(propertyNames);
-        fields.setAdditionalProperties(context.refDefinition(PatchMatcherValueSchema.INSTANCE));
+        fields.setAdditionalProperties(PatchMatcherValueSchema.INSTANCE.toSchema(context));
         return fields;
     }
 

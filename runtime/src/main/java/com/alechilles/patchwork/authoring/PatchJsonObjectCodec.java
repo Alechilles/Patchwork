@@ -2,7 +2,6 @@ package com.alechilles.patchwork.authoring;
 
 import com.hypixel.hytale.codec.Codec;
 import com.hypixel.hytale.codec.ExtraInfo;
-import com.hypixel.hytale.codec.schema.NamedSchema;
 import com.hypixel.hytale.codec.schema.SchemaContext;
 import com.hypixel.hytale.codec.schema.config.ObjectSchema;
 import com.hypixel.hytale.codec.schema.config.Schema;
@@ -13,7 +12,7 @@ import org.bson.BsonDocument;
 import org.bson.BsonValue;
 
 /** Lossless BSON codec for fields whose portable contract requires a JSON object. */
-final class PatchJsonObjectCodec implements Codec<BsonDocument>, NamedSchema {
+final class PatchJsonObjectCodec implements Codec<BsonDocument> {
     static final PatchJsonObjectCodec INSTANCE = new PatchJsonObjectCodec();
 
     private PatchJsonObjectCodec() {
@@ -35,22 +34,18 @@ final class PatchJsonObjectCodec implements Codec<BsonDocument>, NamedSchema {
         return RawJsonReader.readBsonValue(reader).asDocument();
     }
 
-    @Override
-    public String getSchemaName() {
-        return "PatchJsonObject";
-    }
-
     @Nonnull
     @Override
     public Schema toSchema(@Nonnull SchemaContext context) {
-        if (context.getRawDefinition(INSTANCE) == null) {
-            return context.refDefinition(INSTANCE);
-        }
+        return PatchSchemaDefinitions.ref(context, "PatchJsonObject", () -> definitionSchema(context));
+    }
+
+    private static Schema definitionSchema(SchemaContext context) {
         ObjectSchema object = new ObjectSchema();
         object.setTitle("Object");
         object.setMarkdownDescription(
                 "A JSON object. Add any property names required by the target asset or macro.");
-        object.setAdditionalProperties(context.refDefinition(PatchJsonValueCodec.INSTANCE));
+        object.setAdditionalProperties(PatchJsonValueCodec.INSTANCE.toSchema(context));
         return object;
     }
 }

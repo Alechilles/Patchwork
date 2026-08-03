@@ -2,7 +2,6 @@ package com.alechilles.patchwork.authoring;
 
 import com.hypixel.hytale.codec.Codec;
 import com.hypixel.hytale.codec.ExtraInfo;
-import com.hypixel.hytale.codec.schema.NamedSchema;
 import com.hypixel.hytale.codec.schema.SchemaContext;
 import com.hypixel.hytale.codec.schema.config.ArraySchema;
 import com.hypixel.hytale.codec.schema.config.BooleanSchema;
@@ -18,7 +17,7 @@ import org.bson.BsonDocument;
 import org.bson.BsonValue;
 
 /** Lossless BSON codec with a beginner-facing schema for Patchwork conditions. */
-final class PatchConditionCodec implements Codec<BsonDocument>, NamedSchema {
+final class PatchConditionCodec implements Codec<BsonDocument> {
     static final PatchConditionCodec INSTANCE = new PatchConditionCodec();
 
     private PatchConditionCodec() {
@@ -40,17 +39,13 @@ final class PatchConditionCodec implements Codec<BsonDocument>, NamedSchema {
         return RawJsonReader.readBsonValue(reader).asDocument();
     }
 
-    @Override
-    public String getSchemaName() {
-        return "PatchCondition";
-    }
-
     @Nonnull
     @Override
     public Schema toSchema(@Nonnull SchemaContext context) {
-        if (context.getRawDefinition(INSTANCE) == null) {
-            return context.refDefinition(INSTANCE);
-        }
+        return PatchSchemaDefinitions.ref(context, "PatchCondition", () -> definitionSchema(context));
+    }
+
+    private static Schema definitionSchema(SchemaContext context) {
         Schema condition = documented(new Schema(), "Patch condition",
                 "Choose one condition. Add $Comment when you want to explain why the condition exists.");
         condition.setOneOf(
@@ -80,7 +75,7 @@ final class PatchConditionCodec implements Codec<BsonDocument>, NamedSchema {
                         "Applies only when every nested condition is true."),
                 recursiveList(context, "Any", "Any",
                         "Applies when at least one nested condition is true."),
-                conditionVariant("Not", documented(context.refDefinition(INSTANCE), "Nested condition",
+                conditionVariant("Not", documented(INSTANCE.toSchema(context), "Nested condition",
                                 "The condition whose result should be inverted."),
                         "Not", "Applies only when the nested condition is false."));
         return condition;
@@ -88,7 +83,7 @@ final class PatchConditionCodec implements Codec<BsonDocument>, NamedSchema {
 
     private static ObjectSchema recursiveList(
             SchemaContext context, String key, String title, String documentation) {
-        ArraySchema values = new ArraySchema(context.refDefinition(INSTANCE));
+        ArraySchema values = new ArraySchema(INSTANCE.toSchema(context));
         values.setMinItems(1);
         documented(values, "Nested conditions", "Add one or more conditions to this group.");
         return conditionVariant(key, values, title, documentation);
@@ -172,9 +167,9 @@ final class PatchConditionCodec implements Codec<BsonDocument>, NamedSchema {
                 "Legacy shorthand for reading another asset. Do not combine it with Source."));
         properties.put("Source", sourceSchema());
         if (includeExpectedValue) {
-            properties.put("Value", documented(context.refDefinition(PatchJsonValueCodec.INSTANCE), "Expected value",
+            properties.put("Value", documented(PatchJsonValueCodec.INSTANCE.toSchema(context), "Expected value",
                     "The JSON value that must be present at Path."));
-            properties.put("Equals", documented(context.refDefinition(PatchJsonValueCodec.INSTANCE), "Expected value (legacy)",
+            properties.put("Equals", documented(PatchJsonValueCodec.INSTANCE.toSchema(context), "Expected value (legacy)",
                     "Accepted legacy alias for Value. Prefer Value in new patches."));
         }
         fields.setProperties(properties);
