@@ -212,6 +212,21 @@ final class PatchEngineTest {
     }
 
     @Test
+    void rejectsNeutralUpsertWithInvalidMatchPolicyBeforeZeroMatchInsertion() {
+        JsonObject invalid = object("""
+                { "Id":"invalid-policy", "Target":"Server/Test/Rows.json", "Operations":[
+                  { "Op":"UpsertMatching", "Path":"/Rows", "Match":{"Id":"missing"},
+                    "MatchPolicy":"Bogus", "Value":{"Id":"missing"} }
+                ] }
+                """);
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class, () -> PatchDefinition.parseAll(
+                invalid, "test-pack", "patches/invalid-policy.json", 0, PatchLanguage.NEUTRAL));
+        assertEquals("Patch 'invalid-policy' operation 0 MatchPolicy must be ExactlyOne, First, Last, or All.",
+                failure.getMessage());
+    }
+
+    @Test
     void insertsAtStartEndAndBeforeAnAnchorAndSkipsExistingValues() {
         PatchEngine.PatchResult result = engine.apply(object("""
                 { "items": [{ "id": "anchor" }, { "id": "present" }] }
