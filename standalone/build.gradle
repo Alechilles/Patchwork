@@ -1,0 +1,61 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+
+plugins {
+    id 'java'
+    id 'com.azuredoom.hytale-tools'
+    id 'com.gradleup.shadow' version '9.6.1'
+}
+
+def localProperties = new Properties()
+rootProject.file('Patchwork/gradle.properties').withInputStream { localProperties.load(it) }
+def localProperty = { String name -> providers.gradleProperty(name).getOrElse(localProperties.getProperty(name)) }
+
+group = 'com.alechilles'
+version = localProperty('mod_version')
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+dependencies {
+    implementation project(':patchwork:runtime')
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
+}
+
+hytaleTools {
+    hytaleVersion = localProperty('hytale_version')
+    patchline = localProperty('hytale_patchline')
+    manifestServerVersion = '0.5.x'
+    manifestGroup = 'Alechilles'
+    modId = 'Patchwork'
+    modDescription = 'Stitch focused changes into Hytale assets with a standalone, embeddable patcher built for clean cross-mod compatibility.'
+    modCredits = 'Alec (Alechilles)'
+    mainClass = 'com.alechilles.patchwork.standalone.PatchworkPlugin'
+    includesPack = false
+    bundleAssetEditorRuntime = false
+}
+
+tasks.named('jar') {
+    enabled = false
+}
+
+tasks.named('shadowJar', ShadowJar) {
+    archiveFileName = "Patchwork v${project.version}.jar"
+    archiveClassifier = ''
+    exclude 'META-INF/MANIFEST.MF', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/versions/9/module-info.class'
+    manifest {
+        attributes('Plugin-Group': project.group, 'Plugin-Name': project.name, 'Plugin-Version': project.version)
+    }
+}
+
+tasks.named('assemble') {
+    dependsOn(tasks.named('shadowJar'))
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    workingDir projectDir
+}

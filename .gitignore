@@ -1,5 +1,6 @@
 # Maven build outputs
 target/
+build/
 .superpowers/
 /.worktrees/
 .vscode/settings.json
