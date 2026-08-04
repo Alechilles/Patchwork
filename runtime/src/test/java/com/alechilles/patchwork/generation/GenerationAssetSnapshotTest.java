@@ -3,6 +3,7 @@ package com.alechilles.patchwork.generation;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
@@ -16,6 +17,8 @@ import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -23,7 +26,7 @@ final class GenerationAssetSnapshotTest {
     @TempDir Path temporary;
 
     @Test
-    void snapshotKeepsOriginalWinnerAfterBackingFilesChange() throws Exception {
+    void snapshotDefersAssetBytesAndRejectsAnAssetChangedAfterCapture() throws Exception {
         Path low = Files.createDirectories(temporary.resolve("low/Server/Test"));
         Path high = Files.createDirectories(temporary.resolve("high/Server/Test"));
         Files.writeString(low.resolve("A.json"), "{\"v\":1}");
@@ -35,7 +38,7 @@ final class GenerationAssetSnapshotTest {
         Files.writeString(high.resolve("A.json"), "{\"v\":3}");
 
         assertEquals("High", snapshot.require("Server/Test/A.json").sourcePackId());
-        assertEquals("{\"v\":2}", new String(snapshot.require("Server/Test/A.json").bytes(), StandardCharsets.UTF_8));
+        assertThrows(IllegalStateException.class, () -> snapshot.require("Server/Test/A.json").bytes());
     }
 
     @Test
@@ -49,6 +52,21 @@ final class GenerationAssetSnapshotTest {
 
         assertFalse(snapshot.sourcePackIds().contains(PatchScanner.GENERATED_PACK_ID));
         assertEquals(snapshot.paths().stream().sorted(Utf8Ordering.UNSIGNED_BYTES).toList(), snapshot.paths());
+    }
+
+    @Test
+    void archiveSnapshotReadsTheCapturedEntryAfterNormalizingItsPath() throws Exception {
+        Path archive = temporary.resolve("pack.zip");
+        try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(archive))) {
+            output.putNextEntry(new ZipEntry("Server\\Target.json"));
+            output.write("{\"value\":1}".getBytes(StandardCharsets.UTF_8));
+            output.closeEntry();
+        }
+
+        GenerationAssetSnapshot snapshot = GenerationAssetSnapshot.capture(List.of(
+                PatchSource.archive("pack", 0, archive)));
+
+        assertEquals("{\"value\":1}", new String(snapshot.require("Server/Target.json").bytes(), StandardCharsets.UTF_8));
     }
 
     @Test

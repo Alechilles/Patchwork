@@ -89,7 +89,7 @@ final class PatchGenerationServiceTest {
     }
 
     @Test
-    void generationUsesCapturedDefinitionsAndTargetsAfterBackingFilesChange() throws Exception {
+    void generationRejectsDefinitionsChangedAfterSnapshotCapture() throws Exception {
         Path pack = Files.createDirectories(temporary.resolve("captured/Server/Patchwork/Patches"));
         Path root = pack.getParent().getParent().getParent();
         Files.writeString(root.resolve("Server/Target.json"), "{\"value\":1}");
@@ -105,13 +105,12 @@ final class PatchGenerationServiceTest {
         var plan = new PatchGenerationService().generate(new PatchGenerationService.GenerationRequest(
                 assets, Set.of(), Map.of(), "1", resolver));
 
-        assertEquals(List.of("Server/Target.json"), plan.entries().stream()
-                .map(GeneratedPackManifest.Entry::target).toList());
-        assertEquals("{\"value\":2}", new String(plan.entries().getFirst().bytes()));
+        assertTrue(plan.entries().isEmpty());
+        assertTrue(plan.status().scanFailures().stream().anyMatch(value -> value.contains("target.json")));
     }
 
     @Test
-    void generatedTargetCanOverlayFromOriginalWinningSnapshot() throws Exception {
+    void generatedTargetRejectsCrossAssetSourceChangedAfterSnapshotCapture() throws Exception {
         Path patches = Files.createDirectories(temporary.resolve("cross-asset/Server/Patchwork/Patches"));
         Path root = patches.getParent().getParent().getParent();
         Path target = root.resolve("Server/Target.json");
@@ -130,10 +129,8 @@ final class PatchGenerationServiceTest {
         PatchGenerationService.GenerationPlan plan = new PatchGenerationService().generate(
                 new PatchGenerationService.GenerationRequest(assets, Set.of(), Map.of(), "1", resolver().withAssets(assets)));
 
-        assertEquals(List.of("Server/Target.json"), plan.entries().stream()
-                .map(GeneratedPackManifest.Entry::target).toList());
-        assertEquals("{\"Shared\":{\"B\":2,\"A\":1},\"FromSource\":true}",
-                new String(plan.entries().getFirst().bytes()));
+        assertTrue(plan.entries().isEmpty());
+        assertTrue(plan.status().rejectedTargets().containsKey("Server/Target.json"));
     }
 
     @Test
@@ -185,7 +182,7 @@ final class PatchGenerationServiceTest {
     }
 
     @Test
-    void assetConditionsUseTheSameCapturedSnapshotAsTargets() throws Exception {
+    void assetConditionsRejectSourcesChangedAfterSnapshotCapture() throws Exception {
         Path patches = Files.createDirectories(temporary.resolve("asset-condition/Server/Patchwork/Patches"));
         Path root = patches.getParent().getParent().getParent();
         Files.writeString(root.resolve("Server/Target.json"), "{\"value\":1}");
@@ -202,8 +199,8 @@ final class PatchGenerationServiceTest {
 
         var plan = new PatchGenerationService().generate(request);
 
-        assertEquals(List.of("Server/Target.json"), plan.entries().stream()
-                .map(GeneratedPackManifest.Entry::target).toList());
+        assertTrue(plan.entries().isEmpty());
+        assertTrue(plan.status().rejectedTargets().containsKey("Server/Target.json"));
     }
 
     @Test
@@ -229,8 +226,8 @@ final class PatchGenerationServiceTest {
         assertThrows(IllegalStateException.class, () -> new PatchGenerationService.GenerationRequest(
                 second, Set.of(), Map.of(), "1", shared, Map.of("condition", condition)));
         var plan = new PatchGenerationService().generate(requestA);
-        assertEquals(List.of("Server/Target.json"), plan.entries().stream()
-                .map(GeneratedPackManifest.Entry::target).toList());
+        assertTrue(plan.entries().isEmpty());
+        assertTrue(plan.status().rejectedTargets().containsKey("Server/Target.json"));
     }
 
     @Test
