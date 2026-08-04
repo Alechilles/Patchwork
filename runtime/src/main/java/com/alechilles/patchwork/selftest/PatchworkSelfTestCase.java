@@ -8,7 +8,14 @@ import java.util.Objects;
 /** Immutable source, patch, optional ModData, and expected-output fixture for one isolated run. */
 public record PatchworkSelfTestCase(String sourceTargetPath, String sourceTargetJson, String patchDefinitionPath,
                                     String patchDefinitionJson, String registeredModId, Map<String, String> modDataDocuments,
-                                    String expectedGeneratedTarget, Map<String, String> expectedPointers) {
+                                    String expectedGeneratedTarget, Map<String, String> expectedPointers,
+                                    Map<String, String> fixtureAssets) {
+    public PatchworkSelfTestCase(String sourceTargetPath, String sourceTargetJson, String patchDefinitionPath,
+                                 String patchDefinitionJson, String registeredModId, Map<String, String> modDataDocuments,
+                                 String expectedGeneratedTarget, Map<String, String> expectedPointers) {
+        this(sourceTargetPath, sourceTargetJson, patchDefinitionPath, patchDefinitionJson, registeredModId,
+                modDataDocuments, expectedGeneratedTarget, expectedPointers, Map.of());
+    }
     public PatchworkSelfTestCase {
         sourceTargetPath = path(sourceTargetPath, "source target");
         patchDefinitionPath = path(patchDefinitionPath, "patch definition");
@@ -26,13 +33,16 @@ public record PatchworkSelfTestCase(String sourceTargetPath, String sourceTarget
             pointers.put(pointer, Objects.requireNonNullElse(expected, "null"));
         });
         expectedPointers = Map.copyOf(pointers);
+        Map<String, String> assets = new LinkedHashMap<>();
+        if (fixtureAssets != null) fixtureAssets.forEach((key, value) -> assets.put(path(key, "fixture asset"), Objects.requireNonNullElse(value, "")));
+        fixtureAssets = Map.copyOf(assets);
     }
 
     /** Applies the generated run ID without introducing a macro or runtime configuration surface. */
     PatchworkSelfTestCase forRun(String runId) {
         return new PatchworkSelfTestCase(sourceTargetPath, substitute(sourceTargetJson, runId), patchDefinitionPath,
                 substitute(patchDefinitionJson, runId), registeredModId, substitute(modDataDocuments, runId),
-                expectedGeneratedTarget, substitute(expectedPointers, runId));
+                expectedGeneratedTarget, substitute(expectedPointers, runId), substitute(fixtureAssets, runId));
     }
 
     private static Map<String, String> substitute(Map<String, String> values, String runId) {

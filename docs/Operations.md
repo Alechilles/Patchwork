@@ -141,7 +141,7 @@ If current generated inventory cannot be safely scanned, status explicitly repor
 
 ## Self-test
 
-`/patchwork selftest` creates one UUID-named run below Patchwork's self-test root. It writes isolated source, generated, and mod-data fixtures, runs the real generation engine, and verifies expected JSON pointers for the currently covered core operations (`Add`, `Merge`, `Replace`, `Remove`, `Insert`, `ReplaceMatching`, `RemoveMatching`, and `MoveMatching`). Matching merge/upsert operations are covered by the runtime conformance fixtures; host macros are not included because their behavior is supplied by an embedding plugin.
+`/patchwork selftest` creates one UUID-named run below Patchwork's self-test root. It writes isolated source, generated, and mod-data fixtures, runs the real generation engine, and verifies expected JSON pointers for the core operations, including matching merge/upsert, both cross-asset merges, explicit `glob:` targets, and an `Allow` conflict-policy application. It also covers `Add`, `Merge`, `Replace`, `Remove`, `Insert`, `ReplaceMatching`, `RemoveMatching`, `MoveMatching`, and a mod-data condition. Host macros and automatic/live reload are covered by their own runtime tests because their behavior depends on an embedding host or Hytale lifecycle events.
 
 The command reports the pass/fail result of each completed fixture in-game, followed by the overall reload category and cleanup result. If generation fails before any fixture completes, it reports that explicitly.
 

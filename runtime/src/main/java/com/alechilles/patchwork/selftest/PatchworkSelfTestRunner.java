@@ -75,6 +75,7 @@ public final class PatchworkSelfTestRunner {
                 checkCancelled(); guard.requireStable(); PatchworkSelfTestCase fixture = original.forRun(run.getFileName().toString()); fixtureCases.add(fixture);
                 safeWrite(source, fixture.sourceTargetPath(), fixture.sourceTargetJson(), guard);
                 safeWrite(source, fixture.patchDefinitionPath(), fixture.patchDefinitionJson(), guard);
+                for (Map.Entry<String, String> asset : fixture.fixtureAssets().entrySet()) safeWrite(source, asset.getKey(), asset.getValue(), guard);
                 if (fixture.registeredModId() != null) {
                     Path data = child(modData, fixture.registeredModId().replace(':', '_'));
                     guard.requireStable(); ensureDirectory(data); roots.putIfAbsent(fixture.registeredModId(), data);

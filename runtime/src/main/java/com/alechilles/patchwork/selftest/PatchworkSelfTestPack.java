@@ -42,6 +42,25 @@ public record PatchworkSelfTestPack(List<PatchworkSelfTestCase> cases) {
                         "Server/Patchwork/Patches/move-matching.json", """
                         {"FormatVersion":2,"Id":"selftest-move-matching-${runId}","Target":"Server/PatchworkSelfTest/move-matching.json","Operations":[{"Op":"RequireFormat","Version":2},{"Op":"MoveMatching","Path":"/items","Match":{"id":"b"},"Position":"After","Find":{"id":"c"}}]}
                         """, null, Map.of(), "Server/PatchworkSelfTest/move-matching.json", Map.of("/items/1/id", "\"c\"", "/items/2/id", "\"b\"")),
+                new PatchworkSelfTestCase("Server/PatchworkSelfTest/matching.json", "{\"rows\":[{\"id\":\"a\",\"old\":true}]}",
+                        "Server/Patchwork/Patches/matching.json", """
+                        {"Id":"selftest-matching-${runId}","Target":"Server/PatchworkSelfTest/matching.json","Operations":[{"Op":"MergeMatching","Path":"/rows","Match":{"id":"a"},"Value":{"merged":true}},{"Op":"UpsertMatching","Path":"/rows","Match":{"id":"b"},"Value":{"id":"b","upserted":true}}]}
+                        """, null, Map.of(), "Server/PatchworkSelfTest/matching.json", Map.of("/rows/0/merged", "true", "/rows/1/upserted", "true")),
+                new PatchworkSelfTestCase("Server/PatchworkSelfTest/cross-asset.json", "{\"destination\":{\"old\":1}}",
+                        "Server/Patchwork/Patches/cross-asset.json", """
+                        {"Id":"selftest-cross-asset-${runId}","Target":"Server/PatchworkSelfTest/cross-asset.json","Operations":[{"Op":"OverlayFromAsset","Source":"Server/PatchworkSelfTest/source.json"},{"Op":"MergeObjectFromAsset","Source":"Server/PatchworkSelfTest/source.json","SourcePath":"/shared","Path":"/destination"}]}
+                        """, null, Map.of(), "Server/PatchworkSelfTest/cross-asset.json", Map.of("/overlayed", "true", "/destination/old", "1", "/destination/fromSource", "2"),
+                        Map.of("Server/PatchworkSelfTest/source.json", "{\"overlayed\":true,\"shared\":{\"fromSource\":2}}")),
+                new PatchworkSelfTestCase("Server/PatchworkSelfTest/glob-one.json", "{\"enabled\":false}",
+                        "Server/Patchwork/Patches/glob.json", """
+                        {"Id":"selftest-glob-${runId}","Target":"glob:Server/PatchworkSelfTest/glob-*.json","Operations":[{"Op":"Replace","Path":"/enabled","Value":true}]}
+                        """, null, Map.of(), "Server/PatchworkSelfTest/glob-one.json", Map.of("/enabled", "true"),
+                        Map.of("Server/PatchworkSelfTest/glob-two.json", "{\"enabled\":false}")),
+                new PatchworkSelfTestCase("Server/PatchworkSelfTest/conflict-policy.json", "{\"value\":0}",
+                        "Server/Patchwork/Patches/conflict-first.json", """
+                        {"Id":"selftest-conflict-a-first-${runId}","Target":"Server/PatchworkSelfTest/conflict-policy.json","Operations":[{"Op":"Replace","Path":"/value","Value":1}]}
+                        """, null, Map.of(), "Server/PatchworkSelfTest/conflict-policy.json", Map.of("/value", "2"),
+                        Map.of("Server/Patchwork/Patches/conflict-allow.json", "{\"Id\":\"selftest-conflict-b-allow-${runId}\",\"Target\":\"Server/PatchworkSelfTest/conflict-policy.json\",\"ConflictPolicy\":\"Allow\",\"Operations\":[{\"Op\":\"Replace\",\"Path\":\"/value\",\"Value\":2}]}")),
                 new PatchworkSelfTestCase("Server/PatchworkSelfTest/condition.json", "{\"enabled\":false,\"value\":1}",
                         "Server/Patchwork/Patches/condition.json", """
                         {"FormatVersion":2,"Id":"selftest-condition-${runId}","Target":"Server/PatchworkSelfTest/condition.json","When":{"JsonPathEquals":{"Source":{"Type":"ModData","Mod":"Patchwork:SelfTest","Path":"settings.json"},"Path":"/enabled","Value":true}},"Operations":[{"Op":"RequireFormat","Version":2},{"Op":"Replace","Path":"/value","Value":3}]}

@@ -37,8 +37,9 @@ final class PatchworkSelfTestRunnerTest {
     @Test void standardPackRunsRealGenerationIncludingItsModDataCondition() {
         PatchworkSelfTestResult result = new PatchworkSelfTestRunner(new GeneratedPackLayout(temporary)).run(PatchworkSelfTestPack.standard());
 
-        assertTrue(result.completed(), result.diagnostic());
+        assertTrue(result.completed(), result.diagnostic() + " " + result.caseOutcomes());
         assertTrue(result.caseOutcomes().stream().allMatch(PatchworkSelfTestResult.CaseOutcome::passed), result.diagnostic());
+        assertTrue(result.generatedTargets().contains("Server/PatchworkSelfTest/glob-two.json"));
         assertTrue(result.generatedTargets().contains("Server/PatchworkSelfTest/replace.json"));
         assertTrue(result.generatedTargets().contains("Server/PatchworkSelfTest/condition.json"));
     }
@@ -46,7 +47,7 @@ final class PatchworkSelfTestRunnerTest {
     @Test void standardPackVerifiesEveryBuiltInPatchOperation() {
         PatchworkSelfTestResult result = new PatchworkSelfTestRunner(new GeneratedPackLayout(temporary)).run(PatchworkSelfTestPack.standard());
 
-        assertTrue(result.completed(), result.diagnostic());
+        assertTrue(result.completed(), result.diagnostic() + " " + result.caseOutcomes());
         assertEquals(Set.of(
                 "Server/PatchworkSelfTest/add.json",
                 "Server/PatchworkSelfTest/merge.json",
@@ -56,6 +57,10 @@ final class PatchworkSelfTestRunnerTest {
                 "Server/PatchworkSelfTest/replace-matching.json",
                 "Server/PatchworkSelfTest/remove-matching.json",
                 "Server/PatchworkSelfTest/move-matching.json",
+                "Server/PatchworkSelfTest/matching.json",
+                "Server/PatchworkSelfTest/cross-asset.json",
+                "Server/PatchworkSelfTest/glob-one.json",
+                "Server/PatchworkSelfTest/conflict-policy.json",
                 "Server/PatchworkSelfTest/condition.json"),
                 result.caseOutcomes().stream().map(PatchworkSelfTestResult.CaseOutcome::target).collect(java.util.stream.Collectors.toSet()));
         assertTrue(result.caseOutcomes().stream().allMatch(PatchworkSelfTestResult.CaseOutcome::passed), result.diagnostic());
