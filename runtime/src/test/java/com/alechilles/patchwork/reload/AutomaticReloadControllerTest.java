@@ -15,6 +15,22 @@ import org.junit.jupiter.api.Test;
 
 final class AutomaticReloadControllerTest {
     @Test
+    void ignoresStartupEventsUntilDependenciesArePublished() {
+        ManualScheduler scheduler = new ManualScheduler();
+        AtomicInteger passes = new AtomicInteger();
+        AutomaticReloadController controller = new AutomaticReloadController(epoch -> { passes.incrementAndGet(); return null; }, scheduler);
+
+        controller.onSourceEvent(7L, PatchworkSourceEvent.packRegistered("Pack:Mod", true));
+        scheduler.advance(Duration.ofSeconds(2));
+        assertEquals(0, passes.get());
+
+        controller.activate(7L, dependencies("Server/Item/A.json"));
+        controller.onSourceEvent(7L, PatchworkSourceEvent.packRegistered("Pack:Mod", true));
+        scheduler.advance(Duration.ofSeconds(1));
+        assertEquals(1, passes.get());
+    }
+
+    @Test
     void debouncesRelevantEventsAndRunsOneDirtyFollowUp() {
         ManualScheduler scheduler = new ManualScheduler();
         AtomicInteger passes = new AtomicInteger();

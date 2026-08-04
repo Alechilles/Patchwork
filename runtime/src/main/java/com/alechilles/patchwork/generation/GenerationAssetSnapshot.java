@@ -101,14 +101,14 @@ public final class GenerationAssetSnapshot {
         final Path root;
         final PatchTargetResolver.DirectoryRootSnapshot rootSnapshot;
         try {
-            root = source.backingPath().toRealPath();
+            root = source.backingPath().toAbsolutePath().normalize();
             rootSnapshot = PatchTargetResolver.snapshotDirectoryRoot(root);
         } catch (IOException missing) {
             return;
         }
         if (!Files.isDirectory(root)) return;
-        try (var files = Files.walk(root)) {
-            files.filter(Files::isRegularFile)
+        try (var files = Files.find(root, Integer.MAX_VALUE, (path, attributes) -> attributes.isRegularFile())) {
+            files
                     .forEach(file -> captureDirectoryFile(source, root, rootSnapshot, file, winners));
         } catch (IOException ignored) {
             // A source can disappear during a capture.  Unreadable paths simply do not win.
@@ -120,11 +120,9 @@ public final class GenerationAssetSnapshot {
                                               Path file,
                                               Map<String, AssetRecord> winners) {
         try {
-            Path realFile = file.toRealPath();
-            if (!realFile.startsWith(root)) return;
-            String path = PatchScanner.normalizeAssetPath(root.relativize(realFile).toString());
-            FileIdentity identity = FileIdentity.capture(realFile);
-            putWinner(AssetRecord.directory(source, path, rootSnapshot, realFile, identity), winners);
+            String path = PatchScanner.normalizeAssetPath(root.relativize(file).toString());
+            FileIdentity identity = FileIdentity.capture(file);
+            putWinner(AssetRecord.directory(source, path, rootSnapshot, file, identity), winners);
         } catch (IOException | IllegalArgumentException ignored) {
             // Ignore an individual disappearing, malformed, or escaping entry and retain others.
         }

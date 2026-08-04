@@ -70,7 +70,6 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
 
     @Override public void activate(long value) {
         synchronized (gate) { epoch = value; accepting = true; replayPaused = false; }
-        automaticReloadController().activate(value, GenerationDependencyIndex.empty());
         administration().activate(value);
         PatchReloadCoordinator coordinator = reloadCoordinator;
         if (coordinator != null) coordinator.activate(value);
@@ -202,6 +201,9 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
     /** Records a startup plan only after its publication has completed at this ownership epoch. */
     void seedStartup(long value, com.alechilles.patchwork.generation.PatchGenerationService.GenerationPlan plan) {
         administration().seedStartup(value, plan);
+        // Hytale emits pack/store registration events while it is booting.  Do not admit an
+        // automatic pass until the startup plan is published and has supplied real dependencies.
+        automaticReloadController().activate(value, plan.dependencies());
     }
 
     private PatchworkAdministrationService administration() {

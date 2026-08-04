@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- Fixed Patchwork startup stalling while eagerly reading every asset body. Generation now indexes the active asset snapshot first and reads only definitions, targets, conditions, and cross-asset sources actually used by the pass.
+- Fixed Patchwork startup stalling while eagerly reading every asset body or resolving every asset's canonical path. Generation now indexes the active asset snapshot first, reads only definitions, targets, conditions, and cross-asset sources actually used by the pass, and does not start automatic regeneration from Hytale's initial pack-registration events.
 - Fixed native Asset Editor controls for `When`, JSON condition `Source`, and `Match`/`Find`/`Existing` matchers. These object-only fields now open their guided choices instead of presenting a non-expandable typeless union.
 
 ## 1.2.0 - 2026-08-03
