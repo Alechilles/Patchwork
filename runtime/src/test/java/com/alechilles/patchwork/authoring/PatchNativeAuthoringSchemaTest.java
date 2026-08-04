@@ -56,6 +56,8 @@ final class PatchNativeAuthoringSchemaTest {
         assertTrue(containsRef(when, "common.json#/definitions/Alechilles.Patchwork.PatchCondition"));
         Schema condition = context.getDefinitions().get("Alechilles.Patchwork.PatchCondition");
         assertNotNull(condition);
+        assertTrue(condition instanceof ObjectSchema,
+                "When must serialize as an object so the Asset Editor can open its condition choices");
         assertEquals(Set.of(
                         "ModInstalled", "ModVersion", "ServerVersion", "GameVersion",
                         "AssetExists", "AssetMissing", "TargetExists", "TargetProvidedBy",

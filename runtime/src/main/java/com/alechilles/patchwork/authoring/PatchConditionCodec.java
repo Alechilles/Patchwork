@@ -46,7 +46,7 @@ final class PatchConditionCodec implements Codec<BsonDocument> {
     }
 
     private static Schema definitionSchema(SchemaContext context) {
-        Schema condition = documented(new Schema(), "Patch condition",
+        ObjectSchema condition = documented(new ObjectSchema(), "Patch condition",
                 "Choose one condition. Add $Comment when you want to explain why the condition exists.");
         condition.setOneOf(
                 conditionVariant("ModInstalled", nonblankString("Mod ID",
