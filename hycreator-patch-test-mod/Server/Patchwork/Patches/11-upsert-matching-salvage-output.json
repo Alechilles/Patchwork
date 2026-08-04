@@ -1,0 +1,17 @@
+{
+  "Id": "HyCreatorPatchTest_UpsertMatching",
+  "Target": "Server/Item/Recipes/Salvage/Salvage_Armor_Wood_Hands.json",
+  "Operations": [
+    {
+      "Id": "upsert-rubble-stone-output",
+      "Op": "UpsertMatching",
+      "Path": "/Output",
+      "Match": { "ItemId": "Rubble_Stone" },
+      "Position": "End",
+      "Value": {
+        "ItemId": "Rubble_Stone",
+        "Quantity": 1
+      }
+    }
+  ]
+}

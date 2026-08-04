@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.alechilles.patchwork.format.PatchDefinitionReader;
+import com.alechilles.patchwork.format.PatchLanguage;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.nio.file.Files;
@@ -14,14 +15,15 @@ import java.util.Set;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-/** Keeps the HyCreator handoff fixture aligned with Patchwork's portable format-2 contract. */
+/** Keeps the HyCreator handoff fixture aligned with Patchwork's neutral authoring contract. */
 final class HyCreatorPatchTestModTest {
     private static final Set<String> PORTABLE_OPERATIONS = Set.of(
             "Add", "Merge", "Replace", "Remove", "Insert",
-            "ReplaceMatching", "RemoveMatching", "MoveMatching", "Macro");
+            "ReplaceMatching", "RemoveMatching", "MoveMatching", "MergeMatching", "UpsertMatching",
+            "OverlayFromAsset", "MergeObjectFromAsset", "Macro");
 
     @Test
-    void standaloneTestModContainsOneValidVanillaPatchForEveryPortableOperation() throws Exception {
+    void standaloneTestModContainsOneValidNeutralPatchForEveryPortableOperation() throws Exception {
         Path root = fixtureRoot();
         assertTrue(Files.isDirectory(root), "missing standalone HyCreator test mod");
 
@@ -38,14 +40,13 @@ final class HyCreatorPatchTestModTest {
         Set<String> operations = new HashSet<>();
         for (Path path : definitions) {
             String sourcePath = root.relativize(path).toString().replace('\\', '/');
-            PatchDefinition definition = PatchDefinition.parse(
+            PatchDefinition definition = PatchDefinition.parseAll(
                     PatchDefinitionReader.parse(Files.readAllBytes(path), "Alechilles:HyCreatorPatchTest", sourcePath, 0),
-                    "Alechilles:HyCreatorPatchTest", sourcePath, 0);
-            assertEquals(2, definition.formatVersion());
+                    "Alechilles:HyCreatorPatchTest", sourcePath, 0, PatchLanguage.NEUTRAL).getFirst();
+            assertEquals(0, definition.formatVersion());
             assertTrue(definition.target().startsWith("Server/"));
-            assertEquals("RequireFormat", definition.operations().getFirst().op());
-            assertEquals(2, definition.operations().size());
-            operations.add(definition.operations().get(1).op());
+            assertEquals(1, definition.operations().size());
+            operations.add(definition.operations().getFirst().op());
         }
 
         assertEquals(PORTABLE_OPERATIONS, operations);

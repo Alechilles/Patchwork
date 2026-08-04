@@ -32,6 +32,11 @@ final class PatchNeutralSchemaTest {
         assertValid(readResource("authoring-kit/neutral/valid/upsert-matching.json"), "upsert-matching");
         assertValid(readResource("authoring-kit/neutral/valid/overlay-from-asset.json"), "overlay-from-asset");
         assertValid(readResource("authoring-kit/neutral/valid/merge-object-from-asset.json"), "merge-object-from-asset");
+        assertValid(JSON.readTree("""
+                {"Id":"macro-path-input","Target":"Server/Test/A.json","Operations":[
+                  {"Op":"Macro","Macro":"Example","Path":"/Items","Position":"After","Find":{"Id":"a"}}
+                ]}
+                """), "macro-path-input");
         assertValid(readResource("authoring-kit/neutral/valid/glob-targets.json"), "glob-targets");
         assertValid(readResource("authoring-kit/neutral/valid/conflict-policy.json"), "conflict-policy");
         assertInvalid(readResource("authoring-kit/neutral/invalid/upsert-relative-without-find.json"),

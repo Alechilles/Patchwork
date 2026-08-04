@@ -1,0 +1,13 @@
+{
+  "Id": "HyCreatorPatchTest_MergeObjectFromAsset",
+  "Target": "Server/Item/Recipes/Salvage/Salvage_Armor_Wood_Hands.json",
+  "Operations": [
+    {
+      "Id": "merge-axe-primary-output",
+      "Op": "MergeObjectFromAsset",
+      "Source": "Server/Item/Recipes/Salvage/Salvage_Weapon_Axe_Crude.json",
+      "SourcePath": "/PrimaryOutput",
+      "Path": "/PrimaryOutput"
+    }
+  ]
+}

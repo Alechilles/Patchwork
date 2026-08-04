@@ -1,10 +1,8 @@
 {
-  "FormatVersion": 2,
   "Id": "HyCreatorPatchTest_Macro",
   "Target": "Server/Item/Items/Ingredient/Bar/Ingredient_Bar_Iron.json",
   "Enabled": false,
   "Operations": [
-    { "Op": "RequireFormat", "Version": 2 },
     {
       "Id": "preserve-unknown-host-macro",
       "Op": "Macro",

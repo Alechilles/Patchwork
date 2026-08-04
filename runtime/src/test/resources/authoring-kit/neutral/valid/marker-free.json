@@ -1,4 +1,5 @@
 {
+  "$Comment": "Neutral authoring notes are preserved without affecting the patch.",
   "Id": "neutral-example",
   "Target": "Server/Test/A.json",
   "Operations": [

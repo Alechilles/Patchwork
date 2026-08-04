@@ -1,9 +1,7 @@
 {
-  "FormatVersion": 2,
   "Id": "HyCreatorPatchTest_Insert",
   "Target": "Server/Item/Recipes/Salvage/Salvage_Armor_Wood_Hands.json",
   "Operations": [
-    { "Op": "RequireFormat", "Version": 2 },
     {
       "Id": "insert-tree-sap-after-stick",
       "Op": "Insert",

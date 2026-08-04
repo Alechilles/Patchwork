@@ -1,17 +1,14 @@
 {
-  "Id": "HyCreatorPatchTest_ReplaceMatching",
+  "Id": "HyCreatorPatchTest_MergeMatching",
   "Target": "Server/Item/Recipes/Salvage/Salvage_Weapon_Axe_Crude.json",
   "Operations": [
     {
-      "Id": "replace-fibre-output",
-      "Op": "ReplaceMatching",
+      "Id": "merge-fibre-output",
+      "Op": "MergeMatching",
       "Path": "/Output",
       "Match": { "ItemId": "Ingredient_Fibre" },
       "MatchPolicy": "ExactlyOne",
-      "Value": {
-        "ItemId": "Ingredient_Fibre",
-        "Quantity": 2
-      }
+      "Value": { "Quantity": 3 }
     }
   ]
 }

@@ -1,0 +1,11 @@
+{
+  "Id": "HyCreatorPatchTest_OverlayFromAsset",
+  "Target": "Server/Item/Recipes/Salvage/Salvage_Armor_Kweebec_Chest.json",
+  "Operations": [
+    {
+      "Id": "overlay-axe-salvage",
+      "Op": "OverlayFromAsset",
+      "Source": "Server/Item/Recipes/Salvage/Salvage_Weapon_Axe_Crude.json"
+    }
+  ]
+}
