@@ -55,7 +55,9 @@ This patch changes the cow only when the specified mod is installed. Patchwork r
 
 No bundled override. No manually maintained duplicate. No change when the integration is not needed.
 
-### [Exact paths and explicit target globs](https://wiki.hytalemodding.dev/mod/patchwork/choose-the-assets-to-change)
+### Exact paths and explicit target globs
+
+See the [asset-selection guide](https://wiki.hytalemodding.dev/mod/patchwork/choose-the-assets-to-change).
 
 `Target` and `Targets` accept an exact asset path or an explicit selector beginning with `glob:`:
 
@@ -68,7 +70,9 @@ No bundled override. No manually maintained duplicate. No change when the integr
 
 Only prefixed selectors are patterns. `*` matches within one path segment, `**` crosses zero or more segments, and `?` matches one character. Raw wildcards and regular expressions are not interpreted. Expansion uses one immutable original-asset snapshot, excludes Patchwork's generated pack, deduplicates matches, and orders them deterministically. A selector matching nothing produces a warning rather than inventing an asset.
 
-### [Conflict diagnostics and target-local policy](https://wiki.hytalemodding.dev/mod/patchwork/optional-changes-and-conflict-reports)
+### Conflict diagnostics and target-local policy
+
+See [optional changes and conflict reports](https://wiki.hytalemodding.dev/mod/patchwork/optional-changes-and-conflict-reports).
 
 Patchwork reports overlaps between successful effects from different definitions at the same target path and effect kind. Reports distinguish same-pack/cross-pack scope and redundant-identical/material overlaps without exposing written values or fingerprints. `/patchwork status` shows bounded summary counts; `/patchwork conflicts` lists redacted rows, and `/patchwork conflicts <exact-target>` filters the report.
 
@@ -96,7 +100,9 @@ A patch can stand alone, use several conditions together, or target multiple ass
 
 ***
 
-## [A small language for precise changes](https://wiki.hytalemodding.dev/mod/patchwork/core-operations)
+## A small language for precise changes
+
+See the [core operations guide](https://wiki.hytalemodding.dev/mod/patchwork/core-operations).
 
 Patchwork supports core JSON operations:
 
@@ -113,7 +119,9 @@ Insert operations can locate stable anchors instead of relying on fragile array 
 
 If a required operation cannot be completed, Patchwork rejects that target instead of publishing a half-applied asset. Clear diagnostics identify the patch, operation, target, and reason.
 
-### [Advanced operations](https://wiki.hytalemodding.dev/mod/patchwork/array-and-matching-operations)
+### Advanced operations
+
+See [array and matching operations](https://wiki.hytalemodding.dev/mod/patchwork/array-and-matching-operations).
 
 When a simple add, merge, or insert is not enough, Patchwork also provides four format-free operations for common integration jobs:
 
@@ -126,7 +134,9 @@ Matching uses the same recursive object matcher as other array operations, and b
 
 ***
 
-## [Conditional by design](https://wiki.hytalemodding.dev/mod/patchwork/conditions-apply-only-when-needed)
+## Conditional by design
+
+See [conditions: apply only when needed](https://wiki.hytalemodding.dev/mod/patchwork/conditions-apply-only-when-needed).
 
 Compatibility patches should appear only when they make sense.
 
@@ -146,7 +156,9 @@ Patchwork’s access to other mod data is read-only and confined to registered m
 
 ***
 
-## [One Patchwork, however it arrives](https://wiki.hytalemodding.dev/mod/patchwork/embed-patchwork)
+## One Patchwork, however it arrives
+
+See [how to embed Patchwork](https://wiki.hytalemodding.dev/mod/patchwork/embed-patchwork).
 
 Patchwork is available as both a standalone mod and an embeddable Java runtime.
 
@@ -188,7 +200,9 @@ Tamework can embed Patchwork and contribute its own macros and reload behavior, 
 
 ***
 
-## [For server owners](https://wiki.hytalemodding.dev/mod/patchwork/server-owner-guide)
+## For server owners
+
+See the [server owner guide](https://wiki.hytalemodding.dev/mod/patchwork/server-owner-guide).
 
 Most of Patchwork is intended to work quietly.
 
