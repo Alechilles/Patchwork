@@ -275,7 +275,9 @@ public final class PatchOperation {
                 required = Set.of("Op", "Path", "Value");
             }
             case "Macro" -> {
-                allowed = Set.of("Op", "Macro", "Options", "Id", "Required");
+                allowed = language == PatchLanguage.NEUTRAL
+                        ? Set.of("Op", "Macro", "Options", "Id", "Required", "Path", "Position", "Find")
+                        : Set.of("Op", "Macro", "Options", "Id", "Required");
                 required = Set.of("Op", "Macro");
             }
             default -> {

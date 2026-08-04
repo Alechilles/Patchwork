@@ -37,7 +37,7 @@
 - Fixed target resolution for registered asset packs installed through symbolic links or Windows junctions.
 - Fixed recoverable scan failures and rejected targets incorrectly failing server startup after valid generated targets were published; warnings now identify each skipped file and reason.
 - Fixed `/patchwork selftest` when standalone and embedded Patchwork copies are loaded by different Hytale plugin classloaders.
-- Restored unversioned patch compatibility for root `$Comment` notes and object-based `Find`/`Existing` anchors.
+- Restored unversioned patch compatibility for root `$Comment` notes, object-based `Find`/`Existing` anchors, and path-based macro inputs.
 
 ### Removed
 

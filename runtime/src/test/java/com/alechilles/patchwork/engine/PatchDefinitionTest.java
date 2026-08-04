@@ -45,6 +45,16 @@ final class PatchDefinitionTest {
     }
 
     @Test
+    void neutralMacroAllowsItsPathBasedExpansionInput() {
+        assertDoesNotThrow(() -> parseNeutral(object("""
+                {"Id":"macro","Target":"Server/A.json","Operations":[
+                  {"Id":"bridge","Op":"Macro","Macro":"HostBridge","Path":"/Instructions",
+                   "Position":"After","Find":{"$Comment":"anchor"},"Options":{"enabled":true}}
+                ]}
+                """)));
+    }
+
+    @Test
     void neutralConflictPolicyDefaultsToReportAndAcceptsCaseInsensitiveChoices() {
         PatchDefinition defaultPolicy = parseNeutral(object("""
                 {"Id":"default","Target":"Server/A.json","Operations":[]}
