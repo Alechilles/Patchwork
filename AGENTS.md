@@ -2,8 +2,9 @@
 
 - Use Git Bash for repository commands and do not leave processes running.
 - Keep the reusable runtime free of Hytale plugin identity files; the standalone module owns the plugin manifest and shaded artifact.
-- Use Java 25 and preserve the Hytale system dependency path pattern in Maven builds.
-- Run `./mvnw.cmd test` after code changes and `./mvnw.cmd -pl standalone -am verify` after packaging changes.
+- Use Java 25. The runtime has a compile-only Hytale server JAR path; the standalone module uses the AzureDoom Hytale Gradle plugin.
+- Run `bash ../gradlew :patchwork:runtime:test :patchwork:standalone:test` after code changes and `bash ../gradlew :patchwork:standalone:build` after packaging changes.
+- Patchwork's standalone JAR is distributable but is not part of the default shared `runAllMods` set: Tamework supplies its shaded runtime there. Do not re-add a second Patchwork plugin to `run\mods`.
 - Keep docs and `CHANGELOG.md` aligned with user-facing behavior. Do not claim unfinished runtime functionality.
 
 ## Durable Product and Runtime Contracts
