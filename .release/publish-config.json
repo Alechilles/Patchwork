@@ -11,16 +11,16 @@
     "setupStatus": "project-required"
   },
   "modtale": {
-    "enabled": false,
-    "setupStatus": "project-required",
+    "enabled": true,
+    "projectId": "bcd2bd29-98f7-4917-a999-6afd704c2191",
     "projectSlug": "patchwork",
     "projectTitle": "Patchwork",
     "projectDescription": "A standalone and embeddable Hytale asset patcher for focused, compatible cross-mod changes.",
     "classification": "PLUGIN"
   },
   "modifold": {
-    "enabled": false,
-    "setupStatus": "project-required",
+    "enabled": true,
+    "projectId": "ZxcBDQ",
     "projectSlug": "patchwork",
     "projectTitle": "Patchwork",
     "projectSummary": "Standalone and embeddable Hytale asset patcher for focused, compatible cross-mod changes.",
