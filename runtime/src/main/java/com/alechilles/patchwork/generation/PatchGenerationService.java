@@ -179,9 +179,15 @@ public final class PatchGenerationService {
             return new PatchTargetResolver.Resolution(PatchTargetResolver.Status.FAILED, null, "Unsafe asset path.");
         }
         return assets.find(normalized)
-                .map(record -> new PatchTargetResolver.Resolution(PatchTargetResolver.Status.FOUND,
-                        new PatchTargetResolver.ResolvedTarget(record.sourcePackId(), record.sourcePackLoadOrder(),
-                                record.path(), record.bytes()), ""))
+                .map(record -> {
+                    try {
+                        return new PatchTargetResolver.Resolution(PatchTargetResolver.Status.FOUND,
+                                new PatchTargetResolver.ResolvedTarget(record.sourcePackId(), record.sourcePackLoadOrder(),
+                                        record.path(), record.bytes()), "");
+                    } catch (RuntimeException failure) {
+                        return new PatchTargetResolver.Resolution(PatchTargetResolver.Status.FAILED, null, safeMessage(failure));
+                    }
+                })
                 .orElseGet(() -> new PatchTargetResolver.Resolution(PatchTargetResolver.Status.MISSING, null,
                         "Asset source is missing."));
     }

@@ -61,7 +61,7 @@ final class GenerationPlanFactoryTest {
         assertEquals(1, second.entries().size());
     }
 
-    @Test void capturesAssetsBeforeResolverConstructionCanObserveBackingFileChanges() throws Exception {
+    @Test void rejectsOnlyTheTargetChangedBeforeResolverConstruction() throws Exception {
         Path pack = Files.createDirectories(temporary.resolve("capture-order"));
         Files.createDirectories(pack.resolve("Server/Patchwork/Patches"));
         Files.createDirectories(pack.resolve("Server"));
@@ -82,8 +82,8 @@ final class GenerationPlanFactoryTest {
 
         var plan = factory.createPlan();
 
-        assertEquals(List.of("Server/Target.json"), plan.entries().stream()
-                .map(com.alechilles.patchwork.generation.GeneratedPackManifest.Entry::target).toList());
+        assertEquals(List.of(), plan.entries());
+        assertEquals(true, plan.status().rejectedTargets().containsKey("Server/Target.json"));
     }
 
     @Test void eachAdmittedReloadInvokesTheFreshPlanFactory() {
