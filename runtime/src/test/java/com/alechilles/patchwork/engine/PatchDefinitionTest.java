@@ -1,6 +1,7 @@
 package com.alechilles.patchwork.engine;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -25,6 +26,23 @@ import org.junit.jupiter.api.Test;
 
 /** Tests parsing and deterministic ordering of patch definitions. */
 final class PatchDefinitionTest {
+
+    @Test
+    void neutralDefinitionAllowsAnAuthorComment() {
+        assertDoesNotThrow(() -> parseNeutral(object("""
+                {"Id":"commented","$Comment":"Human-facing author note.","Target":"Server/A.json","Operations":[]}
+                """)));
+    }
+
+    @Test
+    void neutralInsertAllowsAnExistingObjectAnchor() {
+        assertDoesNotThrow(() -> parseNeutral(object("""
+                {"Id":"anchored","Target":"Server/A.json","Operations":[
+                  {"Op":"Insert","Path":"/Entries","Position":"After","Find":{"$Comment":"anchor"},
+                   "Existing":{"$Comment":"inserted"},"Value":{"$Comment":"inserted"}}
+                ]}
+                """)));
+    }
 
     @Test
     void neutralConflictPolicyDefaultsToReportAndAcceptsCaseInsensitiveChoices() {

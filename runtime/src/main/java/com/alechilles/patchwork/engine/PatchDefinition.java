@@ -297,7 +297,7 @@ public final class PatchDefinition {
 
     private static void validateClosedRootFields(JsonObject root, PatchLanguage language) {
         Set<String> allowed = language == PatchLanguage.NEUTRAL
-                ? Set.of("Id", "Target", "Targets", "Priority", "Enabled", "ConflictPolicy", "When", "Operations")
+                ? Set.of("Id", "Target", "Targets", "Priority", "Enabled", "ConflictPolicy", "When", "Operations", "$Comment")
                 : Set.of("FormatVersion", "Id", "Target", "Targets", "Priority", "Enabled", "When", "Operations");
         for (String name : root.keySet()) {
             if (!allowed.contains(name)) {

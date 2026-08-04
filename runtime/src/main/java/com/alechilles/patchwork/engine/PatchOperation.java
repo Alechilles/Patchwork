@@ -319,7 +319,7 @@ public final class PatchOperation {
             if (!operation.get("Match").isJsonObject()) {
                 throw structural(patchId, index, "Match must be an object.");
             }
-            validateMatcher(operation.get("Match"), "Match", patchId, index);
+            validateMatcher(operation.get("Match"), "Match", patchId, index, language);
         }
         if (Set.of("Merge", "MergeMatching", "UpsertMatching").contains(op)
                 && !operation.get("Value").isJsonObject()) {
@@ -334,7 +334,7 @@ public final class PatchOperation {
             return;
         }
         if ("Insert".equals(op)) {
-            validateInsert(operation, patchId, index);
+            validateInsert(operation, patchId, index, language);
             return;
         }
         if (operation.has("MatchPolicy")) {
@@ -344,15 +344,15 @@ public final class PatchOperation {
             }
         }
         if ("UpsertMatching".equals(op)) {
-            validateRelativePosition(operation, patchId, index, "UpsertMatching");
+            validateRelativePosition(operation, patchId, index, "UpsertMatching", language);
             return;
         }
         if ("MoveMatching".equals(op)) {
-            validateRelativePosition(operation, patchId, index, "MoveMatching");
+            validateRelativePosition(operation, patchId, index, "MoveMatching", language);
         }
     }
 
-    private static void validateRelativePosition(JsonObject operation, String patchId, int index, String name) {
+    private static void validateRelativePosition(JsonObject operation, String patchId, int index, String name, PatchLanguage language) {
         String position = operation.has("Position")
                 ? strictString(operation, "Position", patchId + " operation " + index) : "End";
         String normalized = position.toLowerCase(Locale.ROOT);
@@ -363,7 +363,7 @@ public final class PatchOperation {
         if (hasFind && !operation.get("Find").isJsonObject()) {
             throw structural(patchId, index, "Find must be an object.");
         }
-        if (hasFind) validateMatcher(operation.get("Find"), "Find", patchId, index);
+        if (hasFind) validateMatcher(operation.get("Find"), "Find", patchId, index, language);
         if (("before".equals(normalized) || "after".equals(normalized)) != hasFind) {
             throw structural(patchId, index, ("before".equals(normalized) || "after".equals(normalized))
                     ? name + " " + position + " requires Find."
@@ -447,7 +447,7 @@ public final class PatchOperation {
         return "OverlayFromAsset".equals(operation) || "MergeObjectFromAsset".equals(operation);
     }
 
-    private static void validateInsert(JsonObject operation, String patchId, int index) {
+    private static void validateInsert(JsonObject operation, String patchId, int index, PatchLanguage language) {
         String position = operation.has("Position")
                 ? strictString(operation, "Position", patchId + " operation " + index) : "End";
         String normalized = position.toLowerCase(Locale.ROOT);
@@ -458,12 +458,12 @@ public final class PatchOperation {
         if (hasFind && !operation.get("Find").isJsonObject()) {
             throw structural(patchId, index, "Find must be an object.");
         }
-        if (hasFind) validateMatcher(operation.get("Find"), "Find", patchId, index);
+        if (hasFind) validateMatcher(operation.get("Find"), "Find", patchId, index, language);
         boolean hasExisting = operation.has("Existing");
         if (hasExisting && !operation.get("Existing").isJsonObject()) {
             throw structural(patchId, index, "Existing must be an object.");
         }
-        if (hasExisting) validateMatcher(operation.get("Existing"), "Existing", patchId, index);
+        if (hasExisting) validateMatcher(operation.get("Existing"), "Existing", patchId, index, language);
         if (("before".equals(normalized) || "after".equals(normalized)) != hasFind) {
             throw structural(patchId, index, ("before".equals(normalized) || "after".equals(normalized))
                     ? "Position " + position + " requires Find."
@@ -471,7 +471,8 @@ public final class PatchOperation {
         }
     }
 
-    private static void validateMatcher(JsonElement value, String name, String patchId, int index) {
+    private static void validateMatcher(JsonElement value, String name, String patchId, int index, PatchLanguage language) {
+        if (language != PatchLanguage.STRICT_V2) return;
         try {
             JsonMatcher.validateV2(value.getAsJsonObject());
         } catch (IllegalArgumentException failure) {
