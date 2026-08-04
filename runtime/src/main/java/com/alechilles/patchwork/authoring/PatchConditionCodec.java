@@ -47,46 +47,37 @@ final class PatchConditionCodec implements Codec<BsonDocument> {
 
     private static Schema definitionSchema(SchemaContext context) {
         ObjectSchema condition = documented(new ObjectSchema(), "Patch condition",
-                "Choose one condition. Add $Comment when you want to explain why the condition exists.");
-        condition.setOneOf(
-                conditionVariant("ModInstalled", nonblankString("Mod ID",
-                                "Namespaced ID of the mod that must be installed, such as Example:Livestock."),
-                        "ModInstalled", "Applies only when the named mod is installed."),
-                conditionVariant("ModVersion", modVersionSchema(),
-                        "ModVersion", "Compares the installed version of a named mod."),
-                conditionVariant("ServerVersion", versionComparisonSchema("Server version comparison"),
-                        "ServerVersion", "Compares the running Hytale server version."),
-                conditionVariant("GameVersion", versionComparisonSchema("Game version comparison"),
-                        "GameVersion", "Portable alias for ServerVersion."),
-                conditionVariant("AssetExists", assetReferenceSchema(),
-                        "AssetExists", "Applies only when the referenced asset exists."),
-                conditionVariant("AssetMissing", assetReferenceSchema(),
-                        "AssetMissing", "Applies only when the referenced asset is missing."),
-                conditionVariant("TargetExists", targetExistsSchema(context),
-                        "TargetExists", "Applies only when this patch's target asset exists."),
-                conditionVariant("TargetProvidedBy", nonblankString("Provider mod ID",
-                                "Namespaced ID of the mod that must currently provide the target asset."),
-                        "TargetProvidedBy", "Applies only when the target asset is provided by the named mod."),
-                conditionVariant("JsonPathExists", jsonPathFields(context, false),
-                        "JsonPathExists", "Checks whether a JSON Pointer exists in the selected source."),
-                conditionVariant("JsonPathEquals", jsonPathFields(context, true),
-                        "JsonPathEquals", "Compares the value at a JSON Pointer in the selected source."),
-                recursiveList(context, "All", "All",
-                        "Applies only when every nested condition is true."),
-                recursiveList(context, "Any", "Any",
-                        "Applies when at least one nested condition is true."),
-                conditionVariant("Not", documented(INSTANCE.toSchema(context), "Nested condition",
-                                "The condition whose result should be inverted."),
-                        "Not", "Applies only when the nested condition is false."));
+                "Set exactly one condition property. Add $Comment when you want to explain why the condition exists.");
+        Map<String, Schema> properties = new LinkedHashMap<>();
+        properties.put("$Comment", documented(Codec.STRING.toSchema(context), "Comment",
+                "Optional note for people reading this patch. It does not affect evaluation."));
+        properties.put("ModInstalled", nonblankString("Mod ID",
+                "Namespaced ID of the mod that must be installed, such as Example:Livestock."));
+        properties.put("ModVersion", modVersionSchema());
+        properties.put("ServerVersion", versionComparisonSchema("Server version comparison"));
+        properties.put("GameVersion", versionComparisonSchema("Game version comparison"));
+        properties.put("AssetExists", assetReferenceSchema());
+        properties.put("AssetMissing", assetReferenceSchema());
+        properties.put("TargetExists", targetExistsSchema(context));
+        properties.put("TargetProvidedBy", nonblankString("Provider mod ID",
+                "Namespaced ID of the mod that must currently provide the target asset."));
+        properties.put("JsonPathExists", jsonPathFields(context, false));
+        properties.put("JsonPathEquals", jsonPathFields(context, true));
+        properties.put("All", recursiveList(context, "All conditions",
+                "Applies only when every nested condition is true."));
+        properties.put("Any", recursiveList(context, "Any conditions",
+                "Applies when at least one nested condition is true."));
+        properties.put("Not", documented(INSTANCE.toSchema(context), "Nested condition",
+                "The condition whose result should be inverted."));
+        condition.setProperties(properties);
+        condition.setAdditionalProperties(false);
         return condition;
     }
 
-    private static ObjectSchema recursiveList(
-            SchemaContext context, String key, String title, String documentation) {
+    private static ArraySchema recursiveList(SchemaContext context, String title, String documentation) {
         ArraySchema values = new ArraySchema(INSTANCE.toSchema(context));
         values.setMinItems(1);
-        documented(values, "Nested conditions", "Add one or more conditions to this group.");
-        return conditionVariant(key, values, title, documentation);
+        return documented(values, title, documentation + " Add one or more conditions to this group.");
     }
 
     private static BooleanSchema targetExistsSchema(SchemaContext context) {
@@ -94,18 +85,6 @@ final class PatchConditionCodec implements Codec<BsonDocument> {
                 "Keep enabled to require the patch target to exist before this patch is eligible.");
         targetExists.setDefault(true);
         return targetExists;
-    }
-
-    private static ObjectSchema conditionVariant(
-            String key, Schema value, String title, String documentation) {
-        ObjectSchema variant = documented(closedObject(), title, documentation);
-        Map<String, Schema> properties = new LinkedHashMap<>();
-        properties.put(key, value);
-        properties.put("$Comment", documented(Codec.STRING.toSchema(new SchemaContext()), "Comment",
-                "Optional note for people reading this patch. It does not affect evaluation."));
-        variant.setProperties(properties);
-        variant.setRequired(key);
-        return variant;
     }
 
     private static Schema assetReferenceSchema() {
@@ -186,36 +165,25 @@ final class PatchConditionCodec implements Codec<BsonDocument> {
         return schema;
     }
 
-    private static Schema sourceSchema() {
+    private static ObjectSchema sourceSchema() {
         ObjectSchema source = documented(new ObjectSchema(), "Source", "Choose where the JSON path should be read from.");
-        source.setOneOf(
-                sourceVariant("Target", Map.of(), "Target source",
-                        "Reads from this patch's elected target asset."),
-                sourceVariant("Asset", Map.of("Path", nonblankString("Asset path",
-                                "Forward-slash path of the asset to read.")),
-                        "Asset source", "Reads from another elected asset."),
-                sourceVariant("ModData", Map.of(
-                                "Mod", nonblankString("Mod ID", "Namespaced ID of the mod whose data file should be read."),
-                                "Path", nonblankString("Data path", "Forward-slash path inside that mod's data root.")),
-                        "ModData source", "Reads a data file registered by another mod."));
-        return source;
-    }
-
-    private static ObjectSchema sourceVariant(
-            String type, Map<String, Schema> fields, String title, String documentation) {
-        ObjectSchema source = documented(closedObject(), title, documentation);
         Map<String, Schema> properties = new LinkedHashMap<>();
         StringSchema sourceType = new StringSchema();
-        sourceType.setConst(type);
+        sourceType.setEnum(new String[] {"Target", "Asset", "ModData"});
+        sourceType.setMarkdownEnumDescriptions(new String[] {
+                "Read this patch's elected target asset.",
+                "Read another elected asset at Source path.",
+                "Read a registered mod data file using Mod ID and Source path."
+        });
         properties.put("Type", documented(sourceType, "Source type",
-                "Selects the " + type + " source form."));
-        properties.putAll(fields);
+                "Target reads this patch's elected target. Asset reads the path below. ModData reads a registered mod data file."));
+        properties.put("Mod", nonblankString("Mod ID",
+                "Required only for ModData: namespaced ID of the mod whose data file should be read."));
+        properties.put("Path", nonblankString("Source path",
+                "Required for Asset or ModData. Leave blank for Target."));
         source.setProperties(properties);
-        String[] required = new String[fields.size() + 1];
-        required[0] = "Type";
-        int index = 1;
-        for (String field : fields.keySet()) required[index++] = field;
-        source.setRequired(required);
+        source.setRequired("Type");
+        source.setAdditionalProperties(false);
         return source;
     }
 

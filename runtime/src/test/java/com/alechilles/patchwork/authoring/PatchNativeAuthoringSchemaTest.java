@@ -2,6 +2,7 @@ package com.alechilles.patchwork.authoring;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -48,7 +49,7 @@ final class PatchNativeAuthoringSchemaTest {
     }
 
     @Test
-    void whenUsesDocumentedRecursiveConditionChoices() {
+    void whenUsesDocumentedRecursiveConditionFields() {
         SchemaContext context = new SchemaContext();
         ObjectSchema definition = (ObjectSchema) PatchDefinitionAsset.CODEC.toSchema(context);
 
@@ -58,13 +59,11 @@ final class PatchNativeAuthoringSchemaTest {
         assertNotNull(condition);
         assertTrue(condition instanceof ObjectSchema,
                 "When must serialize as an object so the Asset Editor can open its condition choices");
-        assertEquals(Set.of(
-                        "ModInstalled", "ModVersion", "ServerVersion", "GameVersion",
-                        "AssetExists", "AssetMissing", "TargetExists", "TargetProvidedBy",
-                        "JsonPathExists", "JsonPathEquals", "All", "Any", "Not"),
-                variantTitles(condition));
+        assertTrue(((ObjectSchema) condition).getProperties().keySet().containsAll(Set.of(
+                "ModInstalled", "ModVersion", "ServerVersion", "GameVersion",
+                "AssetExists", "AssetMissing", "TargetExists", "TargetProvidedBy",
+                "JsonPathExists", "JsonPathEquals", "All", "Any", "Not")));
         assertTrue(containsRef(condition, "common.json#/definitions/Alechilles.Patchwork.PatchCondition"));
-        assertEveryChoiceDocumented(condition);
     }
 
     @Test
@@ -73,18 +72,17 @@ final class PatchNativeAuthoringSchemaTest {
         PatchDefinitionAsset.CODEC.toSchema(context);
         Schema condition = context.getDefinitions().get("Alechilles.Patchwork.PatchCondition");
 
-        BooleanSchema targetExists = (BooleanSchema) variant(condition, "TargetExists")
-                .getProperties().get("TargetExists");
+        ObjectSchema conditionObject = (ObjectSchema) condition;
+        BooleanSchema targetExists = (BooleanSchema) conditionObject.getProperties().get("TargetExists");
         assertEquals(Boolean.TRUE, targetExists.getDefault());
 
         Set<String> comparisonFields = Set.of("Equals", "AtLeast", "AtMost", "Above", "Below");
         for (String title : List.of("ModVersion", "ServerVersion", "GameVersion")) {
-            ObjectSchema comparison = (ObjectSchema) variant(condition, title).getProperties().get(title);
+            ObjectSchema comparison = (ObjectSchema) conditionObject.getProperties().get(title);
             assertRequiredAlternatives(comparison, comparisonFields);
         }
 
-        ObjectSchema jsonPathEquals = (ObjectSchema) variant(condition, "JsonPathEquals")
-                .getProperties().get("JsonPathEquals");
+        ObjectSchema jsonPathEquals = (ObjectSchema) conditionObject.getProperties().get("JsonPathEquals");
         assertRequiredAlternatives(jsonPathEquals, Set.of("Value", "Equals"));
     }
 
@@ -94,7 +92,7 @@ final class PatchNativeAuthoringSchemaTest {
         PatchDefinitionAsset.CODEC.toSchema(context);
 
         Schema condition = context.getDefinitions().get("Alechilles.Patchwork.PatchCondition");
-        Schema source = variant(condition, "JsonPathEquals").getProperties().get("JsonPathEquals");
+        Schema source = ((ObjectSchema) condition).getProperties().get("JsonPathEquals");
         source = ((ObjectSchema) source).getProperties().get("Source");
         assertTrue(source instanceof ObjectSchema,
                 "condition Source must serialize as an object so the Asset Editor can open its choices");
@@ -111,6 +109,28 @@ final class PatchNativeAuthoringSchemaTest {
     }
 
     @Test
+    void objectOnlyChoicesAreDirectEditorFieldsInsteadOfRawJsonUnions() {
+        SchemaContext context = new SchemaContext();
+        PatchDefinitionAsset.CODEC.toSchema(context);
+        PatchOperationAsset.CODEC.toSchema(context);
+
+        ObjectSchema condition = (ObjectSchema) context.getDefinitions().get("Alechilles.Patchwork.PatchCondition");
+        assertNull(condition.getOneOf(), "When must expose direct editor fields, not a raw JSON oneOf");
+        assertTrue(condition.getProperties().keySet().containsAll(Set.of(
+                "ModInstalled", "ModVersion", "ServerVersion", "GameVersion", "AssetExists", "AssetMissing",
+                "TargetExists", "TargetProvidedBy", "JsonPathExists", "JsonPathEquals", "All", "Any", "Not")));
+
+        ObjectSchema jsonPathEquals = (ObjectSchema) condition.getProperties().get("JsonPathEquals");
+        ObjectSchema source = (ObjectSchema) jsonPathEquals.getProperties().get("Source");
+        assertNull(source.getOneOf(), "condition Source must expose direct editor fields, not a raw JSON oneOf");
+        assertTrue(source.getProperties().keySet().containsAll(Set.of("Type", "Mod", "Path")));
+
+        ObjectSchema matcher = (ObjectSchema) context.getDefinitions().get("Alechilles.Patchwork.PatchMatcher");
+        assertNull(matcher.getOneOf(), "matchers must expose direct editor fields, not a raw JSON oneOf");
+        assertTrue(matcher.getProperties().keySet().containsAll(Set.of("$Equals", "$Contains")));
+    }
+
+    @Test
     void matcherFieldsUseDocumentedRecursiveOperatorAndOrdinaryKeyChoices() {
         SchemaContext context = new SchemaContext();
         ObjectSchema operation = PatchOperationAsset.CODEC.toSchema(context);
@@ -121,12 +141,9 @@ final class PatchNativeAuthoringSchemaTest {
         }
         Schema matcher = context.getDefinitions().get("Alechilles.Patchwork.PatchMatcher");
         assertNotNull(matcher);
-        assertEquals(Set.of("Exact value", "Contains", "Object fields"), variantTitles(matcher));
-        assertTrue(containsProperty(matcher, "$Equals"));
-        assertTrue(containsProperty(matcher, "$Contains"));
+        assertTrue(((ObjectSchema) matcher).getProperties().keySet().containsAll(Set.of("$Equals", "$Contains")));
         assertTrue(containsRef(matcher, "common.json#/definitions/Alechilles.Patchwork.PatchMatcher"));
         assertTrue(context.getDefinitions().containsKey("Alechilles.Patchwork.PatchMatcherValue"));
-        assertEveryChoiceDocumented(matcher);
     }
 
     @Test
@@ -219,13 +236,6 @@ final class PatchNativeAuthoringSchemaTest {
                 .collect(Collectors.toUnmodifiableSet());
     }
 
-    private static ObjectSchema variant(Schema schema, String title) {
-        return (ObjectSchema) Arrays.stream(schema.getOneOf())
-                .filter(choice -> title.equals(choice.getTitle()))
-                .findFirst()
-                .orElseThrow();
-    }
-
     private static void assertRequiredAlternatives(Schema schema, Set<String> expectedFields) {
         assertNotNull(schema.getAnyOf());
         assertEquals(expectedFields, Arrays.stream(schema.getAnyOf())
@@ -266,30 +276,6 @@ final class PatchNativeAuthoringSchemaTest {
             if (items instanceof Schema[] itemArray && containsRef(itemArray, expected)) return true;
         }
         return false;
-    }
-
-    private static boolean containsProperty(Schema schema, String expected) {
-        if (schema == null) return false;
-        if (schema instanceof ObjectSchema object
-                && object.getProperties() != null
-                && object.getProperties().containsKey(expected)) {
-            return true;
-        }
-        if (containsProperty(schema.getOneOf(), expected)
-                || containsProperty(schema.getAnyOf(), expected)
-                || containsProperty(schema.getAllOf(), expected)) {
-            return true;
-        }
-        if (schema instanceof ObjectSchema object && object.getProperties() != null) {
-            return object.getProperties().values().stream()
-                    .anyMatch(property -> containsProperty(property, expected));
-        }
-        return false;
-    }
-
-    private static boolean containsProperty(Schema[] schemas, String expected) {
-        if (schemas == null) return false;
-        return Arrays.stream(schemas).anyMatch(schema -> containsProperty(schema, expected));
     }
 
     private static void assertExplicitPropertiesDocumented(Schema schema) {

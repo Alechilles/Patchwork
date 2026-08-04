@@ -8,6 +8,7 @@ import com.hypixel.hytale.codec.schema.config.Schema;
 import com.hypixel.hytale.codec.schema.config.StringSchema;
 import com.hypixel.hytale.codec.util.RawJsonReader;
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import org.bson.BsonDocument;
@@ -44,45 +45,18 @@ final class PatchMatcherCodec implements Codec<BsonDocument> {
 
     private static Schema definitionSchema(SchemaContext context) {
         ObjectSchema matcher = documented(new ObjectSchema(), "Patch matcher",
-                "Choose an exact value, an array-contains matcher, or ordinary object fields to match.");
-        matcher.setOneOf(exactValueVariant(context), containsVariant(context), ordinaryFieldsVariant(context));
-        return matcher;
-    }
-
-    private static ObjectSchema exactValueVariant(SchemaContext context) {
-        ObjectSchema exact = documented(closedObject(), "Exact value",
-                "Matches only when the candidate is exactly equal to the supplied JSON value.");
-        exact.setProperties(Map.of("$Equals",
-                documented(PatchJsonValueCodec.INSTANCE.toSchema(context), "Expected JSON value",
-                        "The complete value the candidate must equal.")));
-        exact.setRequired("$Equals");
-        return exact;
-    }
-
-    private static ObjectSchema containsVariant(SchemaContext context) {
-        ObjectSchema contains = documented(closedObject(), "Contains",
-                "Matches an array when at least one entry satisfies the nested matcher.");
-        contains.setProperties(Map.of("$Contains",
-                documented(INSTANCE.toSchema(context), "Nested matcher",
-                        "Matcher applied to each candidate array entry.")));
-        contains.setRequired("$Contains");
-        return contains;
-    }
-
-    private static ObjectSchema ordinaryFieldsVariant(SchemaContext context) {
-        ObjectSchema fields = documented(new ObjectSchema(), "Object fields",
-                "Add one or more target object fields. Every listed field must match.");
+                "Use $Equals for an exact value, $Contains for an array entry, or add ordinary object fields to match.");
+        Map<String, Schema> properties = new LinkedHashMap<>();
+        properties.put("$Equals", documented(PatchJsonValueCodec.INSTANCE.toSchema(context), "Expected JSON value",
+                "Matches only when the candidate is exactly equal to this complete JSON value."));
+        properties.put("$Contains", documented(INSTANCE.toSchema(context), "Nested matcher",
+                "Matches an array when at least one entry satisfies this nested matcher."));
+        matcher.setProperties(properties);
         StringSchema propertyNames = new StringSchema();
-        propertyNames.setPattern("^(?!\\$).+");
-        fields.setPropertyNames(propertyNames);
-        fields.setAdditionalProperties(PatchMatcherValueSchema.INSTANCE.toSchema(context));
-        return fields;
-    }
-
-    private static ObjectSchema closedObject() {
-        ObjectSchema object = new ObjectSchema();
-        object.setAdditionalProperties(false);
-        return object;
+        propertyNames.setPattern("^(?:\\$(?:Equals|Contains)|[^$].*)$");
+        matcher.setPropertyNames(propertyNames);
+        matcher.setAdditionalProperties(PatchMatcherValueSchema.INSTANCE.toSchema(context));
+        return matcher;
     }
 
     private static <T extends Schema> T documented(T schema, String title, String documentation) {
