@@ -1,4 +1,17 @@
-![image](https://media.forgecdn.net/attachments/description/1634146/description_b14a69bf-f6b3-4938-9b1b-7abfc8abc1cd.png) _Small patches. Better compatibility._
+<p>
+    <a href="https://www.curseforge.com/hytale/mods/alecs-tamework" target="_blank" rel="noopener noreferrer"><img alt="Tamework downloads" src="https://img.shields.io/curseforge/dt/1447962?label=Tamework&amp;style=for-the-badge&amp;logo=curseforge&amp;color=rgb(241%2C100%2C54)" /></a>
+    <a href="https://www.curseforge.com/hytale/mods/alecs-cats" target="_blank" rel="noopener noreferrer"><img alt="Cats downloads" src="https://img.shields.io/curseforge/dt/1432112?label=Cats&amp;style=for-the-badge&amp;logo=curseforge&amp;color=rgb(241%2C100%2C54)" /></a>
+    <a href="https://www.curseforge.com/hytale/mods/alecs-nametags" target="_blank" rel="noopener noreferrer"><img alt="Nametags downloads" src="https://img.shields.io/curseforge/dt/1464844?label=Nametags&amp;style=for-the-badge&amp;logo=curseforge&amp;color=rgb(241%2C100%2C54)" /></a>
+    <a href="https://www.curseforge.com/hytale/mods/alecs-animal-husbandry" target="_blank" rel="noopener noreferrer"><img alt="Animal Husbandry downloads" src="https://img.shields.io/curseforge/dt/1480275?label=Animal%20Husbandry&amp;style=for-the-badge&amp;logo=curseforge&amp;color=rgb(241%2C100%2C54)" /></a>
+</p>
+<p>
+    <a href="https://discord.gg/E8n8RgTTdq" target="_blank" rel="noopener noreferrer"><img alt="Join Discord" src="https://img.shields.io/discord/1468261809739005996?style=for-the-badge&amp;logo=discord&amp;logoColor=white&amp;label=Join%20Discord&amp;color=rgb(88,101,242)" /></a>
+    <a href="https://ko-fi.com/alechilles" target="_blank" rel="noopener noreferrer"><img alt="Support me on Ko-fi" src="https://img.shields.io/badge/ko--fi-Support%20Me-ff5f5f?logo=ko-fi&amp;style=for-the-badge" /></a>
+    <a href="https://hytale.com/" target="_blank" rel="noopener noreferrer"><img alt="Creator Code Alec" src="https://img.shields.io/badge/Creator%20Code-Alec-00AEEF?style=for-the-badge" /></a>
+    <a href="https://twitter.com/intent/user?screen_name=Alechilles" target="_blank" rel="noopener noreferrer"><img alt="Follow Alec on X" src="https://img.shields.io/badge/Follow-%40Alec-White?style=for-the-badge&amp;logo=x&amp;logoColor=rgb(255%2C255%2C255)&amp;logoSize=auto&amp;label=Follow&amp;labelColor=rgb(85%2C85%2C85)&amp;color=rgb(147%2C147%2C147)" /></a>
+</p>
+
+![image](https://media.forgecdn.net/attachments/description/1634146/description_b14a69bf-f6b3-4938-9b1b-7abfc8abc1cd.png)
 
 Every mod adds its own piece to Hytale. Trouble starts when two pieces need to change the same asset.
 
@@ -70,6 +83,7 @@ Patchwork is built for mods that need to cooperate without becoming tightly coup
 Use it to:
 
 *   Add optional behavior when another mod is installed.
+*   Change an asset based on a config setting in your mod.
 *   Extend an asset without replacing everything around it.
 *   Apply one change across several related assets.
 *   Create compatibility layers that activate only when relevant.
@@ -196,7 +210,7 @@ These tools provide patch status, diagnostics, explicit regeneration, and self-t
 
 The standalone plugin registers `Server/Patchwork/Patches/**/*.json` as a native Hytale asset type. [Hytale’s Asset Editor](https://wiki.hytalemodding.dev/mod/patchwork/use-the-hytale-asset-editor) can discover, create, structurally edit, validate, and save the same portable definitions consumed by Patchwork.
 
-New neutral definitions are marker-free: omit `FormatVersion` and `RequireFormat`. The installed native schema exposes the supported operations and rejects unknown structure before optional-operation handling. A runtime that cannot understand a neutral operation or field reports an installation/version error instead of silently publishing a partial asset. Explicit format 1 and format 2 files remain readable and lossless, including compatibility fields. See the [field reference](https://wiki.hytalemodding.dev/mod/patchwork/field-reference) and [compatibility and versions guide](https://wiki.hytalemodding.dev/mod/patchwork/compatibility-and-versions).
+See the [field reference](https://wiki.hytalemodding.dev/mod/patchwork/field-reference) and [compatibility and versions guide](https://wiki.hytalemodding.dev/mod/patchwork/compatibility-and-versions).
 
 The generation dependency index records definition files, concrete target expansions, exact cross-asset sources, and glob stable prefixes. The elected runtime uses it to debounce relevant directory-pack edits into one automatic regeneration pass; Patchwork's generated output is excluded so it cannot feed back into itself. Archive-pack and unregistered mod-data changes remain manual or restart-driven. See [reloads and generated files](https://wiki.hytalemodding.dev/mod/patchwork/reloads-and-generated-files).
 
@@ -206,14 +220,6 @@ Patchwork 1.2.0 supports these installation modes:
 
 *   Install `patchwork-standalone-1.2.0.jar` as a Hytale server mod.
 *   Embed `com.alechilles:patchwork-runtime:1.2.0` in another Java plugin.
-
-For a local standalone install into Hytale's `UserData/Mods` directory, run:
-
-```bash
-./mvnw.cmd -pl standalone -am -Pinstall-plugin package
-```
-
-This replaces `Patchwork v1.2.0.jar`; add `-Dprerelease=true` to install into the pre-release user-data directory.
 
 For complete technical details, see [patch anatomy](https://wiki.hytalemodding.dev/mod/patchwork/patch-anatomy), [operations](https://wiki.hytalemodding.dev/mod/patchwork/core-operations), [embedding Patchwork](https://wiki.hytalemodding.dev/mod/patchwork/embed-patchwork), and [compatibility and versions](https://wiki.hytalemodding.dev/mod/patchwork/compatibility-and-versions).
 
@@ -229,7 +235,10 @@ Bring your own piece. Patchwork will help stitch it in.
 
 ***
 
-**Source:** this repository
+**Source:** https://github.com/Alechilles/Patchwork
+
+**Documentation:** https://wiki.hytalemodding.dev/mod/patchwork
+
 **For mod authors:** Patch definitions belong under `Server/Patchwork/Patches/**/*.json`
 
-Patchwork is source-available under the [Patchwork Source Available License 1.0](LICENSE.txt).
+Patchwork is source-available under the [Patchwork Source Available License 1.0](https://github.com/Alechilles/Patchwork/blob/main/LICENSE.txt).
