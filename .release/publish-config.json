@@ -1,0 +1,34 @@
+{
+  "modName": "Patchwork",
+  "repository": "Alechilles/Patchwork",
+  "packaging": "jar",
+  "artifactNameTemplate": "Patchwork v{version}.jar",
+  "versionSource": "pom",
+  "versionFile": "pom.xml",
+  "requiresTameworkDependency": false,
+  "curseforge": {
+    "enabled": false,
+    "setupStatus": "project-required"
+  },
+  "modtale": {
+    "enabled": false,
+    "setupStatus": "project-required",
+    "projectSlug": "patchwork",
+    "projectTitle": "Patchwork",
+    "projectDescription": "A standalone and embeddable Hytale asset patcher for focused, compatible cross-mod changes.",
+    "classification": "PLUGIN"
+  },
+  "modifold": {
+    "enabled": false,
+    "setupStatus": "project-required",
+    "projectSlug": "patchwork",
+    "projectTitle": "Patchwork",
+    "projectSummary": "Standalone and embeddable Hytale asset patcher for focused, compatible cross-mod changes.",
+    "projectType": "mod",
+    "projectIconUrl": "https://raw.githubusercontent.com/Alechilles/Patchwork/main/standalone/src/main/resources/icon-256.png",
+    "projectDescriptionUrl": "https://raw.githubusercontent.com/Alechilles/Patchwork/main/README.md",
+    "projectSourceUrl": "https://github.com/Alechilles/Patchwork",
+    "projectIssueUrl": "https://github.com/Alechilles/Patchwork/issues",
+    "projectDiscordUrl": "https://discord.gg/E8n8RgTTdq"
+  }
+}
