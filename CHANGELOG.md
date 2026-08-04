@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1 - 2026-08-04
+
+### Fixed
+
+- Fixed native Asset Editor controls for `When`, JSON condition `Source`, and `Match`/`Find`/`Existing` matchers. These object-only fields now open their guided choices instead of presenting a non-expandable typeless union.
+
 ## 1.2.0 - 2026-08-03
 
 ### Added

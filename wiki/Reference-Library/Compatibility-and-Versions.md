@@ -48,4 +48,4 @@ Patchwork may arrive as a standalone jar and as one or more embedded runtime cop
 
 Only the winner scans patches, generates output, registers commands, and owns automatic reload work. Passive copies remain visible in `/patchwork status` and their host contributions are replayed to the winner.
 
-This means an embedded 1.2.0 copy beats a standalone 1.0.0 copy, while a standalone 1.2.0 copy beats an embedded 1.2.0 copy.
+This means an embedded 1.2.1 copy beats a standalone 1.0.0 copy, while a standalone 1.2.1 copy beats an embedded 1.2.1 copy.

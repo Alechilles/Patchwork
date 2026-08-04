@@ -19,7 +19,7 @@ Depend on `patchwork-runtime`, not `patchwork-standalone`:
 <dependency>
   <groupId>com.alechilles</groupId>
   <artifactId>patchwork-runtime</artifactId>
-  <version>1.2.0</version>
+  <version>1.2.1</version>
 </dependency>
 ```
 
