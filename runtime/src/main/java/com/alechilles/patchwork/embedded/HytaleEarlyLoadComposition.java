@@ -51,7 +51,7 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
         PatchworkAdministrationService created = new PatchworkAdministrationService(
                 () -> planFor(host.macros()).createPlan(),
                 () -> host.reloadCoordinator(java.time.Duration.ofSeconds(3))::reload,
-                () -> selfTestExecutor(new com.alechilles.patchwork.selftest.PatchworkSelfTestRunner(layout)),
+                () -> selfTestExecutor(new com.alechilles.patchwork.selftest.PatchworkSelfTestRunner(layout.serverRoot())),
                 GeneratedInventorySnapshotter.from(layout.generatedRoot()));
         created.setDependencySink(host::updateAutomaticDependencies);
         administration = created;

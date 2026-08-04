@@ -19,6 +19,7 @@ public final class GeneratedPackLayout {
         dataRoot = serverRoot.resolve("mods/Alechilles_Patchwork").normalize();
     }
 
+    public Path serverRoot() { return serverRoot; }
     public Path dataRoot() { return dataRoot; }
     public Path generatedRoot() { return dataRoot.resolve("GeneratedPatches"); }
     public Path selfTestRoot() { return dataRoot.resolve("SelfTest"); }

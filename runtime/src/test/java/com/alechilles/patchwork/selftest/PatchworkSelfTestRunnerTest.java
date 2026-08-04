@@ -1,6 +1,7 @@
 package com.alechilles.patchwork.selftest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -32,6 +33,13 @@ final class PatchworkSelfTestRunnerTest {
         assertTrue(result.cleanupSucceeded(), result.diagnostic());
         assertTrue(Files.exists(sentinel));
         assertFalse(Files.exists(result.runDirectory()));
+    }
+
+    @Test void dataRootConstructionKeepsSelfTestGenerationWithinOneRuntimeLoader() {
+        PatchworkSelfTestRunner runner = assertDoesNotThrow(() -> (PatchworkSelfTestRunner) PatchworkSelfTestRunner.class
+                .getConstructor(Path.class).newInstance(temporary));
+
+        assertTrue(runner.run(PatchworkSelfTestPack.empty()).completed());
     }
 
     @Test void standardPackRunsRealGenerationIncludingItsModDataCondition() {

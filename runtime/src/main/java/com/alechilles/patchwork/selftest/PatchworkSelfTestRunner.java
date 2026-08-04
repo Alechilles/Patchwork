@@ -43,6 +43,8 @@ public final class PatchworkSelfTestRunner {
     private final AtomicBoolean cancelled = new AtomicBoolean();
     private final AtomicBoolean runAdmitted = new AtomicBoolean();
 
+    /** Creates one runner from a JDK path, keeping embedded copies loader-local. */
+    public PatchworkSelfTestRunner(Path serverOrSaveRoot) { this(new GeneratedPackLayout(serverOrSaveRoot)); }
     /** Creates one single-use runner without an isolated reload callback. */
     public PatchworkSelfTestRunner(GeneratedPackLayout layout) { this(layout, null); }
     /** Creates one single-use runner with the supplied isolated reload callback. */
