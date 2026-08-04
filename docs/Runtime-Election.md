@@ -13,8 +13,8 @@ Only candidates compatible with coordinator ABI 1 are eligible. Eligible candida
 
 Consequences:
 
-- Standalone 1.1.0 beats embedded 1.0.0.
-- Embedded 1.1.0 beats standalone 1.0.0.
+- Standalone 1.2.0 beats embedded 1.0.0.
+- Embedded 1.2.0 beats standalone 1.0.0.
 - Standalone 1.0.0 beats embedded 1.0.0.
 - An ABI-incompatible copy remains visible and passive; it does not create another owner.
 

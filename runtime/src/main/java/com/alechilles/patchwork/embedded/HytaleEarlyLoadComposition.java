@@ -157,7 +157,7 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
         PluginManifest manifest = new PluginManifest();
         manifest.setGroup("Alechilles");
         manifest.setName("Patchwork_GeneratedPatches");
-        manifest.setVersion(Semver.fromString("1.1.0"));
+        manifest.setVersion(Semver.fromString("1.2.0"));
         manifest.setDescription("Generated Patchwork asset pack.");
         manifest.setAuthors(List.of());
         manifest.setWebsite(null);

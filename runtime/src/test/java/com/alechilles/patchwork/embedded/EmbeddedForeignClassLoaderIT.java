@@ -24,7 +24,7 @@ final class EmbeddedForeignClassLoaderIT {
     @TempDir Path temporary;
 
     @Test void oldEmbeddedServiceForwardsToNewerElectedRuntimeAcrossCopiedJars() throws Exception {
-        Path jar = Path.of("target", "patchwork-runtime-1.1.0.jar").toAbsolutePath();
+        Path jar = Path.of("target", "patchwork-runtime-1.2.0.jar").toAbsolutePath();
         Path oldJar = Files.copy(jar, temporary.resolve("old-runtime.jar")); Path newJar = Files.copy(jar, temporary.resolve("new-runtime.jar"));
         Object original = System.getProperties().get(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
         System.getProperties().remove(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);

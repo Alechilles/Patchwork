@@ -165,7 +165,7 @@ final class ForeignClassLoaderElectionIT {
     private static boolean allowed(Class<?> type) { return type == String.class || type == Map.class || type == java.util.List.class || type == Path.class || type == byte[].class || type == java.util.concurrent.CompletionStage.class || type.isPrimitive() || Number.class.isAssignableFrom(type) || type == Boolean.class || type == Character.class || type == Void.TYPE; }
     private static Path runtimeJar() throws Exception {
         Path location = Path.of(PatchworkCoordinatorRegistry.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-        return Files.isRegularFile(location) ? location : location.getParent().resolve("patchwork-runtime-1.1.0.jar");
+        return Files.isRegularFile(location) ? location : location.getParent().resolve("patchwork-runtime-1.2.0.jar");
     }
     private static Path testClasses() { try { return Path.of(ForeignClassLoaderElectionIT.class.getProtectionDomain().getCodeSource().getLocation().toURI()); } catch (Exception exception) { throw new IllegalStateException(exception); } }
     public static final class BridgeOne { public static void fence(long epoch) { event("one:fence", epoch); } public static void stopAcceptingAndDrain(long epoch) { event("one:drain", epoch); } public static void deactivate(long epoch) { event("one:deactivate", epoch); } public static void activate(long epoch) { event("one:activate", epoch); } public static void start(long epoch) { event("one:start", epoch); } public static boolean publish(long epoch) { event("one:publish", epoch); return true; } }
