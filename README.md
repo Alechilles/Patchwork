@@ -99,6 +99,17 @@ Insert operations can locate stable anchors instead of relying on fragile array 
 
 If a required operation cannot be completed, Patchwork rejects that target instead of publishing a half-applied asset. Clear diagnostics identify the patch, operation, target, and reason.
 
+### Advanced operations
+
+When a simple add, merge, or insert is not enough, Patchwork also provides four format-free operations for common integration jobs:
+
+*   **MergeMatching** — find matching object entries in an array, then deep-merge new fields into each match.
+*   **UpsertMatching** — merge into matching entries, or insert one new object when nothing matches.
+*   **OverlayFromAsset** — deep-merge an entire exact-path source asset onto the current target. Source values win while unrelated target fields remain.
+*   **MergeObjectFromAsset** — deep-merge one object selected from another exact-path source asset into an existing object in the target.
+
+Matching uses the same recursive object matcher as other array operations, and both cross-asset operations read the original generation snapshot. They never modify their source assets, do not accept `glob:` sources, and can be made optional with `Required: false` when a source is only present in some mod setups.
+
 ***
 
 ## Conditional by design
