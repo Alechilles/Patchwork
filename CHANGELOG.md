@@ -28,6 +28,7 @@
 - Added elected, one-second-debounced automatic regeneration for relevant directory-pack definitions and asset changes, with one queued follow-up for changes that arrive during generation and generated-pack feedback exclusion.
 - Added conservative built-in Hytale reload confirmation for monitored server asset stores: `hot-reloaded` now requires matching generated-provider, asset-path, and generated-byte evidence. Unsupported or unconfirmed routes remain restart-required.
 - Expanded `/patchwork selftest` with isolated fixtures for neutral matching merge/upsert, both cross-asset operations, explicit glob targets, and an `Allow` conflict-policy application.
+- Added the `install-plugin` Maven profile for installing the standalone jar directly into Hytale's user Mods directory.
 
 ### Fixed
 

@@ -25,6 +25,9 @@
         <hytale.install.path.release>C:/Users/22ale/AppData/Roaming/Hytale/install/release/package/game/latest</hytale.install.path.release>
         <hytale.install.path.prerelease>C:/Users/22ale/AppData/Roaming/Hytale/install/pre-release/package/game/latest</hytale.install.path.prerelease>
         <hytale.install.path>${hytale.install.path.release}</hytale.install.path>
+        <hytale.userdata.path.release>C:/Users/22ale/AppData/Roaming/Hytale/UserData</hytale.userdata.path.release>
+        <hytale.userdata.path.prerelease>C:/Users/22ale/AppData/Roaming/Hytale/data/pre-release</hytale.userdata.path.prerelease>
+        <hytale.userdata.path>${hytale.userdata.path.release}</hytale.userdata.path>
     </properties>
 
     <dependencyManagement>
@@ -72,4 +75,20 @@
             </plugins>
         </pluginManagement>
     </build>
+
+    <profiles>
+        <profile>
+            <id>prerelease</id>
+            <activation>
+                <property>
+                    <name>prerelease</name>
+                    <value>true</value>
+                </property>
+            </activation>
+            <properties>
+                <hytale.install.path>${hytale.install.path.prerelease}</hytale.install.path>
+                <hytale.userdata.path>${hytale.userdata.path.prerelease}</hytale.userdata.path>
+            </properties>
+        </profile>
+    </profiles>
 </project>
