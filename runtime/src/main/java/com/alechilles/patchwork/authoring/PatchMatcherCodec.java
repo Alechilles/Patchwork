@@ -43,7 +43,7 @@ final class PatchMatcherCodec implements Codec<BsonDocument> {
     }
 
     private static Schema definitionSchema(SchemaContext context) {
-        Schema matcher = documented(new Schema(), "Patch matcher",
+        ObjectSchema matcher = documented(new ObjectSchema(), "Patch matcher",
                 "Choose an exact value, an array-contains matcher, or ordinary object fields to match.");
         matcher.setOneOf(exactValueVariant(context), containsVariant(context), ordinaryFieldsVariant(context));
         return matcher;

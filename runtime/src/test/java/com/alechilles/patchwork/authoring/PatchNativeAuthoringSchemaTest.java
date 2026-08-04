@@ -89,6 +89,28 @@ final class PatchNativeAuthoringSchemaTest {
     }
 
     @Test
+    void conditionSourceUsesAnObjectSchemaThatTheAssetEditorCanOpen() {
+        SchemaContext context = new SchemaContext();
+        PatchDefinitionAsset.CODEC.toSchema(context);
+
+        Schema condition = context.getDefinitions().get("Alechilles.Patchwork.PatchCondition");
+        Schema source = variant(condition, "JsonPathEquals").getProperties().get("JsonPathEquals");
+        source = ((ObjectSchema) source).getProperties().get("Source");
+        assertTrue(source instanceof ObjectSchema,
+                "condition Source must serialize as an object so the Asset Editor can open its choices");
+    }
+
+    @Test
+    void matcherUsesAnObjectSchemaThatTheAssetEditorCanOpen() {
+        SchemaContext context = new SchemaContext();
+        PatchOperationAsset.CODEC.toSchema(context);
+
+        Schema matcher = context.getDefinitions().get("Alechilles.Patchwork.PatchMatcher");
+        assertTrue(matcher instanceof ObjectSchema,
+                "Match, Find, and Existing must serialize as objects so the Asset Editor can open their choices");
+    }
+
+    @Test
     void matcherFieldsUseDocumentedRecursiveOperatorAndOrdinaryKeyChoices() {
         SchemaContext context = new SchemaContext();
         ObjectSchema operation = PatchOperationAsset.CODEC.toSchema(context);

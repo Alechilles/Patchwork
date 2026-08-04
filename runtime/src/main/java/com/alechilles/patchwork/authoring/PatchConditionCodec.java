@@ -187,7 +187,7 @@ final class PatchConditionCodec implements Codec<BsonDocument> {
     }
 
     private static Schema sourceSchema() {
-        Schema source = documented(new Schema(), "Source", "Choose where the JSON path should be read from.");
+        ObjectSchema source = documented(new ObjectSchema(), "Source", "Choose where the JSON path should be read from.");
         source.setOneOf(
                 sourceVariant("Target", Map.of(), "Target source",
                         "Reads from this patch's elected target asset."),
