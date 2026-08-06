@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
@@ -81,6 +82,22 @@ final class GenerationAssetSnapshotTest {
                     PatchSource.directory("pack", 1, root.getParent())));
 
             assertFalse(snapshot.find("Server/Target.json").isPresent());
+        }
+    }
+
+    @Test
+    void snapshotDiscoversDefinitionsFromALinkedPackRoot() throws Exception {
+        try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+            Path target = Files.createDirectories(fs.getPath("/packs/animal-husbandry/Server/Patchwork/Patches"));
+            Files.writeString(target.resolve("Saddle.json"), "{}");
+            Path linkedPack = fs.getPath("/mods/animal-husbandry");
+            Files.createDirectories(linkedPack.getParent());
+            Files.createSymbolicLink(linkedPack, target.getParent().getParent().getParent());
+
+            GenerationAssetSnapshot snapshot = GenerationAssetSnapshot.capture(List.of(
+                    PatchSource.directory("animal-husbandry", 1, linkedPack)));
+
+            assertTrue(snapshot.find("Server/Patchwork/Patches/Saddle.json").isPresent());
         }
     }
 

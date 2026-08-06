@@ -101,7 +101,7 @@ public final class GenerationAssetSnapshot {
         final Path root;
         final PatchTargetResolver.DirectoryRootSnapshot rootSnapshot;
         try {
-            root = source.backingPath().toAbsolutePath().normalize();
+            root = source.backingPath().toRealPath();
             rootSnapshot = PatchTargetResolver.snapshotDirectoryRoot(root);
         } catch (IOException missing) {
             return;

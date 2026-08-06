@@ -24,7 +24,7 @@ final class EmbeddedForeignClassLoaderIT {
     @TempDir Path temporary;
 
     @Test void oldEmbeddedServiceForwardsToNewerElectedRuntimeAcrossCopiedJars() throws Exception {
-        Path jar = Path.of("target", "patchwork-runtime-1.2.0.jar").toAbsolutePath();
+        Path jar = runtimeJar();
         Path oldJar = Files.copy(jar, temporary.resolve("old-runtime.jar")); Path newJar = Files.copy(jar, temporary.resolve("new-runtime.jar"));
         Object original = System.getProperties().get(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
         System.getProperties().remove(PatchworkCoordinatorRegistry.REGISTRY_PROPERTY);
@@ -68,6 +68,16 @@ final class EmbeddedForeignClassLoaderIT {
             case "hostPluginIdentifier" -> "foreign-host"; case "contributionVersion" -> "1"; case "macroProviders" -> List.of(macroProvider); case "targetAdapters" -> List.of(); default -> throw new UnsupportedOperationException(method.getName()); });
     }
     private static Object invoke(Object target, String method) throws Exception { return target.getClass().getInterfaces()[0].getMethod(method).invoke(target); }
+    private static Path runtimeJar() throws Exception {
+        for (Path directory : List.of(Path.of("build", "libs"), Path.of("target"))) {
+            try (var files = Files.list(directory)) {
+                Path jar = files.filter(file -> file.getFileName().toString().matches("patchwork-runtime-[^/]+\\.jar"))
+                        .findFirst().orElse(null);
+                if (jar != null) return jar.toAbsolutePath();
+            }
+        }
+        throw new java.nio.file.NoSuchFileException("Current patchwork-runtime artifact is missing.");
+    }
     private static void assertJdkImmutable(Object value) {
         if (value instanceof Map<?, ?> map) { assertTrue(value.getClass().getName().startsWith("java.util.")); map.forEach((key, nested) -> { assertJdkImmutable(key); assertJdkImmutable(nested); }); assertThrows(UnsupportedOperationException.class, () -> ((Map<Object, Object>) map).put("x", "x")); return; }
         if (value instanceof List<?> list) { assertTrue(value.getClass().getName().startsWith("java.util.")); list.forEach(EmbeddedForeignClassLoaderIT::assertJdkImmutable); assertThrows(UnsupportedOperationException.class, () -> ((List<Object>) list).add("x")); return; }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.2 - Unreleased
+
+### Fixed
+
+- Restored Patchwork discovery for asset packs installed through symbolic links or Windows junctions, so linked development workspaces generate their patches normally.
+
 ## 1.2.1 - 2026-08-04
 
 ### Fixed
