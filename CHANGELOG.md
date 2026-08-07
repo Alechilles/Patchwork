@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.3.0 - Unreleased
+
+### Added
+
+- Added an independent hosted Alec's Telemetry project for Patchwork. The runtime dependency
+  is transitive for embedders, consent is project-scoped, and bounded generation/reload,
+  lifecycle, error, performance, usage, stats, and report capabilities are descriptor-gated.
+- Added namespaced descriptor loading so Patchwork's telemetry project does not collide with a
+  host mod's conventional `Server/Telemetry/project.json`.
+
+### Compatibility
+
+- Patchwork telemetry uses `alecstelemetry-runtime:1.1.0`; telemetry failures are swallowed
+  after bounded warnings and never block Patchwork lifecycle or reload operations.
+- Contributed projects are hosted-only. Base-project ID collisions and live same-ID
+  replacement/fallback promotion requires a server restart.
+
 ## 1.2.2 - Unreleased
 
 ### Fixed

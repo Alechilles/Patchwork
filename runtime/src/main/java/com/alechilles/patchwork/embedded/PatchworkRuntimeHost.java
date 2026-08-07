@@ -11,6 +11,7 @@ import com.alechilles.patchwork.reload.AutomaticReloadController;
 import com.alechilles.patchwork.reload.PatchReloadTracker;
 import com.alechilles.patchwork.reload.PatchReloadCoordinator;
 import com.alechilles.patchwork.generation.GenerationDependencyIndex;
+import com.alechilles.patchwork.telemetry.PatchworkTelemetry;
 import com.hypixel.hytale.server.core.asset.LoadAssetEvent;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonParser;
@@ -53,19 +54,26 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
     private HytalePatchTargetAdapter builtInAdapter;
     private PatchReloadCoordinator reloadCoordinator;
     private PatchworkAdministrationService administration;
+    private final PatchworkTelemetry telemetry;
 
     /** Creates a host whose startup action is invoked only after election. */
     public PatchworkRuntimeHost(Path generatedRoot, Runnable startupAction) {
         this(generatedRoot, new EarlyLoadRegistrar() {
             @Override public EarlyLoadRegistration register(long epoch, Consumer<LoadAssetEvent> callback) { return () -> { }; }
             @Override public void execute(long epoch, PatchMacroRegistry macros, LoadAssetEvent event, EpochActionGate actionGate) { actionGate.execute(startupAction); }
-        });
+        }, PatchworkTelemetry.disabled());
     }
 
     /** Creates a host with its elected-only early-load registration collaborator. */
     public PatchworkRuntimeHost(Path generatedRoot, EarlyLoadRegistrar earlyLoadRegistrar) {
+        this(generatedRoot, earlyLoadRegistrar, PatchworkTelemetry.disabled());
+    }
+
+    /** Creates a host with an optional Patchwork project reporter. */
+    public PatchworkRuntimeHost(Path generatedRoot, EarlyLoadRegistrar earlyLoadRegistrar, PatchworkTelemetry telemetry) {
         this.generatedRoot = Objects.requireNonNull(generatedRoot).toAbsolutePath().normalize();
         this.earlyLoadRegistrar = Objects.requireNonNull(earlyLoadRegistrar);
+        this.telemetry = Objects.requireNonNull(telemetry);
     }
 
     @Override public void activate(long value) {
@@ -208,7 +216,7 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
 
     private PatchworkAdministrationService administration() {
         synchronized (gate) {
-            if (administration == null) administration = earlyLoadRegistrar.createAdministration(this);
+            if (administration == null) administration = earlyLoadRegistrar.createAdministration(this, telemetry);
             return administration;
         }
     }
@@ -487,7 +495,10 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
                     () -> host.reloadCoordinator(Duration.ofSeconds(3))::reload,
                     () -> selfTestExecutor(new com.alechilles.patchwork.selftest.PatchworkSelfTestRunner(
                             new com.alechilles.patchwork.generation.GeneratedPackLayout(host.generatedRoot))),
-                    GeneratedInventorySnapshotter.from(host.generatedRoot));
+                    GeneratedInventorySnapshotter.from(host.generatedRoot), PatchworkTelemetry.disabled());
+        }
+        default PatchworkAdministrationService createAdministration(PatchworkRuntimeHost host, PatchworkTelemetry telemetry) {
+            return createAdministration(host);
         }
         private static SelfTestExecutor selfTestExecutor(com.alechilles.patchwork.selftest.PatchworkSelfTestRunner runner) {
             return new SelfTestExecutor() {

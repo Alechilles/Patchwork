@@ -3,7 +3,7 @@ plugins {
 }
 
 def localProperties = new Properties()
-rootProject.file('Patchwork/gradle.properties').withInputStream { localProperties.load(it) }
+new File(project.projectDir.parentFile, 'gradle.properties').withInputStream { localProperties.load(it) }
 def localProperty = { String name -> providers.gradleProperty(name).getOrElse(localProperties.getProperty(name)) }
 
 group = 'com.alechilles'
@@ -16,11 +16,13 @@ java {
 }
 
 repositories {
+    mavenLocal()
     mavenCentral()
 }
 
 dependencies {
     compileOnly files(localProperty('hytale_server_jar_path'))
+    api "com.alechilles:alecstelemetry-runtime:${localProperty('alecstelemetry_version')}"
     api "com.google.code.gson:gson:${localProperty('gson_version')}"
     implementation 'com.google.jimfs:jimfs:1.3.1'
     implementation 'com.networknt:json-schema-validator:1.5.6'

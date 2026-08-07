@@ -2,6 +2,7 @@ package com.alechilles.patchwork.embedded;
 
 import com.alechilles.patchwork.coordinator.PatchworkCoordinatorRegistry;
 import com.alechilles.patchwork.generation.GeneratedPackLayout;
+import com.alechilles.patchwork.telemetry.PatchworkTelemetry;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import java.io.IOException;
 import java.io.InputStream;
@@ -19,13 +20,14 @@ public final class EmbeddedPatchworkBootstrap {
     /** Boots the embedded runtime from a Hytale plugin entrypoint. */
     public static EmbeddedPatchworkService bootstrap(JavaPlugin plugin) {
         if (plugin == null) throw new IllegalArgumentException("Embedding JavaPlugin is required.");
-        return bootstrap(plugin, new HytaleEarlyLoadComposition(plugin, sharedLayout(plugin.getDataDirectory())));
+        PatchworkTelemetry telemetry = PatchworkTelemetry.prepare(plugin);
+        return bootstrap(plugin, new HytaleEarlyLoadComposition(plugin, sharedLayout(plugin.getDataDirectory()), telemetry), telemetry);
     }
     /** JDK-bound composition factory used by isolated-loader verification and non-Hytale embedders. */
     static EmbeddedPatchworkService createEmbeddedService(String providerId, String runtimeVersion, Path sourceJar, Path dataRoot, Runnable electedStartupAction) {
         PatchworkRuntimeHost host = new PatchworkRuntimeHost(testGeneratedRoot(dataRoot), Objects.requireNonNull(electedStartupAction, "electedStartupAction"));
         PatchworkRuntimeProviderHandle provider = PatchworkRuntimeProviderHandle.create(providerId, "EMBEDDED", runtimeVersion, providerId, runtimeVersion, sourceJar, dataRoot, host);
-        return new Service(provider, providerId);
+        return new Service(provider, providerId, PatchworkTelemetry.disabled());
     }
     /** Test/host composition seam; production callers use {@link #bootstrap(JavaPlugin)}. */
     static EmbeddedPatchworkService bootstrap(JavaPlugin plugin, Runnable electedStartupAction) {
@@ -36,6 +38,9 @@ public final class EmbeddedPatchworkBootstrap {
     }
     /** Test-only composition seam; production callers use {@link #bootstrap(JavaPlugin)}. */
     static EmbeddedPatchworkService bootstrap(JavaPlugin plugin, PatchworkRuntimeHost.EarlyLoadRegistrar registrar) {
+        return bootstrap(plugin, registrar, PatchworkTelemetry.prepare(plugin));
+    }
+    private static EmbeddedPatchworkService bootstrap(JavaPlugin plugin, PatchworkRuntimeHost.EarlyLoadRegistrar registrar, PatchworkTelemetry telemetry) {
         if (plugin == null) throw new IllegalArgumentException("Embedding JavaPlugin is required.");
         String runtimeVersion = requireRuntimeVersion(readMavenVersion(), EmbeddedPatchworkBootstrap.class.getPackage().getImplementationVersion());
         String pluginId = plugin.getIdentifier().toString();
@@ -43,9 +48,9 @@ public final class EmbeddedPatchworkBootstrap {
         if (manifestVersion == null || manifestVersion.toString().isBlank()) throw new IllegalStateException("Embedding plugin manifest version is required.");
         String pluginVersion = manifestVersion.toString();
         Path data = plugin.getDataDirectory(); Path source = runtimeCodeSource();
-        PatchworkRuntimeHost host = new PatchworkRuntimeHost(sharedGeneratedRoot(data), Objects.requireNonNull(registrar, "registrar"));
+        PatchworkRuntimeHost host = new PatchworkRuntimeHost(sharedGeneratedRoot(data), Objects.requireNonNull(registrar, "registrar"), telemetry);
         PatchworkRuntimeProviderHandle provider = PatchworkRuntimeProviderHandle.create("embedded:" + pluginId, "EMBEDDED", runtimeVersion, pluginId, pluginVersion, source, data, host);
-        return new Service(provider, pluginId);
+        return new Service(provider, pluginId, telemetry);
     }
     private static Path runtimeCodeSource() {
         try { return Path.of(EmbeddedPatchworkBootstrap.class.getProtectionDomain().getCodeSource().getLocation().toURI()).toAbsolutePath().normalize(); }
@@ -77,9 +82,9 @@ public final class EmbeddedPatchworkBootstrap {
         return new GeneratedPackLayout(mods.getParent());
     }
     private static final class Service implements EmbeddedPatchworkService {
-        private final PatchworkRuntimeProviderHandle provider; private final String pluginId; private final java.util.Set<Contribution> contributions = java.util.concurrent.ConcurrentHashMap.newKeySet(); private final AtomicBoolean closed = new AtomicBoolean();
-        private Service(PatchworkRuntimeProviderHandle provider, String pluginId) { this.provider = provider; this.pluginId = pluginId; }
-        public synchronized void start() { if (closed.get()) throw new IllegalStateException("Embedded Patchwork service is closed."); provider.start(); }
+        private final PatchworkRuntimeProviderHandle provider; private final String pluginId; private final PatchworkTelemetry telemetry; private final java.util.Set<Contribution> contributions = java.util.concurrent.ConcurrentHashMap.newKeySet(); private final AtomicBoolean closed = new AtomicBoolean();
+        private Service(PatchworkRuntimeProviderHandle provider, String pluginId, PatchworkTelemetry telemetry) { this.provider = provider; this.pluginId = pluginId; this.telemetry = telemetry; }
+        public synchronized void start() { if (closed.get()) throw new IllegalStateException("Embedded Patchwork service is closed."); telemetry.start(); provider.start(); }
         public synchronized PatchworkContributionHandle registerContribution(PatchworkHostContribution contribution) {
             if (closed.get()) throw new IllegalStateException("Embedded Patchwork service is closed."); ContributionSnapshot snapshot = ContributionSnapshot.capture(contribution); snapshot.validate();
             Contribution handle = new Contribution(snapshot); contributions.add(handle); return handle;
@@ -88,7 +93,7 @@ public final class EmbeddedPatchworkBootstrap {
         public void recordObservation(PatchworkReloadObservation observation) {
             if (closed.get()) return; Map<String, Object> map = new LinkedHashMap<>(); map.put("epoch", observation.epoch()); map.put("adapterId", observation.adapterId()); map.put("target", observation.target()); map.put("expectedHash", observation.expectedHash()); map.put("outcome", observation.outcome().name()); PatchworkCoordinatorRegistry.recordObservation(map);
         }
-        public synchronized void close() { if (closed.get()) return; RuntimeException combined = null; for (Contribution contribution : List.copyOf(contributions)) try { contribution.close(); } catch (RuntimeException failure) { if (combined == null) combined = failure; else combined.addSuppressed(failure); } try { provider.close(); } catch (RuntimeException failure) { if (combined == null) combined = failure; else combined.addSuppressed(failure); } if (combined != null) throw combined; closed.set(true); }
+        public synchronized void close() { if (closed.get()) return; RuntimeException combined = null; for (Contribution contribution : List.copyOf(contributions)) try { contribution.close(); } catch (RuntimeException failure) { if (combined == null) combined = failure; else combined.addSuppressed(failure); } try { telemetry.close(); } catch (RuntimeException failure) { if (combined == null) combined = failure; else combined.addSuppressed(failure); } try { provider.close(); } catch (RuntimeException failure) { if (combined == null) combined = failure; else combined.addSuppressed(failure); } if (combined != null) throw combined; closed.set(true); }
         private final class Contribution implements PatchworkContributionHandle {
             private final String token; private final AtomicBoolean closed = new AtomicBoolean();
             private Contribution(ContributionSnapshot snapshot) {

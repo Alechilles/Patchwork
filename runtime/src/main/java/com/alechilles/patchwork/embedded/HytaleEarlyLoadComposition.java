@@ -16,6 +16,7 @@ import com.hypixel.hytale.server.core.asset.LoadAssetEvent;
 import com.alechilles.patchwork.command.PatchworkCommandRoot;
 import com.alechilles.patchwork.reload.AutomaticReloadController;
 import com.alechilles.patchwork.reload.HytaleAssetEventBridge;
+import com.alechilles.patchwork.telemetry.PatchworkTelemetry;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import java.util.List;
 import java.util.Objects;
@@ -27,12 +28,18 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
     private static final System.Logger LOG = System.getLogger(HytaleEarlyLoadComposition.class.getName());
     private final JavaPlugin plugin;
     private final GeneratedPackLayout layout;
+    private final PatchworkTelemetry telemetry;
     private final HytaleRuntimeInputsSnapshotter inputs = new HytaleRuntimeInputsSnapshotter();
     private volatile PatchworkAdministrationService administration;
 
     HytaleEarlyLoadComposition(JavaPlugin plugin, GeneratedPackLayout layout) {
+        this(plugin, layout, PatchworkTelemetry.disabled());
+    }
+
+    HytaleEarlyLoadComposition(JavaPlugin plugin, GeneratedPackLayout layout, PatchworkTelemetry telemetry) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.layout = Objects.requireNonNull(layout, "layout");
+        this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
     }
 
     @Override public PatchworkRuntimeHost.EarlyLoadRegistration register(long epoch, Consumer<LoadAssetEvent> callback) {
@@ -47,12 +54,12 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
         return registration == null ? null : registration::unregister;
     }
 
-    @Override public PatchworkAdministrationService createAdministration(PatchworkRuntimeHost host) {
+    @Override public PatchworkAdministrationService createAdministration(PatchworkRuntimeHost host, PatchworkTelemetry ignored) {
         PatchworkAdministrationService created = new PatchworkAdministrationService(
                 () -> planFor(host.macros()).createPlan(),
                 () -> host.reloadCoordinator(java.time.Duration.ofSeconds(3))::reload,
                 () -> selfTestExecutor(new com.alechilles.patchwork.selftest.PatchworkSelfTestRunner(layout.serverRoot())),
-                GeneratedInventorySnapshotter.from(layout.generatedRoot()));
+                GeneratedInventorySnapshotter.from(layout.generatedRoot()), telemetry);
         created.setDependencySink(host::updateAutomaticDependencies);
         administration = created;
         return created;
@@ -79,19 +86,31 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
     }
 
     @Override public void execute(long epoch, PatchMacroRegistry macros, LoadAssetEvent event, PatchworkRuntimeHost.EpochActionGate actionGate) {
+        long startedAt = System.nanoTime();
         try {
             com.alechilles.patchwork.generation.PatchGenerationService.GenerationPlan plan = planFor(macros).createPlan();
             StartupPackPublisher publisher = new StartupPackPublisher(layout, new RuntimePackRegistrar(plan.sourcePackIds()));
             AtomicReference<StartupPackPublisher.Publication> publicationResult = new AtomicReference<>();
             if (!actionGate.execute(() -> publicationResult.set(publisher.publish(plan)))) return;
             StartupPackPublisher.Publication publication = publicationResult.get();
-            if (!publication.published()) fail(event, "Patchwork startup generation failed: " + publication.diagnostic());
+            if (!publication.published()) {
+                telemetry.recordError("publish_failed", null, "startup");
+                telemetry.recordLifecycle("generation_completed", elapsedMs(startedAt), false, "startup");
+                telemetry.recordPerformance("generation_duration", elapsedMs(startedAt), "startup");
+                fail(event, "Patchwork startup generation failed: " + publication.diagnostic());
+            }
             else {
                 PatchworkAdministrationService currentAdministration = administration;
                 if (currentAdministration != null) currentAdministration.seedStartup(epoch, plan);
+                telemetry.recordLifecycle("generation_completed", elapsedMs(startedAt), true, "startup");
+                telemetry.recordPerformance("generation_duration", elapsedMs(startedAt), "startup");
+                telemetry.recordStats("generation_completed", null);
                 reportRecoverableDiagnostics(plan.status(), message -> LOG.log(System.Logger.Level.WARNING, message));
             }
         } catch (Exception failure) {
+            telemetry.recordError("generation_failed", failure, "startup");
+            telemetry.recordLifecycle("generation_completed", elapsedMs(startedAt), false, "startup");
+            telemetry.recordPerformance("generation_duration", elapsedMs(startedAt), "startup");
             String message = "Patchwork startup generation failed: " + detail(failure);
             LOG.log(System.Logger.Level.ERROR, message, failure);
             fail(event, message);
@@ -126,6 +145,11 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
 
     private static String detail(Exception failure) {
         return failure.getMessage() == null || failure.getMessage().isBlank() ? failure.getClass().getSimpleName() : failure.getMessage();
+    }
+
+    private static int elapsedMs(long startedAt) {
+        long millis = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+        return (int) Math.min(Integer.MAX_VALUE, Math.max(0L, millis));
     }
 
     /** Registers the staged generated pack only after the publisher has verified and activated it. */

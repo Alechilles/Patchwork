@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "projectId": "patchwork",
+  "displayName": "Patchwork",
+  "runtimeMode": "embedded",
+  "ownerPluginIdentifiers": ["Alechilles:Patchwork"],
+  "packagePrefixes": ["com.alechilles.patchwork"],
+  "defaults": {
+    "enabled": true,
+    "destinationMode": "hosted"
+  },
+  "telemetry": {
+    "crash": {
+      "supported": true,
+      "defaultEnabled": true,
+      "setupFailures": true,
+      "startFailures": true,
+      "exceptionalWorldRemovals": true
+    },
+    "events": {
+      "errors": {
+        "supported": true,
+        "defaultEnabled": true,
+        "details": {
+          "generation_failed": {"allowedFields": {"phase": {"type": "enum", "values": ["scan", "plan", "startup"]}}},
+          "publish_failed": {"allowedFields": {"phase": {"type": "enum", "values": ["startup", "reload"]}}},
+          "reload_failed": {"allowedFields": {"phase": {"type": "enum", "values": ["generation", "manifest", "target", "integrity"]}}}
+        }
+      },
+      "lifecycle": {
+        "supported": true,
+        "defaultEnabled": true,
+        "details": {
+          "generation_completed": {"allowedFields": {"phase": {"type": "enum", "values": ["startup", "reload"]}}},
+          "reload_completed": {"allowedFields": {"phase": {"type": "enum", "values": ["command", "automatic"]}}}
+        }
+      },
+      "breadcrumbs": {"supported": true, "defaultEnabled": true, "automatic": false}
+    },
+    "performance": {
+      "supported": true,
+      "defaultEnabled": true,
+      "sampleRate": 1.0,
+      "thresholdMs": 1,
+      "details": {
+        "generation_duration": {"allowedFields": {"phase": {"type": "enum", "values": ["startup", "reload"]}}},
+        "reload_duration": {"allowedFields": {"phase": {"type": "enum", "values": ["command", "automatic"]}}}
+      }
+    },
+    "usage": {
+      "supported": true,
+      "defaultEnabled": true,
+      "allowedEvents": ["reload_requested", "status_viewed", "conflicts_viewed", "self_test_requested"]
+    },
+    "stats": {
+      "supported": true,
+      "defaultEnabled": true,
+      "allowedEvents": ["generation_completed", "reload_completed"]
+    },
+    "reports": {
+      "supported": true,
+      "defaultEnabled": true,
+      "issue": {"enabled": true},
+      "suggestion": {"enabled": true},
+      "attachments": {"currentServerLog": true, "previousServerLog": true, "maxBytes": 262144},
+      "contact": {"enabled": true, "maxLength": 160},
+      "resolutionUpdates": {"enabled": true}
+    }
+  },
+  "hosted": {}
+}

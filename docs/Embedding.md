@@ -8,9 +8,15 @@ Patchwork can be shaded into another Hytale Java plugin. Embedded and standalone
 <dependency>
   <groupId>com.alechilles</groupId>
   <artifactId>patchwork-runtime</artifactId>
-  <version>1.2.1</version>
+  <version>1.3.0</version>
 </dependency>
 ```
+
+Patchwork 1.3.0 brings `com.alechilles:alecstelemetry-runtime:1.1.0` transitively. It
+registers the namespaced `patchwork` project automatically when the host starts. The project
+uses Alec's hosted destination and has independent consent from the host's telemetry project;
+no second standalone Telemetry plugin is needed. Telemetry initialization and writes are
+best-effort and never block Patchwork lifecycle, generation, or reload operations.
 
 Shade `patchwork-runtime` without relocating `com.alechilles.patchwork`. Do not embed `patchwork-standalone`, and do not add a second Hytale `manifest.json`.
 
@@ -58,7 +64,7 @@ Retain the exact returned handles. Close contributions before the service. A lif
 
 ## Stable API surface
 
-Patchwork 1.2.1 exposes these host-facing contracts from `com.alechilles.patchwork.embedded`:
+Patchwork 1.3.0 exposes these host-facing contracts from `com.alechilles.patchwork.embedded`:
 
 ```java
 public final class EmbeddedPatchworkBootstrap {
@@ -172,7 +178,21 @@ public final class ExampleAdapter implements PatchworkTargetAdapter {
 }
 ```
 
-Each request carries one coordinator epoch and one immutable target expectation in 1.2.1. Return exact reloaded, restart-required, and failed target lists.
+Each request carries one coordinator epoch and one immutable target expectation in 1.3.0. Return exact reloaded, restart-required, and failed target lists.
+
+## Telemetry contribution contract
+
+The Patchwork runtime's descriptor is namespaced at
+`META-INF/alecs-telemetry/projects/patchwork.json`, so it can be shaded beside a host's
+conventional descriptor. It declares the logical owner `Alechilles:Patchwork`, project ID
+`patchwork`, and runtime version `1.3.0`. Do not copy it to `Server/Telemetry/project.json` or
+replace it with a custom endpoint: contributed projects are hosted-only in 1.3.x.
+
+If a host already contains another conventional project with the same logical ID, the base
+project remains authoritative and the Patchwork contribution is rejected. If an active
+contribution retires, an already-registered same-ID fallback is not promoted live in this
+release; a server restart is required. This keeps queued destinations and
+consent ownership stable.
 
 For live confirmation, record only observations correlated to a pending expectation supplied by Patchwork:
 

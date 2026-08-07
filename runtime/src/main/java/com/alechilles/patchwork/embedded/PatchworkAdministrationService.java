@@ -10,6 +10,7 @@ import com.alechilles.patchwork.generation.StartupPackPublisher;
 import com.alechilles.patchwork.reload.PatchReloadCoordinator;
 import com.alechilles.patchwork.selftest.PatchworkSelfTestPack;
 import com.alechilles.patchwork.selftest.PatchworkSelfTestResult;
+import com.alechilles.patchwork.telemetry.PatchworkTelemetry;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -33,6 +34,7 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     private final Supplier<ReloadExecutor> reloads;
     private final Supplier<SelfTestExecutor> selfTests;
     private final GeneratedInventorySnapshotter snapshots;
+    private final PatchworkTelemetry telemetry;
     private boolean active;
     private boolean paused;
     private boolean running;
@@ -51,17 +53,26 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     PatchworkAdministrationService(Supplier<PatchGenerationService.GenerationPlan> generation,
                                   Supplier<ReloadExecutor> reloads,
                                   Supplier<SelfTestExecutor> selfTests) {
-        this(generation, reloads, selfTests, () -> Map.of());
+        this(generation, reloads, selfTests, () -> Map.of(), PatchworkTelemetry.disabled());
     }
 
     PatchworkAdministrationService(Supplier<PatchGenerationService.GenerationPlan> generation,
                                   Supplier<ReloadExecutor> reloads,
                                   Supplier<SelfTestExecutor> selfTests,
                                   GeneratedInventorySnapshotter snapshots) {
+        this(generation, reloads, selfTests, snapshots, PatchworkTelemetry.disabled());
+    }
+
+    PatchworkAdministrationService(Supplier<PatchGenerationService.GenerationPlan> generation,
+                                  Supplier<ReloadExecutor> reloads,
+                                  Supplier<SelfTestExecutor> selfTests,
+                                  GeneratedInventorySnapshotter snapshots,
+                                  PatchworkTelemetry telemetry) {
         this.generation = Objects.requireNonNull(generation, "generation");
         this.reloads = Objects.requireNonNull(reloads, "reloads");
         this.selfTests = Objects.requireNonNull(selfTests, "selfTests");
         this.snapshots = Objects.requireNonNull(snapshots, "snapshots");
+        this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
     }
 
     void activate(long value) {
@@ -122,6 +133,7 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     }
 
     @Override public CompletionStage<List<String>> status() {
+        telemetry.recordUsage("status_viewed", null);
         PatchworkAdministrationSnapshot snapshot;
         synchronized (gate) {
             snapshot = new PatchworkAdministrationSnapshot(active, epoch, Map.of(), neutralRoot, legacyRoots,
@@ -133,6 +145,7 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     }
 
     @Override public CompletionStage<List<String>> conflicts(String target) {
+        telemetry.recordUsage("conflicts_viewed", null);
         ConflictReport snapshot;
         synchronized (gate) { snapshot = conflictReport; }
         return CompletableFuture.completedFuture(renderConflicts(snapshot, target));
@@ -141,11 +154,16 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     @Override public CompletionStage<List<String>> reload() {
         long admittedEpoch = admit();
         if (admittedEpoch < 0) return CompletableFuture.completedFuture(List.of("Patchwork reload was not started: runtime is inactive or busy."));
+        long startedAt = System.nanoTime();
+        telemetry.recordUsage("reload_requested", "command");
         try {
             PatchReloadCoordinator.ReloadOutcome outcome = reloads.get().reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> buildPlan(admittedEpoch)));
             recordOutcome(admittedEpoch, outcome);
+            reportReloadOutcome(outcome, elapsedMs(startedAt), "command");
             return CompletableFuture.completedFuture(reloadLines(outcome));
         } catch (RuntimeException failure) {
+            telemetry.recordError("reload_failed", failure, "generation");
+            telemetry.recordPerformance("reload_duration", elapsedMs(startedAt), "command");
             return CompletableFuture.completedFuture(List.of("Patchwork reload failed; inspect server diagnostics."));
         } finally { release(); }
     }
@@ -154,11 +172,16 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     PatchReloadCoordinator.ReloadOutcome automaticReload(long expectedOwnershipEpoch) {
         long admittedEpoch = admit(expectedOwnershipEpoch);
         if (admittedEpoch < 0) return notStarted("Automatic reload owner is stale or busy.");
+        long startedAt = System.nanoTime();
+        telemetry.recordUsage("reload_requested", "automatic");
         try {
             PatchReloadCoordinator.ReloadOutcome outcome = reloads.get().elected(admittedEpoch, () -> buildPlan(admittedEpoch));
             recordOutcome(admittedEpoch, outcome);
+            reportReloadOutcome(outcome, elapsedMs(startedAt), "automatic");
             return outcome;
         } catch (RuntimeException failure) {
+            telemetry.recordError("reload_failed", failure, "generation");
+            telemetry.recordPerformance("reload_duration", elapsedMs(startedAt), "automatic");
             return notStarted("Automatic reload failed: " + (failure.getMessage() == null ? "generation error" : failure.getMessage()));
         } finally { release(); }
     }
@@ -196,6 +219,7 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     @Override public CompletionStage<List<String>> selfTest() {
         long admittedEpoch = admit();
         if (admittedEpoch < 0) return CompletableFuture.completedFuture(List.of("Patchwork self-test was not started: runtime is inactive or busy."));
+        telemetry.recordUsage("self_test_requested", null);
         try {
             SelfTestExecutor executor = selfTests.get();
             synchronized (gate) { activeSelfTest = executor; }
@@ -215,6 +239,21 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     }
     private boolean stillActive(long expectedEpoch) { synchronized (gate) { return active && epoch == expectedEpoch; } }
     private void release() { synchronized (gate) { running = false; gate.notifyAll(); } }
+    private void reportReloadOutcome(PatchReloadCoordinator.ReloadOutcome outcome, int durationMs, String trigger) {
+        boolean success = outcome.started()
+                && outcome.manifestState() != PatchReloadCoordinator.ManifestState.COMMIT_UNCERTAIN
+                && outcome.integrityState() == PatchReloadCoordinator.IntegrityState.RECONCILED
+                && outcome.targets().stream().noneMatch(target -> target.state() == PatchReloadCoordinator.TargetState.FAILED
+                || target.state() == PatchReloadCoordinator.TargetState.ROLLBACK_FAILED);
+        telemetry.recordLifecycle("reload_completed", durationMs, success, trigger);
+        telemetry.recordPerformance("reload_duration", durationMs, trigger);
+        if (success) telemetry.recordStats("reload_completed", null);
+        else telemetry.recordError("reload_failed", null, "integrity");
+    }
+    private static int elapsedMs(long startedAt) {
+        long millis = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+        return (int) Math.min(Integer.MAX_VALUE, Math.max(0L, millis));
+    }
     private PatchReloadCoordinator.ReloadOutcome notStarted(String diagnostic) {
         synchronized (gate) {
             return new PatchReloadCoordinator.ReloadOutcome(false, epoch, PatchReloadCoordinator.ManifestState.NOT_ATTEMPTED,

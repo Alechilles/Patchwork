@@ -1,7 +1,7 @@
 {
     "Group": "Alechilles",
     "Name": "Patchwork",
-    "Version": "1.2.2",
+    "Version": "1.3.0",
     "Description": "Stitch focused changes into Hytale assets with a standalone, embeddable patcher built for clean cross-mod compatibility.",
     "Authors": [
         {

@@ -1,6 +1,7 @@
 package com.alechilles.patchwork.embedded;
 
 import com.alechilles.patchwork.generation.GeneratedPackLayout;
+import com.alechilles.patchwork.telemetry.PatchworkTelemetry;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import java.io.IOException;
 import java.io.InputStream;
@@ -22,17 +23,18 @@ public final class StandalonePatchworkBootstrap {
         Path dataRoot = plugin.getDataDirectory();
         Path sourceJar = plugin.getFile().toAbsolutePath().normalize();
         GeneratedPackLayout layout = sharedLayout(dataRoot);
+        PatchworkTelemetry telemetry = PatchworkTelemetry.prepare(plugin);
         PatchworkRuntimeProviderHandle provider = PatchworkRuntimeProviderHandle.create(
                 "standalone:" + pluginId, "STANDALONE", runtimeVersion, pluginId, manifestVersion.toString(), sourceJar, dataRoot,
-                new PatchworkRuntimeHost(layout.generatedRoot(), new HytaleEarlyLoadComposition(plugin, layout)));
-        return new Service(provider);
+                new PatchworkRuntimeHost(layout.generatedRoot(), new HytaleEarlyLoadComposition(plugin, layout, telemetry), telemetry));
+        return new Service(provider, telemetry);
     }
 
     static StandalonePatchworkService createStandaloneService(String providerId, String runtimeVersion, Path sourceJar,
                                                                Path dataRoot, Runnable electedStartupAction) {
         PatchworkRuntimeHost host = new PatchworkRuntimeHost(testGeneratedRoot(dataRoot), Objects.requireNonNull(electedStartupAction, "electedStartupAction"));
         return new Service(PatchworkRuntimeProviderHandle.create(providerId, "STANDALONE", runtimeVersion, providerId,
-                runtimeVersion, sourceJar, dataRoot, host));
+                runtimeVersion, sourceJar, dataRoot, host), PatchworkTelemetry.disabled());
     }
 
     private static String readMavenVersion() {
@@ -61,8 +63,8 @@ public final class StandalonePatchworkBootstrap {
         return parent.resolve("Alechilles_Patchwork/GeneratedPatches").normalize();
     }
 
-    private record Service(PatchworkRuntimeProviderHandle provider) implements StandalonePatchworkService {
-        @Override public void start() { provider.start(); }
-        @Override public void close() { provider.close(); }
+    private record Service(PatchworkRuntimeProviderHandle provider, PatchworkTelemetry telemetry) implements StandalonePatchworkService {
+        @Override public void start() { telemetry.start(); provider.start(); }
+        @Override public void close() { telemetry.close(); provider.close(); }
     }
 }

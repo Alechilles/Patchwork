@@ -48,4 +48,12 @@ Patchwork may arrive as a standalone jar and as one or more embedded runtime cop
 
 Only the winner scans patches, generates output, registers commands, and owns automatic reload work. Passive copies remain visible in `/patchwork status` and their host contributions are replayed to the winner.
 
-This means an embedded 1.2.1 copy beats a standalone 1.0.0 copy, while a standalone 1.2.1 copy beats an embedded 1.2.1 copy.
+This means an embedded 1.3.0 copy beats a standalone 1.0.0 copy, while a standalone 1.3.0 copy beats an embedded 1.3.0 copy.
+
+## Embedded telemetry compatibility
+
+Patchwork 1.3.x carries Alec's Telemetry runtime 1.1.x transitively. Its namespaced
+`patchwork` contribution is hosted-only and uses independent consent from any conventional
+host project. A conventional base project wins a same-ID collision; a retired contribution is
+not live-promoted to an already-registered fallback in the 1.3.x MVP. A server restart is
+required for that change.
