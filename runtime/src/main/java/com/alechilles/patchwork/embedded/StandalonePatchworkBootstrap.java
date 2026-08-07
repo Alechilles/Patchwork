@@ -24,10 +24,15 @@ public final class StandalonePatchworkBootstrap {
         Path sourceJar = plugin.getFile().toAbsolutePath().normalize();
         GeneratedPackLayout layout = sharedLayout(dataRoot);
         PatchworkTelemetry telemetry = PatchworkTelemetry.prepare(plugin);
-        PatchworkRuntimeProviderHandle provider = PatchworkRuntimeProviderHandle.create(
-                "standalone:" + pluginId, "STANDALONE", runtimeVersion, pluginId, manifestVersion.toString(), sourceJar, dataRoot,
-                new PatchworkRuntimeHost(layout.generatedRoot(), new HytaleEarlyLoadComposition(plugin, layout, telemetry), telemetry));
-        return new Service(provider, telemetry);
+        try {
+            PatchworkRuntimeProviderHandle provider = PatchworkRuntimeProviderHandle.create(
+                    "standalone:" + pluginId, "STANDALONE", runtimeVersion, pluginId, manifestVersion.toString(), sourceJar, dataRoot,
+                    new PatchworkRuntimeHost(layout.generatedRoot(), new HytaleEarlyLoadComposition(plugin, layout, telemetry), telemetry));
+            return new Service(provider, telemetry);
+        } catch (RuntimeException | LinkageError failure) {
+            telemetry.close();
+            throw failure;
+        }
     }
 
     static StandalonePatchworkService createStandaloneService(String providerId, String runtimeVersion, Path sourceJar,

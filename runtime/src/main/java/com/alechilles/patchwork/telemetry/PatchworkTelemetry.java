@@ -118,11 +118,6 @@ public final class PatchworkTelemetry implements AutoCloseable {
         guarded(() -> service.recordUsage(eventName, detail));
     }
 
-    public void recordStats(String eventName, String detail) {
-        if (!ready()) return;
-        guarded(() -> service.recordStats(eventName, detail));
-    }
-
     public void breadcrumb(String category, String detail) {
         if (!ready()) return;
         guarded(() -> service.recordBreadcrumb(category, detail));

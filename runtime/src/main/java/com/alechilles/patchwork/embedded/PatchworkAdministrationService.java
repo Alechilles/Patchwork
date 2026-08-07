@@ -247,8 +247,7 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
                 || target.state() == PatchReloadCoordinator.TargetState.ROLLBACK_FAILED);
         telemetry.recordLifecycle("reload_completed", durationMs, success, trigger);
         telemetry.recordPerformance("reload_duration", durationMs, trigger);
-        if (success) telemetry.recordStats("reload_completed", null);
-        else telemetry.recordError("reload_failed", null, "integrity");
+        if (!success) telemetry.recordError("reload_failed", null, "integrity");
     }
     private static int elapsedMs(long startedAt) {
         long millis = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);

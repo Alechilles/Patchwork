@@ -20,8 +20,14 @@ public final class EmbeddedPatchworkBootstrap {
     /** Boots the embedded runtime from a Hytale plugin entrypoint. */
     public static EmbeddedPatchworkService bootstrap(JavaPlugin plugin) {
         if (plugin == null) throw new IllegalArgumentException("Embedding JavaPlugin is required.");
+        GeneratedPackLayout layout = sharedLayout(plugin.getDataDirectory());
         PatchworkTelemetry telemetry = PatchworkTelemetry.prepare(plugin);
-        return bootstrap(plugin, new HytaleEarlyLoadComposition(plugin, sharedLayout(plugin.getDataDirectory()), telemetry), telemetry);
+        try {
+            return bootstrap(plugin, new HytaleEarlyLoadComposition(plugin, layout, telemetry), telemetry);
+        } catch (RuntimeException | LinkageError failure) {
+            telemetry.close();
+            throw failure;
+        }
     }
     /** JDK-bound composition factory used by isolated-loader verification and non-Hytale embedders. */
     static EmbeddedPatchworkService createEmbeddedService(String providerId, String runtimeVersion, Path sourceJar, Path dataRoot, Runnable electedStartupAction) {
@@ -38,7 +44,13 @@ public final class EmbeddedPatchworkBootstrap {
     }
     /** Test-only composition seam; production callers use {@link #bootstrap(JavaPlugin)}. */
     static EmbeddedPatchworkService bootstrap(JavaPlugin plugin, PatchworkRuntimeHost.EarlyLoadRegistrar registrar) {
-        return bootstrap(plugin, registrar, PatchworkTelemetry.prepare(plugin));
+        PatchworkTelemetry telemetry = PatchworkTelemetry.prepare(plugin);
+        try {
+            return bootstrap(plugin, registrar, telemetry);
+        } catch (RuntimeException | LinkageError failure) {
+            telemetry.close();
+            throw failure;
+        }
     }
     private static EmbeddedPatchworkService bootstrap(JavaPlugin plugin, PatchworkRuntimeHost.EarlyLoadRegistrar registrar, PatchworkTelemetry telemetry) {
         if (plugin == null) throw new IllegalArgumentException("Embedding JavaPlugin is required.");

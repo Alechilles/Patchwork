@@ -104,7 +104,6 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
                 if (currentAdministration != null) currentAdministration.seedStartup(epoch, plan);
                 telemetry.recordLifecycle("generation_completed", elapsedMs(startedAt), true, "startup");
                 telemetry.recordPerformance("generation_duration", elapsedMs(startedAt), "startup");
-                telemetry.recordStats("generation_completed", null);
                 reportRecoverableDiagnostics(plan.status(), message -> LOG.log(System.Logger.Level.WARNING, message));
             }
         } catch (Exception failure) {

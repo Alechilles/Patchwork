@@ -54,8 +54,7 @@
     },
     "stats": {
       "supported": true,
-      "defaultEnabled": true,
-      "allowedEvents": ["generation_completed", "reload_completed"]
+      "defaultEnabled": true
     },
     "reports": {
       "supported": true,
@@ -67,5 +66,7 @@
       "resolutionUpdates": {"enabled": true}
     }
   },
-  "hosted": {}
+  "hosted": {
+    "projectKey": "proj_yIWOr9KWORkZd4e8SCn8O1Zo"
+  }
 }
