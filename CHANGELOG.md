@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.0 - Unreleased
+## 1.3.0 - Hosted Telemetry Contributions - 2026-08-08
 
 ### Added
 
