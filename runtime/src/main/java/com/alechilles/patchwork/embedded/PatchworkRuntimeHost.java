@@ -495,7 +495,7 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
                     () -> host.reloadCoordinator(Duration.ofSeconds(3))::reload,
                     () -> selfTestExecutor(new com.alechilles.patchwork.selftest.PatchworkSelfTestRunner(
                             new com.alechilles.patchwork.generation.GeneratedPackLayout(host.generatedRoot))),
-                    GeneratedInventorySnapshotter.from(host.generatedRoot), PatchworkTelemetry.disabled());
+                    GeneratedInventorySnapshotter.from(host.generatedRoot));
         }
         default PatchworkAdministrationService createAdministration(PatchworkRuntimeHost host, PatchworkTelemetry telemetry) {
             return createAdministration(host);

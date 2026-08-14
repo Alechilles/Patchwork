@@ -14,9 +14,10 @@ Patchwork can be shaded into another Hytale Java plugin. Embedded and standalone
 
 Patchwork 1.3.0 brings `com.alechilles:alecstelemetry-runtime:1.1.0` transitively. It
 registers the namespaced `patchwork` project automatically when the host starts. The project
-uses Alec's hosted destination and has independent consent from the host's telemetry project;
-no second standalone Telemetry plugin is needed. Telemetry initialization and writes are
-best-effort and never block Patchwork lifecycle, generation, or reload operations.
+uses Alec's hosted destination, supports uncaught exception crash reports and anonymous aggregate
+stats, and has independent consent from the host's telemetry project. No second standalone
+Telemetry plugin is needed. Telemetry initialization and writes are best-effort and never block
+Patchwork lifecycle, generation, or reload operations.
 
 Shade `patchwork-runtime` without relocating `com.alechilles.patchwork`. Do not embed `patchwork-standalone`, and do not add a second Hytale `manifest.json`.
 
@@ -185,8 +186,9 @@ Each request carries one coordinator epoch and one immutable target expectation 
 The Patchwork runtime's descriptor is namespaced at
 `META-INF/alecs-telemetry/projects/patchwork.json`, so it can be shaded beside a host's
 conventional descriptor. It declares the logical owner `Alechilles:Patchwork`, project ID
-`patchwork`, and runtime version `1.3.0`. Do not copy it to `Server/Telemetry/project.json` or
-replace it with a custom endpoint: contributed projects are hosted-only in 1.3.x.
+`patchwork`, runtime version `1.3.0`, and only the Crash and Stats consent categories. Do not
+copy it to `Server/Telemetry/project.json` or replace it with a custom endpoint: contributed
+projects are hosted-only in 1.3.x.
 
 If a host already contains another conventional project with the same logical ID, the base
 project remains authoritative and the Patchwork contribution is rejected. If an active

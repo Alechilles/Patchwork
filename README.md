@@ -237,8 +237,8 @@ Patchwork 1.3.0 supports these installation modes:
 
 Patchwork 1.3.0 contributes its own hosted Alec's Telemetry project transitively through
 `alecstelemetry-runtime:1.1.0`. The Patchwork project has independent server-owner consent
-and reports bounded generation, reload, and lifecycle outcomes. Telemetry failures are
-non-fatal and never change patch generation or reload behavior. Contributed Patchwork
+and supports uncaught exception crash reports plus anonymous aggregate stats. Telemetry failures
+are non-fatal and never change patch generation or reload behavior. Contributed Patchwork
 projects are hosted-only in this release; same-ID replacement and live fallback promotion
 require a server restart.
 

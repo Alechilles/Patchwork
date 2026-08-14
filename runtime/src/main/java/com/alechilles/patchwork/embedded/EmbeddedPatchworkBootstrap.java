@@ -23,7 +23,7 @@ public final class EmbeddedPatchworkBootstrap {
         GeneratedPackLayout layout = sharedLayout(plugin.getDataDirectory());
         PatchworkTelemetry telemetry = PatchworkTelemetry.prepare(plugin);
         try {
-            return bootstrap(plugin, new HytaleEarlyLoadComposition(plugin, layout, telemetry), telemetry);
+            return bootstrap(plugin, new HytaleEarlyLoadComposition(plugin, layout), telemetry);
         } catch (RuntimeException | LinkageError failure) {
             telemetry.close();
             throw failure;

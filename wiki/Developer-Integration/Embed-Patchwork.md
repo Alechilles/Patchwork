@@ -24,9 +24,10 @@ Depend on `patchwork-runtime`, not `patchwork-standalone`:
 ```
 
 Patchwork 1.3.0 carries `com.alechilles:alecstelemetry-runtime:1.1.0` transitively. The
-namespaced Patchwork project is hosted-only, has independent consent, and reports bounded
-generation/reload/lifecycle outcomes. Initialization, writes, and shutdown are best-effort;
-telemetry failures never block Patchwork. Do not add a second standalone Telemetry plugin.
+namespaced Patchwork project is hosted-only, has independent consent, and supports uncaught
+exception crash reports plus anonymous aggregate stats. Initialization, writes, and shutdown are
+best-effort; telemetry failures never block Patchwork. Do not add a second standalone Telemetry
+plugin.
 
 Shade the runtime without relocating the `com.alechilles.patchwork` package. Do not add a second Hytale `manifest.json` to your plugin.
 
@@ -70,6 +71,6 @@ See [Macros and Reload Adapters](/mod/patchwork/macros-and-reload-adapters) to c
 
 Patchwork's embedded telemetry descriptor is loaded from
 `META-INF/alecs-telemetry/projects/patchwork.json` and uses logical owner
-`Alechilles:Patchwork`; it does not consume the host's `Server/Telemetry/project.json` slot.
-Base-project ID collisions are rejected, and same-ID fallback promotion requires a server
-restart in the 1.3.x MVP.
+`Alechilles:Patchwork`. It supports only the Crash and Stats consent categories and does not
+consume the host's `Server/Telemetry/project.json` slot. Base-project ID collisions are rejected,
+and same-ID fallback promotion requires a server restart in the 1.3.x MVP.

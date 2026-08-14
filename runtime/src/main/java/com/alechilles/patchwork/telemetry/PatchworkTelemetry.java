@@ -3,7 +3,6 @@ package com.alechilles.patchwork.telemetry;
 import com.alechilles.alecstelemetry.embedded.EmbeddedTelemetryBootstrap;
 import com.alechilles.alecstelemetry.embedded.EmbeddedTelemetryService;
 import com.alechilles.alecstelemetry.embedded.TelemetryProjectContribution;
-import com.alechilles.alecstelemetry.api.TelemetryEventContext;
 import com.alechilles.patchwork.PatchworkVersion;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -13,8 +12,8 @@ import java.util.logging.Logger;
 /**
  * Patchwork's independent, hosted-only telemetry project.
  *
- * <p>The wrapper deliberately keeps telemetry optional: loading, starting, recording, and
- * closing telemetry are all isolated from Patchwork's generation and reload lifecycle.</p>
+ * <p>The wrapper deliberately keeps telemetry optional: loading, starting, and closing
+ * telemetry are isolated from Patchwork's generation and reload lifecycle.</p>
  */
 public final class PatchworkTelemetry implements AutoCloseable {
     private static final Logger LOG = Logger.getLogger(PatchworkTelemetry.class.getName());
@@ -65,7 +64,6 @@ public final class PatchworkTelemetry implements AutoCloseable {
         }
         try {
             service.start();
-            service.recordLifecycle("runtime_activated", 0, true, null);
         } catch (RuntimeException | LinkageError failure) {
             warn("Patchwork telemetry failed to start; continuing without it.", failure);
         }
@@ -77,62 +75,35 @@ public final class PatchworkTelemetry implements AutoCloseable {
             return;
         }
         try {
-            if (started.get()) {
-                service.recordLifecycle("runtime_deactivated", 0, true, null);
-            }
             service.shutdown();
         } catch (RuntimeException | LinkageError failure) {
             warn("Patchwork telemetry failed to close cleanly; continuing shutdown.", failure);
         }
     }
 
+    /** Retained for binary compatibility; Patchwork no longer emits lifecycle events. */
+    @Deprecated(forRemoval = true)
     public void recordLifecycle(String eventName, int durationMs, boolean success, String detail) {
-        if (!ready()) return;
-        guarded(() -> {
-            if (detail == null || detail.isBlank()) service.recordLifecycle(eventName, durationMs, success, null);
-            else service.recordLifecycleWithContext(eventName, durationMs, success,
-                    TelemetryEventContext.lifecycle().phase(detail).build());
-        });
     }
 
+    /** Retained for binary compatibility; Patchwork no longer emits error events. */
+    @Deprecated(forRemoval = true)
     public void recordError(String eventName, Throwable failure, String detail) {
-        if (!ready()) return;
-        guarded(() -> {
-            if (detail == null || detail.isBlank()) service.recordError(eventName, failure, null);
-            else service.recordErrorWithContext(eventName, failure,
-                    TelemetryEventContext.error().phase(detail).build());
-        });
     }
 
+    /** Retained for binary compatibility; Patchwork no longer emits performance events. */
+    @Deprecated(forRemoval = true)
     public void recordPerformance(String eventName, int durationMs, String detail) {
-        if (!ready()) return;
-        guarded(() -> {
-            if (detail == null || detail.isBlank()) service.recordPerformance(eventName, durationMs, null, null);
-            else service.recordPerformanceWithContext(eventName, durationMs, null,
-                    TelemetryEventContext.performance().phase(detail).build());
-        });
     }
 
+    /** Retained for binary compatibility; Patchwork no longer emits usage events. */
+    @Deprecated(forRemoval = true)
     public void recordUsage(String eventName, String detail) {
-        if (!ready()) return;
-        guarded(() -> service.recordUsage(eventName, detail));
     }
 
+    /** Retained for binary compatibility; Patchwork no longer emits breadcrumbs. */
+    @Deprecated(forRemoval = true)
     public void breadcrumb(String category, String detail) {
-        if (!ready()) return;
-        guarded(() -> service.recordBreadcrumb(category, detail));
-    }
-
-    private boolean ready() {
-        return !closed.get() && started.get() && service != null && service.disabledReason() == null;
-    }
-
-    private void guarded(Runnable action) {
-        try {
-            action.run();
-        } catch (RuntimeException | LinkageError failure) {
-            warn("Patchwork telemetry operation failed; continuing without it.", failure);
-        }
     }
 
     private synchronized void warn(String message, Throwable failure) {

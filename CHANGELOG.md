@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Limited Patchwork telemetry consent and collection to uncaught exception crash reports and
+  anonymous aggregate stats. Removed the unused setup/start/removal crash sources, error,
+  lifecycle, performance, usage, breadcrumb, and manual-report capabilities.
+- Added a namespaced Patchwork icon for consent and project-selection UI in standalone and
+  embedded installations.
+
 ## 1.3.0 - Hosted Telemetry Contributions - 2026-08-08
 
 ### Added

@@ -53,7 +53,7 @@ This means an embedded 1.3.0 copy beats a standalone 1.0.0 copy, while a standal
 ## Embedded telemetry compatibility
 
 Patchwork 1.3.x carries Alec's Telemetry runtime 1.1.x transitively. Its namespaced
-`patchwork` contribution is hosted-only and uses independent consent from any conventional
-host project. A conventional base project wins a same-ID collision; a retired contribution is
-not live-promoted to an already-registered fallback in the 1.3.x MVP. A server restart is
-required for that change.
+`patchwork` contribution is hosted-only, supports only Crash and Stats, and uses independent
+consent from any conventional host project. A conventional base project wins a same-ID
+collision; a retired contribution is not live-promoted to an already-registered fallback in
+the 1.3.x MVP. A server restart is required for that change.

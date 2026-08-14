@@ -27,7 +27,7 @@ public final class StandalonePatchworkBootstrap {
         try {
             PatchworkRuntimeProviderHandle provider = PatchworkRuntimeProviderHandle.create(
                     "standalone:" + pluginId, "STANDALONE", runtimeVersion, pluginId, manifestVersion.toString(), sourceJar, dataRoot,
-                    new PatchworkRuntimeHost(layout.generatedRoot(), new HytaleEarlyLoadComposition(plugin, layout, telemetry), telemetry));
+                    new PatchworkRuntimeHost(layout.generatedRoot(), new HytaleEarlyLoadComposition(plugin, layout), telemetry));
             return new Service(provider, telemetry);
         } catch (RuntimeException | LinkageError failure) {
             telemetry.close();
