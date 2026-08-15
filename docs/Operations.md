@@ -13,7 +13,7 @@ The elected runtime registers one command tree:
 
 All commands require `patchwork.admin` and default to the `hytale:Admin` group. Passive copies do not register commands.
 
-Patchwork 1.3.0 also contributes an independent hosted Alec's Telemetry project. It records
+Patchwork 1.3.1 also contributes an independent hosted Alec's Telemetry project. It records
 uncaught exception crash reports and anonymous aggregate stats only when that project is enabled
 by server-owner consent. Telemetry exceptions are swallowed after a bounded warning and do not
 alter command, generation, publish, or reload results. Contributed projects are hosted-only;

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.1 - Telemetry Consent Fix - 2026-08-14
 
 ### Fixed
 
@@ -27,7 +27,7 @@
 - Contributed projects are hosted-only. Base-project ID collisions and live same-ID
   replacement/fallback promotion requires a server restart.
 
-## 1.2.2 - Unreleased
+## 1.2.2 - 2026-08-06
 
 ### Fixed
 

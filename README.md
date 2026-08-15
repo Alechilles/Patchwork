@@ -230,12 +230,12 @@ The generation dependency index records definition files, concrete target expans
 
 For monitored Hytale server stores, Patchwork calls a target `hot-reloaded` only after Hytale reports the expected generated provider and asset path. Common, custom, unknown, disabled-monitor, or unconfirmed routes remain restart-required; writing a generated file alone is never treated as a live reload.
 
-Patchwork 1.3.0 supports these installation modes:
+Patchwork 1.3.1 supports these installation modes:
 
-*   Install `patchwork-standalone-1.3.0.jar` as a Hytale server mod.
-*   Embed `com.alechilles:patchwork-runtime:1.3.0` in another Java plugin.
+*   Install `patchwork-standalone-1.3.1.jar` as a Hytale server mod.
+*   Embed `com.alechilles:patchwork-runtime:1.3.1` in another Java plugin.
 
-Patchwork 1.3.0 contributes its own hosted Alec's Telemetry project transitively through
+Patchwork 1.3.1 contributes its own hosted Alec's Telemetry project transitively through
 `alecstelemetry-runtime:1.1.0`. The Patchwork project has independent server-owner consent
 and supports uncaught exception crash reports plus anonymous aggregate stats. Telemetry failures
 are non-fatal and never change patch generation or reload behavior. Contributed Patchwork
