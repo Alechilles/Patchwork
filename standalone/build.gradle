@@ -52,7 +52,11 @@ tasks.named('shadowJar', ShadowJar) {
     archiveClassifier = ''
     exclude 'META-INF/MANIFEST.MF', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/versions/9/module-info.class'
     manifest {
-        attributes('Plugin-Group': project.group, 'Plugin-Name': project.name, 'Plugin-Version': project.version)
+        attributes(
+                'Plugin-Group': project.group,
+                'Plugin-Name': project.name,
+                'Plugin-Version': project.version,
+                'Implementation-Version': project.version)
     }
 }
 
@@ -60,7 +64,12 @@ tasks.named('assemble') {
     dependsOn(tasks.named('shadowJar'))
 }
 
+def standaloneJarFile = tasks.named('shadowJar', ShadowJar).get().archiveFile.get().asFile
+
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
     workingDir projectDir
+    dependsOn(tasks.named('shadowJar'))
+    systemProperty 'patchwork.standaloneJar', standaloneJarFile.absolutePath
+    systemProperty 'patchwork.version', project.version.toString()
 }

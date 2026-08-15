@@ -7,6 +7,8 @@
 - Started the standalone Patchwork provider during plugin setup so it registers before Hytale's
   startup asset-load event. Embedded lifecycle guidance now requires the same setup-phase start
   and contribution registration.
+- Added the runtime implementation version to the Gradle standalone JAR. Patchwork can now start
+  without an embedding mod and will not use another plugin's runtime version.
 
 ## 1.3.1 - Telemetry Consent Fix - 2026-08-14
 

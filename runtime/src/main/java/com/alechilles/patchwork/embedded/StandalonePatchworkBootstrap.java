@@ -16,7 +16,7 @@ public final class StandalonePatchworkBootstrap {
     /** Creates the standalone provider without registering it; {@link StandalonePatchworkService#start()} elects it. */
     public static StandalonePatchworkService bootstrapStandalone(JavaPlugin plugin) {
         Objects.requireNonNull(plugin, "plugin");
-        String runtimeVersion = EmbeddedPatchworkBootstrap.requireRuntimeVersion(readMavenVersion(), StandalonePatchworkBootstrap.class.getPackage().getImplementationVersion());
+        String runtimeVersion = resolveRuntimeVersion(readMavenVersion(), StandalonePatchworkBootstrap.class.getPackage().getImplementationVersion());
         String pluginId = plugin.getIdentifier().toString();
         Object manifestVersion = plugin.getManifest().getVersion();
         if (manifestVersion == null || manifestVersion.toString().isBlank()) throw new IllegalStateException("Standalone plugin manifest version is required.");
@@ -40,6 +40,10 @@ public final class StandalonePatchworkBootstrap {
         PatchworkRuntimeHost host = new PatchworkRuntimeHost(testGeneratedRoot(dataRoot), Objects.requireNonNull(electedStartupAction, "electedStartupAction"));
         return new Service(PatchworkRuntimeProviderHandle.create(providerId, "STANDALONE", runtimeVersion, providerId,
                 runtimeVersion, sourceJar, dataRoot, host), PatchworkTelemetry.disabled());
+    }
+
+    static String resolveRuntimeVersion(String classpathMavenVersion, String packageVersion) {
+        return EmbeddedPatchworkBootstrap.requireRuntimeVersion(packageVersion, classpathMavenVersion);
     }
 
     private static String readMavenVersion() {
