@@ -39,7 +39,7 @@ hytaleTools {
     modDescription = 'Stitch focused changes into Hytale assets with a standalone, embeddable patcher built for clean cross-mod compatibility.'
     modCredits = 'Alec (Alechilles)'
     mainClass = 'com.alechilles.patchwork.standalone.PatchworkPlugin'
-    includesPack = false
+    includesPack = true
     bundleAssetEditorRuntime = false
 }
 
@@ -65,11 +65,13 @@ tasks.named('assemble') {
 }
 
 def standaloneJarFile = tasks.named('shadowJar', ShadowJar).get().archiveFile.get().asFile
+def runtimeJarFile = project(':patchwork:runtime').tasks.named('jar').get().archiveFile.get().asFile
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
     workingDir projectDir
     dependsOn(tasks.named('shadowJar'))
     systemProperty 'patchwork.standaloneJar', standaloneJarFile.absolutePath
+    systemProperty 'patchwork.runtimeJar', runtimeJarFile.absolutePath
     systemProperty 'patchwork.version', project.version.toString()
 }

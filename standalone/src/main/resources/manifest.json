@@ -18,7 +18,7 @@
         
     },
     "DisabledByDefault": false,
-    "IncludesAssetPack": false,
+    "IncludesAssetPack": true,
     "UpdateChecker": {
         "CurseForge": ""
     }

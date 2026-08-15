@@ -40,11 +40,15 @@ class StandalonePackagingIT {
                 assertEquals("Alechilles", manifest.get("Group").getAsString());
                 assertEquals("Patchwork", manifest.get("Name").getAsString());
                 assertEquals("com.alechilles.patchwork.standalone.PatchworkPlugin", manifest.get("Main").getAsString());
-                assertFalse(manifest.get("IncludesAssetPack").getAsBoolean());
+                assertTrue(manifest.get("IncludesAssetPack").getAsBoolean());
             }
             assertNotNull(standalone.getJarEntry("com/alechilles/patchwork/standalone/PatchworkPlugin.class"));
             assertNotNull(standalone.getJarEntry("com/alechilles/patchwork/embedded/StandalonePatchworkBootstrap.class"));
-            assertNotNull(standalone.getJarEntry("META-INF/maven/com.alechilles/patchwork-runtime/pom.properties"));
+            if (System.getProperty("patchwork.standaloneJar") == null) {
+                assertNotNull(standalone.getJarEntry("META-INF/maven/com.alechilles/patchwork-runtime/pom.properties"));
+            }
+            assertNotNull(standalone.getJarEntry("Common/UI/Custom/TelemetryConsentPage.ui"),
+                    "The standalone artifact must publish the embedded Telemetry consent UI.");
             assertNotNull(standalone.getJarEntry("icon-256.png"),
                     "The standalone artifact must publish its mod icon beside the manifest.");
             assertEquals(1, standalone.stream().filter(entry -> entry.getName().equals("manifest.json")).count());
@@ -56,10 +60,21 @@ class StandalonePackagingIT {
         assertEquals(1, shadePluginCount(STANDALONE_POM), "Only the standalone module may configure shading.");
     }
 
-    private static Path runtimeJar() throws Exception { return artifact(Path.of("..", "runtime", "target"), "patchwork-runtime"); }
-    private static Path standaloneJar() throws Exception { return artifact(Path.of("target"), "patchwork-standalone"); }
+    private static Path runtimeJar() throws Exception {
+        return artifact("patchwork.runtimeJar", Path.of("..", "runtime", "target"), "patchwork-runtime");
+    }
 
-    private static Path artifact(Path directory, String prefix) throws Exception {
+    private static Path standaloneJar() throws Exception {
+        return artifact("patchwork.standaloneJar", Path.of("target"), "patchwork-standalone");
+    }
+
+    private static Path artifact(String property, Path directory, String prefix) throws Exception {
+        String configured = System.getProperty(property);
+        if (configured != null && !configured.isBlank()) {
+            Path artifact = Path.of(configured);
+            assertTrue(Files.isRegularFile(artifact), "Expected the configured " + prefix + " artifact at " + artifact);
+            return artifact;
+        }
         Path artifact = directory.resolve(prefix + "-" + projectVersion() + ".jar");
         assertTrue(Files.isRegularFile(artifact), "Expected the current " + prefix + " artifact in " + directory);
         return artifact;
