@@ -9,6 +9,7 @@
   and contribution registration.
 - Added the runtime implementation version to the Gradle standalone JAR. Patchwork can now start
   without an embedding mod and will not use another plugin's runtime version.
+- Removed test-only filesystem, JSON Schema, and logging libraries from the Gradle standalone JAR.
 
 ## 1.3.1 - Telemetry Consent Fix - 2026-08-14
 
