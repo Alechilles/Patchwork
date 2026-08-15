@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 
 class PatchworkPluginLifecycleTest {
     @Test
-    void lifecycleCreatesStartsAndClosesOneExactStandaloneService() throws Exception {
+    void setupStartsAndRetainsOneExactStandaloneServiceBeforeAssetLoading() throws Exception {
         AtomicInteger created = new AtomicInteger();
         RecordingService service = new RecordingService();
         StandalonePluginLifecycle lifecycle = new StandalonePluginLifecycle();
@@ -20,12 +20,12 @@ class PatchworkPluginLifecycleTest {
             return service;
         });
 
+        assertEquals(1, service.starts.get(), "setup must start the provider before Hytale loads assets");
         lifecycle.setup(() -> { throw new AssertionError("setup must not create a second service"); });
-        lifecycle.start();
         lifecycle.shutdown();
 
         assertEquals(1, created.get(), "setup must create one provider service");
-        assertEquals(1, service.starts.get(), "start must delegate once to the created service");
+        assertEquals(1, service.starts.get(), "repeated setup must not start the provider again");
         assertEquals(1, service.closes.get(), "shutdown must close the exact created service");
         assertNull(lifecycle.service(), "successful shutdown must release the closed service");
     }

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Started the standalone Patchwork provider during plugin setup so it registers before Hytale's
+  startup asset-load event. Embedded lifecycle guidance now requires the same setup-phase start
+  and contribution registration.
+
 ## 1.3.1 - Telemetry Consent Fix - 2026-08-14
 
 ### Fixed

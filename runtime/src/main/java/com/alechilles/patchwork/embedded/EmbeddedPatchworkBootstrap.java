@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Hytale-facing entry point for a host that embeds the plain Patchwork runtime jar. */
 public final class EmbeddedPatchworkBootstrap {
     private EmbeddedPatchworkBootstrap() { }
-    /** Boots the embedded runtime from a Hytale plugin entrypoint. */
+    /** Creates the embedded runtime during Hytale plugin setup; start the returned service before setup returns. */
     public static EmbeddedPatchworkService bootstrap(JavaPlugin plugin) {
         if (plugin == null) throw new IllegalArgumentException("Embedding JavaPlugin is required.");
         GeneratedPackLayout layout = sharedLayout(plugin.getDataDirectory());

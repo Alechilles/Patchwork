@@ -19,10 +19,6 @@ public final class PatchworkPlugin extends JavaPlugin {
         lifecycle.setup(() -> StandalonePatchworkBootstrap.bootstrapStandalone(this));
     }
 
-    @Override protected synchronized void start() {
-        lifecycle.start();
-    }
-
     @Override protected synchronized void shutdown() {
         lifecycle.shutdown();
     }

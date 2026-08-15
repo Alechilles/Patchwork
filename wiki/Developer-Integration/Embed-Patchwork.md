@@ -43,10 +43,6 @@ public final class ExamplePlugin extends JavaPlugin {
     @Override
     protected void setup() {
         patchwork = EmbeddedPatchworkBootstrap.bootstrap(this);
-    }
-
-    @Override
-    protected void start() {
         patchwork.start();
         contribution = patchwork.registerContribution(new ExampleContribution());
     }
@@ -60,6 +56,11 @@ public final class ExamplePlugin extends JavaPlugin {
 ```
 
 Retain the exact returned handles. Close the contribution before the service. A close can fail while Patchwork is safely draining or recovering; keep the handle and retry it rather than discarding it.
+
+Start the service and register contributions during the host plugin's `setup()` method. Hytale
+dispatches its one startup asset-load event after plugin setup and before plugin start. Starting
+Patchwork later misses startup generation, and registering a contribution later excludes its
+macros and adapters from that startup pass.
 
 `generatedPatchRoot()` returns the current elected runtime's generated-pack root. It may belong to another plugin's elected copy, not to your embedded jar.
 
