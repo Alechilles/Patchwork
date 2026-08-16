@@ -12,7 +12,7 @@ Patchwork can be shaded into another Hytale Java plugin. Embedded and standalone
 </dependency>
 ```
 
-Patchwork 1.3.1 brings `com.alechilles:alecstelemetry-runtime:1.1.0` transitively. It
+Patchwork 1.3.1 brings `com.alechilles:alecstelemetry-runtime:1.2.1` transitively. It
 registers the namespaced `patchwork` project automatically when the host starts. The project
 uses Alec's hosted destination, supports uncaught exception crash reports and anonymous aggregate
 stats, and has independent consent from the host's telemetry project. No second standalone

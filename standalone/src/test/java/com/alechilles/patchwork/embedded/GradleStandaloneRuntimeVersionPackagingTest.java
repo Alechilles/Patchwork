@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.InputStreamReader;
 import java.nio.file.Path;
+import java.util.Properties;
 import java.util.jar.Attributes;
 import java.util.jar.JarFile;
 
@@ -35,6 +36,20 @@ class GradleStandaloneRuntimeVersionPackagingTest {
                         "Patchwork must publish the embedded Telemetry UI to clients.");
             }
             assertNotNull(jar.getJarEntry("Common/UI/Custom/TelemetryConsentPage.ui"));
+        }
+    }
+
+    @Test
+    void distributableEmbedsSupportedTelemetryRuntime() throws Exception {
+        try (JarFile jar = new JarFile(Path.of(System.getProperty("patchwork.standaloneJar")).toFile())) {
+            var metadata = jar.getJarEntry(
+                    "META-INF/maven/com.alechilles/alecstelemetry-runtime/pom.properties");
+            assertNotNull(metadata, "The distributable must identify its embedded Telemetry runtime.");
+            var properties = new Properties();
+            try (var input = jar.getInputStream(metadata)) {
+                properties.load(input);
+            }
+            assertEquals("1.2.1", properties.getProperty("version"));
         }
     }
 }

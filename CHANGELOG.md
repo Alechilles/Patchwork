@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Updated the embedded Alec's Telemetry runtime from `1.1.0` to `1.2.1`.
+
 ### Fixed
 
 - Started the standalone Patchwork provider during plugin setup so it registers before Hytale's

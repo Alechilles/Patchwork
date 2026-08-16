@@ -18,7 +18,7 @@
         <dependency>
             <groupId>com.alechilles</groupId>
             <artifactId>alecstelemetry-runtime</artifactId>
-            <version>1.1.0</version>
+            <version>1.2.1</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

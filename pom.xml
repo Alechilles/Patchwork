@@ -45,6 +45,13 @@
         </dependencies>
     </dependencyManagement>
 
+    <repositories>
+        <repository>
+            <id>alecs-telemetry</id>
+            <url>https://telemetry.alecsmods.com/maven/releases</url>
+        </repository>
+    </repositories>
+
     <build>
         <pluginManagement>
             <plugins>
