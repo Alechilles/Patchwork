@@ -112,7 +112,7 @@ public record PatchworkReloadObservation(long epoch, String adapterId, String ta
 public enum PatchworkObservationOutcome { LOADED, REMOVED, FAILED }
 ```
 
-In 1.2.1, each adapter invocation contains exactly one `PatchworkTargetExpectation`, even though the request type uses a list for forward compatibility. Implementations must handle the current singleton contract and must not assume unrelated targets are batched together.
+Patchwork 1.3.2 sends exactly one `PatchworkTargetExpectation` in each adapter invocation, even though the request type uses a list for forward compatibility. Implementations must handle the current singleton contract and must not assume unrelated targets are batched together.
 
 ## Contributions
 
