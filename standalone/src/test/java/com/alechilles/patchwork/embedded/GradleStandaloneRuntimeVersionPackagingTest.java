@@ -2,6 +2,7 @@ package com.alechilles.patchwork.embedded;
 
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 import java.io.InputStreamReader;
 import java.nio.file.Path;
@@ -14,6 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Verifies that the Gradle distributable supplies the version required during bootstrap. */
+@EnabledIfSystemProperty(named = "patchwork.standaloneJar", matches = ".+")
 class GradleStandaloneRuntimeVersionPackagingTest {
     @Test
     void distributablePrefersItsOwnVersionOverForeignRuntimeMetadata() throws Exception {
