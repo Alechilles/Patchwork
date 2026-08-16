@@ -8,11 +8,11 @@ Patchwork can be shaded into another Hytale Java plugin. Embedded and standalone
 <dependency>
   <groupId>com.alechilles</groupId>
   <artifactId>patchwork-runtime</artifactId>
-  <version>1.3.1</version>
+  <version>1.3.2</version>
 </dependency>
 ```
 
-Patchwork 1.3.1 brings `com.alechilles:alecstelemetry-runtime:1.2.1` transitively. It
+Patchwork 1.3.2 brings `com.alechilles:alecstelemetry-runtime:1.2.1` transitively. It
 registers the namespaced `patchwork` project automatically when the host starts. The project
 uses Alec's hosted destination, supports uncaught exception crash reports and anonymous aggregate
 stats, and has independent consent from the host's telemetry project. No second standalone
@@ -66,7 +66,7 @@ macros and adapters from that startup pass.
 
 ## Stable API surface
 
-Patchwork 1.3.1 exposes these host-facing contracts from `com.alechilles.patchwork.embedded`:
+Patchwork 1.3.2 exposes these host-facing contracts from `com.alechilles.patchwork.embedded`:
 
 ```java
 public final class EmbeddedPatchworkBootstrap {
@@ -180,14 +180,14 @@ public final class ExampleAdapter implements PatchworkTargetAdapter {
 }
 ```
 
-Each request carries one coordinator epoch and one immutable target expectation in 1.3.1. Return exact reloaded, restart-required, and failed target lists.
+Each request carries one coordinator epoch and one immutable target expectation in 1.3.2. Return exact reloaded, restart-required, and failed target lists.
 
 ## Telemetry contribution contract
 
 The Patchwork runtime's descriptor is namespaced at
 `META-INF/alecs-telemetry/projects/patchwork.json`, so it can be shaded beside a host's
 conventional descriptor. It declares the logical owner `Alechilles:Patchwork`, project ID
-`patchwork`, runtime version `1.3.1`, and only the Crash and Stats consent categories. Do not
+`patchwork`, runtime version `1.3.2`, and only the Crash and Stats consent categories. Do not
 copy it to `Server/Telemetry/project.json` or replace it with a custom endpoint: contributed
 projects are hosted-only in 1.3.x.
 

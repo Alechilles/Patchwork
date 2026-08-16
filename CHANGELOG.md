@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.2 - Standalone Packaging Hotfix - 2026-08-15
 
 ### Changed
 
