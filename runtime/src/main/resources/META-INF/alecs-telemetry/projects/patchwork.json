@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "projectId": "patchwork",
+  "projectVersion": "${projectVersion}",
   "displayName": "Patchwork",
   "runtimeMode": "embedded",
   "ownerPluginIdentifiers": ["Alechilles:Patchwork"],
@@ -17,7 +18,8 @@
     },
     "stats": {
       "supported": true,
-      "defaultEnabled": true
+      "defaultEnabled": true,
+      "allowedEvents": ["heartbeat"]
     }
   },
   "ui": {

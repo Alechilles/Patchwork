@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.3 - Embedded Telemetry Discovery Fix - 2026-08-18
+
+### Fixed
+
+- Added the Patchwork runtime version and passive heartbeat capability to the packaged telemetry
+  descriptor. Tamework and other shaded hosts no longer report that Patchwork's passive telemetry
+  descriptor is incomplete when a player becomes ready.
+- Generated the descriptor version from the Gradle or Maven project version so release updates do
+  not require a separate hard-coded telemetry version.
+
 ## 1.3.2 - Standalone Packaging Hotfix - 2026-08-15
 
 ### Changed

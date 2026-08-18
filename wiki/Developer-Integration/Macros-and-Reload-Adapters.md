@@ -60,6 +60,6 @@ public final class ExampleAdapter implements PatchworkTargetAdapter {
 }
 ```
 
-Patchwork 1.3.2 sends exactly one target expectation in each adapter request, even though the request shape is a list for future compatibility. Return exact target lists for reloaded, restart-required, and failed outcomes.
+Patchwork 1.3.3 sends exactly one target expectation in each adapter request, even though the request shape is a list for future compatibility. Return exact target lists for reloaded, restart-required, and failed outcomes.
 
 To confirm live state, report an observation only for the supplied pending epoch, adapter ID, target, and expected hash. An old or unrelated asset event must never confirm a current transaction.

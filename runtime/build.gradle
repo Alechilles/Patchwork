@@ -8,6 +8,7 @@ def localProperty = { String name -> providers.gradleProperty(name).getOrElse(lo
 
 group = 'com.alechilles'
 version = localProperty('mod_version')
+def runtimeProjectVersion = version.toString()
 
 java {
     toolchain {
@@ -34,6 +35,13 @@ dependencies {
 
 configurations.named('testImplementation') {
     extendsFrom(configurations.compileOnly)
+}
+
+tasks.named('processResources') {
+    inputs.property('projectVersion', runtimeProjectVersion)
+    filesMatching('META-INF/alecs-telemetry/projects/patchwork.json') {
+        expand(projectVersion: runtimeProjectVersion)
+    }
 }
 
 tasks.withType(Test).configureEach {
