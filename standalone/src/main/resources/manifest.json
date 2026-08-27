@@ -10,7 +10,7 @@
     ],
     "Website": "",
     "Main": "com.alechilles.patchwork.standalone.PatchworkPlugin",
-    "ServerVersion": "0.5.x",
+    "ServerVersion": ">=0.5.0 <0.7.0",
     "Dependencies": {
         "Hytale:AssetModule": "*"
     },
