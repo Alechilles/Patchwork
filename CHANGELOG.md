@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.4 - Stable 0.6 Compatibility Hotfix - 2026-08-27
 
 ### Changed
 

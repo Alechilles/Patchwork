@@ -13,7 +13,7 @@ The elected runtime registers one command tree:
 
 All commands require `patchwork.admin` and default to the `hytale:Admin` group. Passive copies do not register commands.
 
-Patchwork 1.3.3 also contributes an independent hosted Alec's Telemetry project. It records
+Patchwork 1.3.4 also contributes an independent hosted Alec's Telemetry project. It records
 uncaught exception crash reports and anonymous aggregate stats only when that project is enabled
 by server-owner consent. Telemetry exceptions are swallowed after a bounded warning and do not
 alter command, generation, publish, or reload results. Contributed projects are hosted-only;
@@ -105,7 +105,7 @@ Patchwork owns this directory. Do not edit generated files by hand or place patc
 
 Startup generation is staged under a unique sibling directory and verified before activation. If a previous generated pack exists, Patchwork preserves it as last-known-good until the replacement is proven active.
 
-Diagnostic names include unique staging, prior, and failed-new directories. A successful replacement normally retains the previous generated root under `Diagnostics/GeneratedPatches-prior-*` as last-known-good evidence, so a prior directory alone does not indicate failure. A failed-new directory or a prior directory referenced by an unresolved publication result is failure evidence. Patchwork 1.3.3 has no automatic evidence-pruning command; preserve evidence while diagnosing, and remove an old successful prior copy only during an offline maintenance window after the active pack has been verified.
+Diagnostic names include unique staging, prior, and failed-new directories. A successful replacement normally retains the previous generated root under `Diagnostics/GeneratedPatches-prior-*` as last-known-good evidence, so a prior directory alone does not indicate failure. A failed-new directory or a prior directory referenced by an unresolved publication result is failure evidence. Patchwork 1.3.4 has no automatic evidence-pruning command; preserve evidence while diagnosing, and remove an old successful prior copy only during an offline maintenance window after the active pack has been verified.
 
 A target can be rejected without blocking unrelated valid targets. Patchwork reports scan failures and rejected targets while publishing only a verified generated pack.
 
@@ -151,7 +151,7 @@ If current generated inventory cannot be safely scanned, status explicitly repor
 
 The command reports the pass/fail result of each completed fixture in-game, followed by the overall reload category and cleanup result. If generation fails before any fixture completes, it reports that explicitly.
 
-The production generated pack is not modified. Patchwork 1.3.3 does not supply the self-test with a live reload handle, so a successful isolated generation truthfully reports `restart-required`; the command validates generation and conditions, not live Hytale reload. A cancelled or failed test reports truthful generation and cleanup state. Cleanup failure retains the exact run as evidence.
+The production generated pack is not modified. Patchwork 1.3.4 does not supply the self-test with a live reload handle, so a successful isolated generation truthfully reports `restart-required`; the command validates generation and conditions, not live Hytale reload. A cancelled or failed test reports truthful generation and cleanup state. Cleanup failure retains the exact run as evidence.
 
 ## Recovery checklist
 
