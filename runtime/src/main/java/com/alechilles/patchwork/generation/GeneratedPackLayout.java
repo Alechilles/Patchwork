@@ -75,27 +75,26 @@ public final class GeneratedPackLayout {
         return token;
     }
 
-    private static void validateExistingPath(Path end, boolean requireFinalDirectory) throws IOException {
+    private void validateExistingPath(Path end, boolean requireFinalDirectory) throws IOException {
         Path normalizedEnd = end.toAbsolutePath().normalize();
         Path filesystemRoot = normalizedEnd.getRoot();
         if (filesystemRoot == null) throw new IOException("Path has no filesystem root.");
-        Path realRoot = filesystemRoot.toRealPath();
-        Path current = filesystemRoot;
-        verifyExisting(current, realRoot, true);
+        Path anchor = Files.exists(serverRoot, LinkOption.NOFOLLOW_LINKS) ? serverRoot : filesystemRoot;
+        Path current = anchor;
+        verifyExisting(current, true);
         java.util.List<Path> parts = new java.util.ArrayList<>();
-        for (Path part : filesystemRoot.relativize(normalizedEnd)) parts.add(part);
+        for (Path part : anchor.relativize(normalizedEnd)) parts.add(part);
         for (int index = 0; index < parts.size(); index++) {
             current = current.resolve(parts.get(index));
             if (!Files.exists(current, LinkOption.NOFOLLOW_LINKS)) break;
-            verifyExisting(current, realRoot, index < parts.size() - 1 || requireFinalDirectory);
+            verifyExisting(current, index < parts.size() - 1 || requireFinalDirectory);
         }
     }
 
-    private static void verifyExisting(Path path, Path root, boolean requireDirectory) throws IOException {
+    private static void verifyExisting(Path path, boolean requireDirectory) throws IOException {
         BasicFileAttributes attributes = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
         if (attributes.isSymbolicLink() || attributes.isOther() || (requireDirectory && !attributes.isDirectory())) {
             throw new IOException("Patchwork data path contains a link or unsafe component.");
         }
-        if (!path.toRealPath().startsWith(root.toRealPath())) throw new IOException("Patchwork data path escapes its server root.");
     }
 }

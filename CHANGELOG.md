@@ -7,6 +7,12 @@
 - Updated the standalone build target to stable Hytale `0.6.0` and standardized
   its server compatibility range on `>=0.5.0 <0.7.0`.
 
+### Fixed
+
+- Reduced repeated Windows filesystem checks during safe generated-pack path
+  validation. Patchwork self-tests and generation no longer spend minutes
+  rescanning trusted server-root ancestors.
+
 ## 1.3.3 - Embedded Telemetry Discovery Fix - 2026-08-18
 
 ### Fixed
