@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.5 - Embedded Telemetry Metadata Hotfix - 2026-08-30
+
+### Fixed
+
+- Corrected the embedded Alec's Telemetry version metadata to `1.2.3` so
+  Patchwork reports the actual bundled runtime version.
+
 ## 1.3.4 - Stable 0.6 Compatibility Hotfix - 2026-08-27
 
 ### Changed

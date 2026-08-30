@@ -51,7 +51,7 @@ class GradleStandaloneRuntimeVersionPackagingTest {
             try (var input = jar.getInputStream(metadata)) {
                 properties.load(input);
             }
-            assertEquals("1.2.1", properties.getProperty("version"));
+            assertEquals("1.2.3", properties.getProperty("version"));
         }
     }
 }
