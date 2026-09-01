@@ -109,7 +109,7 @@ final class PatchOperationAsset {
             .add()
             .append(new KeyedCodec<>("Path", Codec.STRING),
                     (operation, value) -> operation.path = value, operation -> operation.path)
-            .documentation("Location inside the target JSON, written as a JSON Pointer such as /Container/Capacity. Use ~1 for '/' and ~0 for '~' inside a key.")
+            .documentation("Location inside the target JSON, written as a JSON Pointer such as /Container/Capacity. Merge and MergeObjectFromAsset can use an empty string for the document root. Use ~1 for '/' and ~0 for '~' inside a key.")
             .add()
             .append(new KeyedCodec<>("Source", Codec.STRING),
                     (operation, value) -> operation.source = value, operation -> operation.source)

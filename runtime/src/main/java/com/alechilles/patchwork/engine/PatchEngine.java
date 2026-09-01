@@ -562,7 +562,9 @@ public final class PatchEngine {
 
     private static JsonElement resolve(JsonElement root, PatchOperation operation) {
         JsonElement current = root;
-        for (String token : JsonPointer.tokens(path(operation), semanticVersion(operation), true)) {
+        boolean rootMerge = operation.path() != null && operation.path().isEmpty()
+                && PatchOperation.supportsDocumentRoot(operation);
+        for (String token : JsonPointer.tokens(path(operation), semanticVersion(operation), !rootMerge)) {
             if (current == null) return null;
             if (current.isJsonObject()) {
                 current = current.getAsJsonObject().get(token);
@@ -611,7 +613,8 @@ public final class PatchEngine {
     }
 
     private static String path(PatchOperation operation) {
-        if (operation.path() == null || operation.path().isBlank()) {
+        if (operation.path() == null || (operation.path().isBlank()
+                && !(operation.path().isEmpty() && PatchOperation.supportsDocumentRoot(operation)))) {
             throw new IllegalArgumentException("Operation " + operation.id() + " requires Path.");
         }
         return operation.path();

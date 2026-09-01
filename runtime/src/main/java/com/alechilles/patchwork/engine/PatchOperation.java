@@ -309,7 +309,10 @@ public final class PatchOperation {
         if (Set.of("Add", "Merge", "Replace", "Remove", "Insert", "ReplaceMatching", "RemoveMatching", "MoveMatching",
                 "MergeMatching", "UpsertMatching", "MergeObjectFromAsset")
                 .contains(op)) {
-            validatePath(operation, patchId, index);
+            validatePath(operation, op, language, patchId, index);
+        }
+        if ("Macro".equals(op) && operation.has("Path")) {
+            validatePath(operation, op, language, patchId, index);
         }
         if (Set.of("OverlayFromAsset", "MergeObjectFromAsset").contains(op)) {
             validateSource(operation, patchId, index);
@@ -373,13 +376,18 @@ public final class PatchOperation {
         }
     }
 
-    private static void validatePath(JsonObject operation, String patchId, int index) {
+    private static void validatePath(JsonObject operation, String op, PatchLanguage language, String patchId, int index) {
         JsonElement path = operation.get("Path");
-        if (path == null || !path.isJsonPrimitive() || !path.getAsJsonPrimitive().isString()
-                || path.getAsString().isBlank()) {
+        if (path == null || !path.isJsonPrimitive() || !path.getAsJsonPrimitive().isString()) {
             throw structural(patchId, index, "Path must be a non-empty string.");
         }
         String pointer = path.getAsString();
+        if (pointer.isEmpty() && supportsDocumentRoot(op, language)) {
+            return;
+        }
+        if (pointer.isBlank()) {
+            throw structural(patchId, index, "Path must be a non-empty string.");
+        }
         if (!pointer.startsWith("/")) {
             throw structural(patchId, index, "Path must use JSON pointer syntax and start with '/'.");
         }
@@ -389,6 +397,15 @@ public final class PatchOperation {
                 throw structural(patchId, index, "Path contains an invalid JSON pointer escape.");
             }
         }
+    }
+
+    static boolean supportsDocumentRoot(PatchOperation operation) {
+        return supportsDocumentRoot(operation.op(), operation.language());
+    }
+
+    private static boolean supportsDocumentRoot(String op, PatchLanguage language) {
+        return language.closedStructure()
+                && ("Merge".equals(op) || "MergeObjectFromAsset".equals(op));
     }
 
     private static void validateSource(JsonObject operation, String patchId, int index) {

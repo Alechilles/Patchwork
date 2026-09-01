@@ -51,6 +51,13 @@ Use it when your patch should fail loudly if the upstream asset no longer has th
 
 Both the selected target and `Value` must be JSON objects. It is not an array operation.
 
+Use an empty `Path` to merge the document root. A root merge creates missing
+top-level objects and preserves unrelated existing fields:
+
+```json
+{"Op":"Merge","Path":"","Value":{"RandomAttachmentSets":{"MyMod":{}}}}
+```
+
 ## Remove
 
 `Remove` deletes an existing object property or array entry.

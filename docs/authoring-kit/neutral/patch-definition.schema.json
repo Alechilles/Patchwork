@@ -154,6 +154,13 @@
       "type": "string",
       "pattern": "^/"
     },
+    "rootMergePath": {
+      "description": "Merge destination. Use an empty string to select the document root.",
+      "oneOf": [
+        {"const": ""},
+        {"$ref": "#/$defs/path"}
+      ]
+    },
     "assetPath": {
       "type": "string",
       "minLength": 1,
@@ -211,7 +218,7 @@
       "required": ["Op", "Path", "Value"],
       "properties": {
         "Op": {"const": "Merge"},
-        "Path": {"$ref": "#/$defs/path"},
+        "Path": {"$ref": "#/$defs/rootMergePath"},
         "Value": {"$ref": "#/$defs/jsonObject"},
         "Id": {"$ref": "#/$defs/operationId"},
         "Required": {"type": "boolean"}
@@ -482,7 +489,7 @@
             {"type": "null"}
           ]
         },
-        "Path": {"$ref": "#/$defs/path"},
+        "Path": {"$ref": "#/$defs/rootMergePath"},
         "Id": {"$ref": "#/$defs/operationId"},
         "Required": {"type": "boolean"}
       }

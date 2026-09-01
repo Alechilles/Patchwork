@@ -166,6 +166,41 @@ final class PatchEngineTest {
     }
 
     @Test
+    void neutralRootMergeCreatesMissingObjectsAndPreservesExistingEntries() {
+        PatchDefinition definition = neutralDefinition("""
+                { "Id":"merge-root", "Op":"Merge", "Path":"", "Value": {
+                  "RandomAttachmentSets": {
+                    "AH_Saddle": { "None": { "Weight": 1 }, "Yes": { "Weight": 0 } }
+                  }
+                } }
+                """);
+
+        PatchEngine.PatchResult missing = engine.apply(object("{\"Model\":\"Cow\"}"), List.of(definition));
+        PatchEngine.PatchResult existing = engine.apply(object("""
+                { "Model":"Cow", "RandomAttachmentSets": {
+                  "ThirdPartyHorns": { "Default": { "Weight": 1 } }
+                } }
+                """), List.of(definition));
+
+        assertTrue(missing.patched().getAsJsonObject("RandomAttachmentSets").has("AH_Saddle"));
+        JsonObject attachmentSets = existing.patched().getAsJsonObject("RandomAttachmentSets");
+        assertTrue(attachmentSets.has("ThirdPartyHorns"));
+        assertTrue(attachmentSets.has("AH_Saddle"));
+    }
+
+    @Test
+    void explicitFormatTwoMergeCanTargetTheDocumentRoot() {
+        PatchDefinition definition = v2Definition("""
+                { "Id":"merge-root", "Op":"Merge", "Path":"", "Value": { "Enabled":true } }
+                """);
+
+        PatchEngine.PatchResult result = engine.apply(object("{\"Keep\":true}"), List.of(definition));
+
+        assertTrue(result.patched().get("Keep").getAsBoolean());
+        assertTrue(result.patched().get("Enabled").getAsBoolean());
+    }
+
+    @Test
     void overlayReadsOriginalSnapshotAndLaterOperationsWin() throws IOException {
         GenerationAssetSnapshot assets = snapshot(Map.of(
                 "Server/Test/Source.json", "{\"Shared\":{\"A\":1},\"FromSource\":true}"));
@@ -197,6 +232,21 @@ final class PatchEngineTest {
                 new PatchEngine.ApplicationContext("Server/Test/Target.json", assets)).patched();
 
         assertEquals(object("{\"Keep\":1,\"Imported\":2}"), merged.getAsJsonObject("Destination"));
+    }
+
+    @Test
+    void mergeObjectFromAssetCanMergeIntoTheNeutralDocumentRoot() throws IOException {
+        GenerationAssetSnapshot assets = snapshot(Map.of(
+                "Server/Test/Source.json", "{\"Shared\":{\"Imported\":2}}"));
+        PatchDefinition definition = neutralDefinition("""
+                { "Id":"merge-object-root", "Op":"MergeObjectFromAsset", "Source":"Server/Test/Source.json",
+                  "SourcePath":"/Shared", "Path":"" }
+                """);
+
+        JsonObject merged = engine.apply(object("{\"Keep\":1}"), List.of(definition),
+                new PatchEngine.ApplicationContext("Server/Test/Target.json", assets)).patched();
+
+        assertEquals(object("{\"Keep\":1,\"Imported\":2}"), merged);
     }
 
     @Test
@@ -347,6 +397,12 @@ final class PatchEngineTest {
     @Test
     void rejectsStrictPointerIndexesAndDocumentMutationButKeepsLegacyIndexes() {
         assertThrows(IllegalArgumentException.class, () -> JsonPointer.tokens("", 2, true));
+        assertThrows(IllegalArgumentException.class, () -> neutralDefinition("""
+                { "Op":"Add", "Path":"", "Value":true }
+                """));
+        assertThrows(IllegalArgumentException.class, () -> neutralDefinition("""
+                { "Op":"Macro", "Macro":"Example", "Path":"" }
+                """));
         PatchDefinition strict = definition("""
                 { "FormatVersion": 2, "Id": "strict-index", "Target": "Server/Test.json", "Operations": [
                   { "Op": "RequireFormat", "Version": 2 },
@@ -363,6 +419,14 @@ final class PatchEngineTest {
                 """);
         PatchEngine.PatchResult result = engine.apply(object("{ \"items\": [\"zero\", \"one\"] }"), List.of(legacy));
         assertEquals("changed", result.patched().getAsJsonArray("items").get(1).getAsString());
+
+        PatchDefinition legacyRootMerge = definition("""
+                { "Id":"legacy-root", "Target":"Server/Test.json", "Operations": [
+                  { "Op":"Merge", "Path":"", "Value": { "Enabled":true } }
+                ] }
+                """);
+        assertThrows(PatchEngine.PatchFailureException.class,
+                () -> engine.apply(object("{}"), List.of(legacyRootMerge)));
     }
 
     @Test

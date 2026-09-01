@@ -63,6 +63,16 @@ final class PatchNeutralSchemaTest {
     }
 
     @Test
+    void acceptsDocumentRootObjectMerges() throws IOException {
+        assertValid(JSON.readTree("""
+                {"Id":"root-merge","Target":"Server/Test/A.json","Operations":[
+                  {"Op":"Merge","Path":"","Value":{"Enabled":true}},
+                  {"Op":"MergeObjectFromAsset","Source":"Server/Test/Source.json","Path":""}
+                ]}
+                """), "root-object-merges");
+    }
+
+    @Test
     void schemaAndRuntimeRejectTrailingNewlineConflictPolicy() throws IOException {
         String text = "{\"Id\":\"trailing-newline\",\"Target\":\"Server/Test/Conflict.json\","
                 + "\"ConflictPolicy\":\"Allow\\n\",\"Operations\":[]}";

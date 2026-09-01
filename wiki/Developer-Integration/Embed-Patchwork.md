@@ -19,11 +19,11 @@ Depend on `patchwork-runtime`, not `patchwork-standalone`:
 <dependency>
   <groupId>com.alechilles</groupId>
   <artifactId>patchwork-runtime</artifactId>
-  <version>1.3.5</version>
+  <version>1.4.0</version>
 </dependency>
 ```
 
-Patchwork 1.3.5 carries `com.alechilles:alecstelemetry-runtime:1.2.3` transitively. The
+Patchwork 1.4.0 carries `com.alechilles:alecstelemetry-runtime:1.2.3` transitively. The
 namespaced Patchwork project is hosted-only, has independent consent, and supports uncaught
 exception crash reports plus anonymous aggregate stats. Initialization, writes, and shutdown are
 best-effort; telemetry failures never block Patchwork. Do not add a second standalone Telemetry

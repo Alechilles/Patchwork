@@ -39,7 +39,9 @@ Later operations can still replace or merge an imported value. Patchwork rejects
 }
 ```
 
-`Path` must point to an existing target object. The selected source value must also be an object. Source fields win, while unrelated fields already in the target object stay in place.
+`Path` must point to an existing target object. Use an empty `Path` to select
+the document root. The selected source value must also be an object. Source
+fields win, while unrelated fields already in the target object stay in place.
 
 ## Make an Integration Optional
 

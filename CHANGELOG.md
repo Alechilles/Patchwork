@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.0 - Root Merge Support - 2026-08-31
+
+### Changed
+
+- Allowed `Merge` and neutral `MergeObjectFromAsset` operations to use the
+  empty RFC 6901 pointer and deep-merge the document root. Other mutation
+  operations still require a non-root path.
+
 ## 1.3.5 - Embedded Telemetry Metadata Hotfix - 2026-08-30
 
 ### Fixed

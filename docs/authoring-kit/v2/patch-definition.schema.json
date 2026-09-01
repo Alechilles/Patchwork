@@ -192,6 +192,17 @@
       "type": "string",
       "pattern": "^/"
     },
+    "rootMergePath": {
+      "description": "Merge destination. Use an empty string to select the document root.",
+      "oneOf": [
+        {
+          "const": ""
+        },
+        {
+          "$ref": "#/$defs/path"
+        }
+      ]
+    },
     "operationId": {
       "type": "string",
       "minLength": 1,
@@ -454,7 +465,7 @@
           "const": "Merge"
         },
         "Path": {
-          "$ref": "#/$defs/path"
+          "$ref": "#/$defs/rootMergePath"
         },
         "Value": {
           "$ref": "#/$defs/jsonObject"

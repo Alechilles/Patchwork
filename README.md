@@ -128,7 +128,7 @@ When a simple add, merge, or insert is not enough, Patchwork also provides four 
 *   **MergeMatching** — find matching object entries in an array, then deep-merge new fields into each match.
 *   **UpsertMatching** — merge into matching entries, or insert one new object when nothing matches.
 *   **OverlayFromAsset** — deep-merge an entire exact-path source asset onto the current target. Source values win while unrelated target fields remain.
-*   **MergeObjectFromAsset** — deep-merge one object selected from another exact-path source asset into an existing object in the target.
+*   **MergeObjectFromAsset** — deep-merge one object selected from another exact-path source asset into an existing target object or the document root.
 
 Matching uses the same recursive object matcher as other array operations, and both cross-asset operations read the original generation snapshot. They never modify their source assets, do not accept `glob:` sources, and can be made optional with `Required: false` when a source is only present in some mod setups.
 
@@ -230,12 +230,12 @@ The generation dependency index records definition files, concrete target expans
 
 For monitored Hytale server stores, Patchwork calls a target `hot-reloaded` only after Hytale reports the expected generated provider and asset path. Common, custom, unknown, disabled-monitor, or unconfirmed routes remain restart-required; writing a generated file alone is never treated as a live reload.
 
-Patchwork 1.3.5 supports these installation modes:
+Patchwork 1.4.0 supports these installation modes:
 
-*   Install `patchwork-standalone-1.3.5.jar` as a Hytale server mod.
-*   Embed `com.alechilles:patchwork-runtime:1.3.5` in another Java plugin.
+*   Install `patchwork-standalone-1.4.0.jar` as a Hytale server mod.
+*   Embed `com.alechilles:patchwork-runtime:1.4.0` in another Java plugin.
 
-Patchwork 1.3.5 contributes its own hosted Alec's Telemetry project transitively through
+Patchwork 1.4.0 contributes its own hosted Alec's Telemetry project transitively through
 `alecstelemetry-runtime:1.2.3`. The Patchwork project has independent server-owner consent
 and supports uncaught exception crash reports plus anonymous aggregate stats. Telemetry failures
 are non-fatal and never change patch generation or reload behavior. Contributed Patchwork

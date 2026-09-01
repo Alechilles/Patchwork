@@ -8,11 +8,11 @@ Patchwork can be shaded into another Hytale Java plugin. Embedded and standalone
 <dependency>
   <groupId>com.alechilles</groupId>
   <artifactId>patchwork-runtime</artifactId>
-  <version>1.3.5</version>
+  <version>1.4.0</version>
 </dependency>
 ```
 
-Patchwork 1.3.5 brings `com.alechilles:alecstelemetry-runtime:1.2.3` transitively. It
+Patchwork 1.4.0 brings `com.alechilles:alecstelemetry-runtime:1.2.3` transitively. It
 registers the namespaced `patchwork` project automatically when the host starts. The project
 uses Alec's hosted destination, supports uncaught exception crash reports and anonymous aggregate
 stats, and has independent consent from the host's telemetry project. No second standalone
@@ -66,7 +66,7 @@ macros and adapters from that startup pass.
 
 ## Stable API surface
 
-Patchwork 1.3.5 exposes these host-facing contracts from `com.alechilles.patchwork.embedded`:
+Patchwork 1.4.0 exposes these host-facing contracts from `com.alechilles.patchwork.embedded`:
 
 ```java
 public final class EmbeddedPatchworkBootstrap {
@@ -112,7 +112,7 @@ public record PatchworkReloadObservation(long epoch, String adapterId, String ta
 public enum PatchworkObservationOutcome { LOADED, REMOVED, FAILED }
 ```
 
-Patchwork 1.3.5 sends exactly one `PatchworkTargetExpectation` in each adapter invocation, even though the request type uses a list for forward compatibility. Implementations must handle the current singleton contract and must not assume unrelated targets are batched together.
+Patchwork 1.4.0 sends exactly one `PatchworkTargetExpectation` in each adapter invocation, even though the request type uses a list for forward compatibility. Implementations must handle the current singleton contract and must not assume unrelated targets are batched together.
 
 ## Contributions
 
@@ -180,14 +180,14 @@ public final class ExampleAdapter implements PatchworkTargetAdapter {
 }
 ```
 
-Each request carries one coordinator epoch and one immutable target expectation in 1.3.5. Return exact reloaded, restart-required, and failed target lists.
+Each request carries one coordinator epoch and one immutable target expectation in 1.4.0. Return exact reloaded, restart-required, and failed target lists.
 
 ## Telemetry contribution contract
 
 The Patchwork runtime's descriptor is namespaced at
 `META-INF/alecs-telemetry/projects/patchwork.json`, so it can be shaded beside a host's
 conventional descriptor. It declares the logical owner `Alechilles:Patchwork`, project ID
-`patchwork`, runtime version `1.3.5`, and only the Crash and Stats consent categories. Do not
+`patchwork`, runtime version `1.4.0`, and only the Crash and Stats consent categories. Do not
 copy it to `Server/Telemetry/project.json` or replace it with a custom endpoint: contributed
 projects are hosted-only in 1.3.x.
 

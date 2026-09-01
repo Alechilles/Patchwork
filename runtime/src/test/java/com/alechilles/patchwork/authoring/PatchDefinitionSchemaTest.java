@@ -53,6 +53,16 @@ final class PatchDefinitionSchemaTest {
     }
 
     @Test
+    void acceptsDocumentRootMerge() {
+        assertValid(document("""
+                {"FormatVersion":2,"Target":"Server/Test.json","Operations":[
+                  {"Op":"RequireFormat","Version":2},
+                  {"Op":"Merge","Path":"","Value":{"Enabled":true}}
+                ]}
+                """), "root-merge");
+    }
+
+    @Test
     void rejectsSecondSentinelInvalidMatchersAndClosedNestedDescriptors() {
         assertInvalid(document("""
                 {"FormatVersion":2,"Target":"Server/Test.json","Operations":[

@@ -113,7 +113,7 @@ Paths use JSON Pointer syntax. `/A/B/0` addresses an array entry; `~1` represent
 
 Format 2 applies RFC 6901 pointer semantics before an operation can run:
 
-- condition checks may use the empty pointer to inspect the document root, while mutation operations require a non-empty `/...` path and never mutate the root itself; `/` addresses an empty property name;
+- condition checks may use the empty pointer to inspect the document root; `Merge` and neutral `MergeObjectFromAsset` may use it to deep-merge the root, while other mutation operations require a non-empty `/...` path; `/` addresses an empty property name;
 - only `~0` and `~1` escapes are valid;
 - array indexes are `0` or non-zero digits without a leading zero, and must fit a non-negative 32-bit integer; and
 - `-` is accepted only as the final `Add` token for array append.
@@ -165,6 +165,13 @@ Recursively merges object properties. Both the target and `Value` must be object
     "Enabled": true
   }
 }
+```
+
+Use an empty `Path` to merge the document root. This can create a missing
+top-level object while it preserves unrelated existing fields:
+
+```json
+{"Op":"Merge","Path":"","Value":{"RandomAttachmentSets":{"MyMod":{}}}}
 ```
 
 ### Cross-asset merges
