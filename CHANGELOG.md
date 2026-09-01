@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.4.1 - Beacon Runtime Migration - 2026-09-01
+
+### Changed
+
+- Migrated Patchwork's embedded runtime dependency to
+  `com.alechilles:beacon-runtime:2.0.0`.
+- Moved the passive Patchwork descriptor to
+  `META-INF/beacon/projects/patchwork.json`.
+- Updated the standalone and embedded Patchwork release version to `1.4.1`.
+
+### Compatibility
+
+- Beacon 2.0.0 is a breaking rename. Update Java imports from
+  `com.alechilles.alecstelemetry` to `com.alechilles.beacon` and update namespaced
+  descriptor paths before upgrading.
+- Patchwork's standalone/embedded election, passive project identity, consent
+  categories, and failure behavior remain unchanged.
+
 ## 1.4.0 - Root Merge Support - 2026-08-31
 
 ### Changed

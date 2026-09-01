@@ -4,7 +4,7 @@
   "projectVersion": "${projectVersion}",
   "displayName": "Patchwork",
   "runtimeMode": "embedded",
-  "ownerPluginIdentifiers": ["Alechilles:Patchwork"],
+  "ownerPluginIdentifiers": [ "Alechilles:Patchwork" ],
   "packagePrefixes": ["com.alechilles.patchwork"],
   "defaults": {
     "enabled": true,

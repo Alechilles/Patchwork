@@ -1,8 +1,8 @@
 package com.alechilles.patchwork.telemetry;
 
-import com.alechilles.alecstelemetry.embedded.EmbeddedTelemetryBootstrap;
-import com.alechilles.alecstelemetry.embedded.EmbeddedTelemetryService;
-import com.alechilles.alecstelemetry.embedded.TelemetryProjectContribution;
+import com.alechilles.beacon.embedded.EmbeddedTelemetryBootstrap;
+import com.alechilles.beacon.embedded.EmbeddedTelemetryService;
+import com.alechilles.beacon.embedded.TelemetryProjectContribution;
 import com.alechilles.patchwork.PatchworkVersion;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -17,7 +17,7 @@ import java.util.logging.Logger;
  */
 public final class PatchworkTelemetry implements AutoCloseable {
     private static final Logger LOG = Logger.getLogger(PatchworkTelemetry.class.getName());
-    private static final String DESCRIPTOR = "META-INF/alecs-telemetry/projects/patchwork.json";
+    private static final String DESCRIPTOR = "META-INF/beacon/projects/patchwork.json";
     private static final int MAX_WARNINGS = 2;
 
     private final EmbeddedTelemetryService service;

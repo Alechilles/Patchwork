@@ -6,7 +6,7 @@ import java.util.Properties;
 
 /** Resolves the Patchwork runtime version used for logical telemetry identity. */
 public final class PatchworkVersion {
-    private static final String FALLBACK = "1.4.0";
+    private static final String FALLBACK = "1.4.1";
 
     private PatchworkVersion() {
     }

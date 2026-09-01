@@ -8,16 +8,20 @@ Patchwork can be shaded into another Hytale Java plugin. Embedded and standalone
 <dependency>
   <groupId>com.alechilles</groupId>
   <artifactId>patchwork-runtime</artifactId>
-  <version>1.4.0</version>
+  <version>1.4.1</version>
 </dependency>
 ```
 
-Patchwork 1.4.0 brings `com.alechilles:alecstelemetry-runtime:1.2.3` transitively. It
-registers the namespaced `patchwork` project automatically when the host starts. The project
-uses Alec's hosted destination, supports uncaught exception crash reports and anonymous aggregate
+Patchwork 1.4.1 brings `com.alechilles:beacon-runtime:2.0.0` transitively. It registers the
+namespaced `patchwork` project automatically when the host starts. The project uses the Beacon
+hosted destination, supports uncaught exception crash reports and anonymous aggregate
 stats, and has independent consent from the host's telemetry project. No second standalone
-Telemetry plugin is needed. Telemetry initialization and writes are best-effort and never block
+Beacon plugin is needed. Telemetry initialization and writes are best-effort and never block
 Patchwork lifecycle, generation, or reload operations.
+
+Beacon 2.0.0 is a breaking runtime rename. Change imports from
+`com.alechilles.alecstelemetry` to `com.alechilles.beacon` and update namespaced descriptor paths
+from `META-INF/alecs-telemetry/projects/` to `META-INF/beacon/projects/`.
 
 Shade `patchwork-runtime` without relocating `com.alechilles.patchwork`. Do not embed `patchwork-standalone`, and do not add a second Hytale `manifest.json`.
 
@@ -66,7 +70,7 @@ macros and adapters from that startup pass.
 
 ## Stable API surface
 
-Patchwork 1.4.0 exposes these host-facing contracts from `com.alechilles.patchwork.embedded`:
+Patchwork 1.4.1 exposes these host-facing contracts from `com.alechilles.patchwork.embedded`:
 
 ```java
 public final class EmbeddedPatchworkBootstrap {
@@ -112,7 +116,7 @@ public record PatchworkReloadObservation(long epoch, String adapterId, String ta
 public enum PatchworkObservationOutcome { LOADED, REMOVED, FAILED }
 ```
 
-Patchwork 1.4.0 sends exactly one `PatchworkTargetExpectation` in each adapter invocation, even though the request type uses a list for forward compatibility. Implementations must handle the current singleton contract and must not assume unrelated targets are batched together.
+Patchwork 1.4.1 sends exactly one `PatchworkTargetExpectation` in each adapter invocation, even though the request type uses a list for forward compatibility. Implementations must handle the current singleton contract and must not assume unrelated targets are batched together.
 
 ## Contributions
 
@@ -180,16 +184,16 @@ public final class ExampleAdapter implements PatchworkTargetAdapter {
 }
 ```
 
-Each request carries one coordinator epoch and one immutable target expectation in 1.4.0. Return exact reloaded, restart-required, and failed target lists.
+Each request carries one coordinator epoch and one immutable target expectation in 1.4.1. Return exact reloaded, restart-required, and failed target lists.
 
-## Telemetry contribution contract
+## Beacon contribution contract
 
 The Patchwork runtime's descriptor is namespaced at
-`META-INF/alecs-telemetry/projects/patchwork.json`, so it can be shaded beside a host's
+`META-INF/beacon/projects/patchwork.json`, so it can be shaded beside a host's
 conventional descriptor. It declares the logical owner `Alechilles:Patchwork`, project ID
-`patchwork`, runtime version `1.4.0`, and only the Crash and Stats consent categories. Do not
-copy it to `Server/Telemetry/project.json` or replace it with a custom endpoint: contributed
-projects are hosted-only in 1.3.x.
+`patchwork`, runtime version `1.4.1`, and only the Crash and Stats consent categories. Do not
+copy it to `Server/Beacon/project.json` or replace it with a custom endpoint: contributed
+projects are hosted-only in 1.4.1.
 
 If a host already contains another conventional project with the same logical ID, the base
 project remains authoritative and the Patchwork contribution is rejected. If an active

@@ -39,6 +39,7 @@ class StandalonePackagingIT {
                 JsonObject manifest = JsonParser.parseReader(new java.io.InputStreamReader(input)).getAsJsonObject();
                 assertEquals("Alechilles", manifest.get("Group").getAsString());
                 assertEquals("Patchwork", manifest.get("Name").getAsString());
+                assertEquals(projectVersion(), manifest.get("Version").getAsString());
                 assertEquals("com.alechilles.patchwork.standalone.PatchworkPlugin", manifest.get("Main").getAsString());
                 assertTrue(manifest.get("IncludesAssetPack").getAsBoolean());
             }
