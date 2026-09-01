@@ -245,7 +245,7 @@ require a server restart.
 Beacon 2.0.0 is a breaking runtime rename. Update embedded imports from
 `com.alechilles.alecstelemetry` to `com.alechilles.beacon` and move namespaced descriptors from
 `META-INF/alecs-telemetry/projects/` to `META-INF/beacon/projects/`. See the [Beacon migration
-guide](https://beacon.modstats.io/mod/beacon/migrate-to-beacon-2-0) before upgrading.
+guide](https://wiki.hytalemodding.dev/mod/beacon/migrate-to-beacon-2-0) before upgrading.
 
 For complete technical details, see [patch anatomy](https://wiki.hytalemodding.dev/mod/patchwork/patch-anatomy), [operations](https://wiki.hytalemodding.dev/mod/patchwork/core-operations), [embedding Patchwork](https://wiki.hytalemodding.dev/mod/patchwork/embed-patchwork), and [compatibility and versions](https://wiki.hytalemodding.dev/mod/patchwork/compatibility-and-versions).
 
