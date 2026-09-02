@@ -28,30 +28,30 @@ class GradleStandaloneRuntimeVersionPackagingTest {
     }
 
     @Test
-    void distributablePublishesEmbeddedTelemetryConsentUi() throws Exception {
+    void distributablePublishesEmbeddedBeaconConsentUi() throws Exception {
         try (JarFile jar = new JarFile(Path.of(System.getProperty("patchwork.standaloneJar")).toFile())) {
             var manifestEntry = jar.getJarEntry("manifest.json");
             assertNotNull(manifestEntry);
             try (var input = new InputStreamReader(jar.getInputStream(manifestEntry))) {
                 var manifest = JsonParser.parseReader(input).getAsJsonObject();
                 assertTrue(manifest.get("IncludesAssetPack").getAsBoolean(),
-                        "Patchwork must publish the embedded Telemetry UI to clients.");
+                        "Patchwork must publish the embedded Beacon UI to clients.");
             }
             assertNotNull(jar.getJarEntry("Common/UI/Custom/TelemetryConsentPage.ui"));
         }
     }
 
     @Test
-    void distributableEmbedsSupportedTelemetryRuntime() throws Exception {
+    void distributableEmbedsSupportedBeaconRuntime() throws Exception {
         try (JarFile jar = new JarFile(Path.of(System.getProperty("patchwork.standaloneJar")).toFile())) {
             var metadata = jar.getJarEntry(
-                    "META-INF/maven/com.alechilles/alecstelemetry-runtime/pom.properties");
-            assertNotNull(metadata, "The distributable must identify its embedded Telemetry runtime.");
+                    "META-INF/maven/com.alechilles/beacon-runtime/pom.properties");
+            assertNotNull(metadata, "The distributable must identify its embedded Beacon runtime.");
             var properties = new Properties();
             try (var input = jar.getInputStream(metadata)) {
                 properties.load(input);
             }
-            assertEquals("1.2.3", properties.getProperty("version"));
+            assertEquals("2.0.0", properties.getProperty("version"));
         }
     }
 }

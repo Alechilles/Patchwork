@@ -1,9 +1,9 @@
 package com.alechilles.patchwork.telemetry;
 
-import com.alechilles.alecstelemetry.consent.TelemetryConsentCapabilities;
-import com.alechilles.alecstelemetry.project.TelemetryProjectDescriptor;
-import com.alechilles.alecstelemetry.project.TelemetryProjectDiscovery;
-import com.alechilles.alecstelemetry.project.TelemetryProjectRegistration;
+import com.alechilles.beacon.consent.TelemetryConsentCapabilities;
+import com.alechilles.beacon.project.TelemetryProjectDescriptor;
+import com.alechilles.beacon.project.TelemetryProjectDiscovery;
+import com.alechilles.beacon.project.TelemetryProjectRegistration;
 import com.alechilles.patchwork.PatchworkVersion;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -30,7 +30,7 @@ class PatchworkTelemetryDescriptorTest {
     void consentOffersOnlyCrashAndStats() throws IOException {
         TelemetryProjectDescriptor descriptor;
         try (InputStream stream = PatchworkTelemetry.class.getClassLoader()
-                .getResourceAsStream("META-INF/alecs-telemetry/projects/patchwork.json")) {
+                .getResourceAsStream("META-INF/beacon/projects/patchwork.json")) {
             assertNotNull(stream);
             descriptor = TelemetryProjectDescriptor.fromJson(
                     new String(stream.readAllBytes(), StandardCharsets.UTF_8),
@@ -55,7 +55,7 @@ class PatchworkTelemetryDescriptorTest {
     void shadedDescriptorSupportsPassiveDiscovery() throws Exception {
         Path hostJar = tempDir.resolve("Alec's Tamework.jar");
         try (InputStream descriptor = PatchworkTelemetry.class.getClassLoader()
-                .getResourceAsStream("META-INF/alecs-telemetry/projects/patchwork.json");
+                .getResourceAsStream("META-INF/beacon/projects/patchwork.json");
              ZipOutputStream archive = new ZipOutputStream(Files.newOutputStream(hostJar))) {
             assertNotNull(descriptor);
             writeEntry(archive, "manifest.json", """
@@ -68,14 +68,13 @@ class PatchworkTelemetryDescriptorTest {
                     """.getBytes(StandardCharsets.UTF_8));
             writeEntry(
                     archive,
-                    "META-INF/alecs-telemetry/projects/patchwork.json",
+                    "META-INF/beacon/projects/patchwork.json",
                     descriptor.readAllBytes()
             );
         }
 
         TelemetryProjectDiscovery.DiscoveryResult result = new TelemetryProjectDiscovery(null)
                 .discover(tempDir);
-
         assertTrue(result.skippedRegistrationWarnings().isEmpty());
         assertEquals(1, result.projects().size());
         assertEquals("patchwork", result.projects().getFirst().projectId());

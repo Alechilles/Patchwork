@@ -19,15 +19,19 @@ Depend on `patchwork-runtime`, not `patchwork-standalone`:
 <dependency>
   <groupId>com.alechilles</groupId>
   <artifactId>patchwork-runtime</artifactId>
-  <version>1.4.0</version>
+  <version>1.4.1</version>
 </dependency>
 ```
 
-Patchwork 1.4.0 carries `com.alechilles:alecstelemetry-runtime:1.2.3` transitively. The
+Patchwork 1.4.1 carries `com.alechilles:beacon-runtime:2.0.0` transitively. The
 namespaced Patchwork project is hosted-only, has independent consent, and supports uncaught
 exception crash reports plus anonymous aggregate stats. Initialization, writes, and shutdown are
-best-effort; telemetry failures never block Patchwork. Do not add a second standalone Telemetry
+best-effort; telemetry failures never block Patchwork. Do not add a second standalone Beacon
 plugin.
+
+Beacon 2.0.0 is a breaking runtime rename. Change imports from
+`com.alechilles.alecstelemetry` to `com.alechilles.beacon` and move namespaced descriptors from
+`META-INF/alecs-telemetry/projects/` to `META-INF/beacon/projects/`.
 
 Shade the runtime without relocating the `com.alechilles.patchwork` package. Do not add a second Hytale `manifest.json` to your plugin.
 
@@ -71,7 +75,7 @@ Patchwork keeps contributions from passive embedded services and replays them to
 See [Macros and Reload Adapters](/mod/patchwork/macros-and-reload-adapters) to contribute host-specific behavior.
 
 Patchwork's embedded telemetry descriptor is loaded from
-`META-INF/alecs-telemetry/projects/patchwork.json` and uses logical owner
+`META-INF/beacon/projects/patchwork.json` and uses logical owner
 `Alechilles:Patchwork`. It supports only the Crash and Stats consent categories and does not
-consume the host's `Server/Telemetry/project.json` slot. Base-project ID collisions are rejected,
-and same-ID fallback promotion requires a server restart in the 1.3.x MVP.
+consume the host's `Server/Beacon/project.json` slot. Base-project ID collisions are rejected,
+and same-ID fallback promotion requires a server restart in the 1.4.1 release.

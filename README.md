@@ -230,17 +230,22 @@ The generation dependency index records definition files, concrete target expans
 
 For monitored Hytale server stores, Patchwork calls a target `hot-reloaded` only after Hytale reports the expected generated provider and asset path. Common, custom, unknown, disabled-monitor, or unconfirmed routes remain restart-required; writing a generated file alone is never treated as a live reload.
 
-Patchwork 1.4.0 supports these installation modes:
+Patchwork 1.4.1 supports these installation modes:
 
-*   Install `patchwork-standalone-1.4.0.jar` as a Hytale server mod.
-*   Embed `com.alechilles:patchwork-runtime:1.4.0` in another Java plugin.
+*   Install `patchwork-standalone-1.4.1.jar` as a Hytale server mod.
+*   Embed `com.alechilles:patchwork-runtime:1.4.1` in another Java plugin.
 
-Patchwork 1.4.0 contributes its own hosted Alec's Telemetry project transitively through
-`alecstelemetry-runtime:1.2.3`. The Patchwork project has independent server-owner consent
+Patchwork 1.4.1 contributes its own hosted Beacon project transitively through
+`com.alechilles:beacon-runtime:2.0.0`. The Patchwork project has independent server-owner consent
 and supports uncaught exception crash reports plus anonymous aggregate stats. Telemetry failures
 are non-fatal and never change patch generation or reload behavior. Contributed Patchwork
 projects are hosted-only in this release; same-ID replacement and live fallback promotion
 require a server restart.
+
+Beacon 2.0.0 is a breaking runtime rename. Update embedded imports from
+`com.alechilles.alecstelemetry` to `com.alechilles.beacon` and move namespaced descriptors from
+`META-INF/alecs-telemetry/projects/` to `META-INF/beacon/projects/`. See the [Beacon migration
+guide](https://wiki.hytalemodding.dev/mod/beacon/migrate-to-beacon-2-0) before upgrading.
 
 For complete technical details, see [patch anatomy](https://wiki.hytalemodding.dev/mod/patchwork/patch-anatomy), [operations](https://wiki.hytalemodding.dev/mod/patchwork/core-operations), [embedding Patchwork](https://wiki.hytalemodding.dev/mod/patchwork/embed-patchwork), and [compatibility and versions](https://wiki.hytalemodding.dev/mod/patchwork/compatibility-and-versions).
 
