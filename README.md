@@ -236,7 +236,7 @@ Patchwork 1.4.1 supports these installation modes:
 *   Embed `com.alechilles:patchwork-runtime:1.4.1` in another Java plugin.
 
 Patchwork 1.4.1 contributes its own hosted Beacon project transitively through
-`com.alechilles:beacon-runtime:2.0.0`. The Patchwork project has independent server-owner consent
+`com.alechilles:beacon-runtime:2.0.1`. The Patchwork project has independent server-owner consent
 and supports uncaught exception crash reports plus anonymous aggregate stats. Telemetry failures
 are non-fatal and never change patch generation or reload behavior. Contributed Patchwork
 projects are hosted-only in this release; same-ID replacement and live fallback promotion

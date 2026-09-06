@@ -51,7 +51,7 @@ class GradleStandaloneRuntimeVersionPackagingTest {
             try (var input = jar.getInputStream(metadata)) {
                 properties.load(input);
             }
-            assertEquals("2.0.0", properties.getProperty("version"));
+            assertEquals(System.getProperty("beacon.version"), properties.getProperty("version"));
         }
     }
 }

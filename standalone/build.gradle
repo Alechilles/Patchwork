@@ -75,4 +75,5 @@ tasks.withType(Test).configureEach {
     systemProperty 'patchwork.standaloneJar', standaloneJarFile.absolutePath
     systemProperty 'patchwork.runtimeJar', runtimeJarFile.absolutePath
     systemProperty 'patchwork.version', project.version.toString()
+    systemProperty 'beacon.version', localProperty('beacon_version')
 }
