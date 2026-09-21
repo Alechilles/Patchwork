@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Replaced the Patchwork Source Available License 1.0 with GNU GPL version 3
+  only and an author-attribution preservation term under section 7(b).
+- Included the license and attribution notice in runtime and standalone JARs.
+
 ## 1.4.2 - Beacon Consent Hotfix - 2026-09-05
 
 ### Fixed

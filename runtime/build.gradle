@@ -38,6 +38,10 @@ configurations.named('testImplementation') {
 }
 
 tasks.named('processResources') {
+    from(project.parent.projectDir) {
+        include 'LICENSE.txt', 'NOTICE.txt'
+        into 'META-INF/patchwork'
+    }
     inputs.property('projectVersion', runtimeProjectVersion)
     filesMatching('META-INF/beacon/projects/patchwork.json') {
         expand(projectVersion: runtimeProjectVersion)
