@@ -267,4 +267,4 @@ Bring your own piece. Patchwork will help stitch it in.
 
 **For mod authors:** Patch definitions belong under `Server/Patchwork/Patches/**/*.json`
 
-Patchwork is licensed under the [GNU General Public License, version 3 only](LICENSE.txt), with an additional author-attribution term under section 7(b). See [NOTICE.txt](NOTICE.txt) for the required attribution to Alec (Alechilles). Distributions must comply with GPLv3, including its applicable source-code obligations, and preserve the attribution notice.
+Patchwork is licensed under the [GNU General Public License, version 3 only](LICENSE.txt), with an explicit attribution clause at the top of the license under section 7(b). Distributed or published versions and derivative works must credit "Patchwork" by Alechilles in a mod listing/description and/or documentation. Distributions must also comply with GPLv3, including its applicable source-code obligations.

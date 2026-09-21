@@ -1,3 +1,19 @@
+Patchwork License
+
+Copyright (c) 2026 Alec (Alechilles)
+
+This project is licensed under the GNU General Public License v3.0 only (GPL-3.0-only).
+You may use, modify, and redistribute this project under the terms of GPL-3.0.
+
+Attribution (GPL-3.0 Section 7(b))
+
+1) Attribution.
+   Any distributed or published version of Patchwork, or any derivative
+   work based on it, must give credit to "Patchwork" by Alechilles.
+   Attribution may be provided in a mod listing/description (such as on
+   CurseForge or similar platforms) and/or documentation.
+
+---------------------------------------------------------------------
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 

@@ -3,19 +3,12 @@ Copyright (c) 2026 Alec (Alechilles).
 
 Patchwork is free software: you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 3 only, as published
-by the Free Software Foundation, with the additional attribution term below.
+by the Free Software Foundation, with the additional attribution term at
+the top of LICENSE.txt.
 
 Patchwork is distributed in the hope that it will be useful, but WITHOUT
 ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
 FITNESS FOR A PARTICULAR PURPOSE. See LICENSE.txt for the full license.
 
-Additional attribution term under GNU GPL version 3, section 7(b):
-For material covered by this notice, you must preserve the following
-author attribution in copies of that material or in the Appropriate Legal
-Notices displayed by works containing it:
-
-    Patchwork — Copyright (c) 2026 Alec (Alechilles).
-
-This term requires preservation of attribution, not advertising or endorsement.
 Third-party materials that state their own licenses remain governed by those
 licenses.
