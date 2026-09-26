@@ -9,6 +9,8 @@
   `LICENSE.txt`, following Tamework's license format.
 - Included the license and attribution notice in runtime and standalone JARs.
 
+
+- Added Hytale Update 7 compatibility, including the `0.7.0-pre.4` pre-release, while retaining Update 5 and Update 6 support.
 ## 1.4.2 - Beacon Consent Hotfix - 2026-09-05
 
 ### Fixed
