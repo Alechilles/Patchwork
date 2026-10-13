@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.4.3 - Hytale 0.7 Compatibility Hotfix - 2026-10-13
 
 ### Changed
 
@@ -8,9 +8,8 @@
   only and an explicit attribution clause under section 7(b) at the top of
   `LICENSE.txt`, following Tamework's license format.
 - Included the license and attribution notice in runtime and standalone JARs.
+- Expanded declared Hytale server compatibility to include stable `0.7.0` and `0.7.0-pre.4`, while retaining Update 5 and Update 6 support.
 
-
-- Added Hytale Update 7 compatibility, including the `0.7.0-pre.4` pre-release, while retaining Update 5 and Update 6 support.
 ## 1.4.2 - Beacon Consent Hotfix - 2026-09-05
 
 ### Fixed
