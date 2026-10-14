@@ -37,6 +37,7 @@ hytaleTools {
     manifestServerVersion = '>=0.5.0 <0.8.0 || >=0.7.0-pre.4 <0.7.0'
     manifestGroup = 'Alechilles'
     modId = 'Patchwork'
+    curseforgeId = '1634146'
     modDescription = 'Stitch focused changes into Hytale assets with a standalone, embeddable patcher built for clean cross-mod compatibility.'
     modCredits = 'Alec (Alechilles)'
     mainClass = 'com.alechilles.patchwork.standalone.PatchworkPlugin'

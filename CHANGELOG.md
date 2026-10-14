@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.4 - Update Checker Compatibility Hotfix - 2026-10-13
+
+- Added the CurseForge project ID to the plugin manifest so update checkers can identify the project without a manual mapping.
+- Configured the same project ID for Gradle manifest generation.
+
 ## 1.4.3 - Hytale 0.7 Compatibility Hotfix - 2026-10-13
 
 ### Changed
