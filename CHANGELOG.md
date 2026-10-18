@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- Added the `preview` module, a headless `patchwork-preview` command-line jar for asset tooling.
+  It runs the real generation pass over named pack roots and reports each overlay's outcome,
+  the final documents and conflict values. See [docs/Preview.md](docs/Preview.md).
+
 ### Changed
 
 - Replaced the Patchwork Source Available License 1.0 with GNU GPL version 3
