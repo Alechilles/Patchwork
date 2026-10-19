@@ -8,6 +8,10 @@ def localProperty = { String name -> providers.gradleProperty(name).getOrElse(lo
 
 group = 'com.alechilles'
 version = localProperty('mod_version')
+
+base {
+    archivesName = 'patchwork-runtime'
+}
 def runtimeProjectVersion = version.toString()
 
 java {
@@ -49,6 +53,7 @@ tasks.named('processResources') {
 }
 
 tasks.withType(Test).configureEach {
+    dependsOn(tasks.named('jar'))
     useJUnitPlatform()
     workingDir projectDir
 }

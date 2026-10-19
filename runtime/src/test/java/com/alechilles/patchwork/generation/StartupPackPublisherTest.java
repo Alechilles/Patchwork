@@ -307,7 +307,7 @@ final class StartupPackPublisherTest {
         GeneratedPackLayout layout = new GeneratedPackLayout(temporary); AtomicBoolean registered = new AtomicBoolean();
         OwnedPathAccess access = new OwnedPathAccess(layout, new OwnedPathAccess.MutationHook() {
             public void beforeMutation(Path path) { }
-            public void afterCreation(Path path) throws IOException { if (path.getFileName().toString().startsWith(".GeneratedPatches-staging-")) { Files.delete(path); Files.createDirectory(path); Files.writeString(path.resolve("stale.json"), "stale"); } }
+            public void afterCreation(Path path) throws IOException { if (path.getFileName().toString().startsWith(".GeneratedPatches-staging-")) { Files.move(path, temporary.resolve("replaced-staging")); Files.createDirectory(path); Files.writeString(path.resolve("stale.json"), "stale"); } }
         });
         var publication = new StartupPackPublisher(layout, id -> registered.set(true), new StartupPackPublisher.FileMoveStrategy(), (s, p) -> { }, Files::delete, access).publish(plan());
         assertFalse(publication.published()); assertFalse(registered.get()); assertFalse(Files.exists(layout.generatedRoot().resolve("stale.json")));
