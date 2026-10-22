@@ -1,17 +1,25 @@
 # Changelog
 
-## 1.4.4 - Update Checker Compatibility Hotfix - 2026-10-13
-
-- Added the CurseForge project ID to the plugin manifest so update checkers can identify the project without a manual mapping.
-- Configured the same project ID for Gradle manifest generation.
-
-## 1.4.3 - Hytale 0.7 Compatibility Hotfix - 2026-10-13
+## 1.4.4 - Update Checker and Telemetry Hotfix - 2026-10-22
 
 ### Added
 
 - Added the `preview` module, a headless `patchwork-preview` command-line jar for asset tooling.
   It runs the real generation pass over named pack roots and reports each overlay's outcome,
   the final documents and conflict values. See [docs/Preview.md](docs/Preview.md).
+
+### Fixed
+
+- Updated the embedded Beacon telemetry runtime to 2.0.5. When a telemetry upload hits a JVM error, such as
+  running out of memory or native threads, it now counts as a failed upload and is retried later instead of
+  crashing the upload thread and creating a flood of new crash reports.
+
+### Changed
+
+- Added the CurseForge project ID to the plugin manifest so update checkers can identify the project without a manual mapping.
+- Configured the same project ID for Gradle manifest generation.
+
+## 1.4.3 - Hytale 0.7 Compatibility Hotfix - 2026-10-13
 
 ### Changed
 
