@@ -19,11 +19,11 @@ Depend on `patchwork-runtime`, not `patchwork-standalone`:
 <dependency>
   <groupId>com.alechilles</groupId>
   <artifactId>patchwork-runtime</artifactId>
-  <version>1.5.0</version>
+  <version>1.5.1</version>
 </dependency>
 ```
 
-Patchwork 1.5.0 carries `com.alechilles:beacon-runtime:2.0.5` transitively. The
+Patchwork 1.5.1 carries `com.alechilles:beacon-runtime:2.0.5` transitively. The
 namespaced Patchwork project is hosted-only, has independent consent, and supports uncaught
 exception crash reports plus anonymous aggregate stats. Initialization, writes, and shutdown are
 best-effort; telemetry failures never block Patchwork. Do not add a second standalone Beacon

@@ -8,11 +8,11 @@ Patchwork can be shaded into another Hytale Java plugin. Embedded and standalone
 <dependency>
   <groupId>com.alechilles</groupId>
   <artifactId>patchwork-runtime</artifactId>
-  <version>1.5.0</version>
+  <version>1.5.1</version>
 </dependency>
 ```
 
-Patchwork 1.5.0 brings `com.alechilles:beacon-runtime:2.0.5` transitively. It registers the
+Patchwork 1.5.1 brings `com.alechilles:beacon-runtime:2.0.5` transitively. It registers the
 namespaced `patchwork` project automatically when the host starts. The project uses the Beacon
 hosted destination, supports uncaught exception crash reports and anonymous aggregate
 stats, and has independent consent from the host's telemetry project. No second standalone

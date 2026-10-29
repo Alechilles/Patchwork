@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.5.1 - Older Copies Stop Breaking Packs - 2026-10-29
 
 ### Fixed
 
