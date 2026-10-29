@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.AtomicMoveNotSupportedException;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -73,12 +74,16 @@ final class StartupPackPublisherTest {
     }
 
     @Test
-    void invalidSourceDependencyIdFailsBeforeActivationOrRegistration() {
+    void sourcePacksWithoutPluginIdsAreLeftOutOfDependenciesInsteadOfFailingPublication() {
+        // Hytale registers packs such as world-generation version packs under names that are not
+        // Group:Name IDs; failing on them broke every reload on servers that have one.
         GeneratedPackLayout layout = new GeneratedPackLayout(temporary); AtomicBoolean registered = new AtomicBoolean();
         GeneratedPackManifest manifest = new GeneratedPackManifest(List.of(new GeneratedPackManifest.Entry("Server/Test.json", "{}".getBytes())));
-        var plan = new PatchGenerationService.GenerationPlan(manifest.entries(), new PatchStatusSnapshot(List.of(), java.util.Map.of(), List.of()), manifest, List.of("not-a-plugin-id"));
-        assertFalse(new StartupPackPublisher(layout, id -> registered.set(true)).publish(plan).published());
-        assertFalse(registered.get()); assertFalse(Files.exists(layout.generatedRoot()));
+        var plan = new PatchGenerationService.GenerationPlan(manifest.entries(), new PatchStatusSnapshot(List.of(), java.util.Map.of(), List.of()), manifest, List.of("not-a-plugin-id", "Alpha:Pack"));
+        assertTrue(new StartupPackPublisher(layout, id -> registered.set(true)).publish(plan).published());
+        assertTrue(registered.get());
+        JsonObject root = JsonParser.parseString(new String(StartupPackPublisher.hytaleManifest(plan.sourcePackIds()), java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
+        assertEquals(List.of("Alpha:Pack"), root.getAsJsonObject("Dependencies").keySet().stream().toList());
     }
 
     @Test

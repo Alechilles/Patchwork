@@ -25,6 +25,7 @@ import com.hypixel.hytale.common.plugin.PluginIdentifier;
 /** Stages, validates, activates, and only then registers a generated Hytale asset pack. */
 public final class StartupPackPublisher {
     public static final String PACK_ID = "Alechilles:Patchwork_GeneratedPatches";
+    private static final java.util.Set<String> WARNED_PACK_IDS = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final GeneratedPackLayout layout;
     private final PackRegistrar registrar;
     private final MoveStrategy moves;
@@ -228,8 +229,17 @@ public final class StartupPackPublisher {
         root.add("Authors", new JsonArray()); root.addProperty("ServerVersion", "*");
         JsonObject dependencies = new JsonObject();
         for (String id : sourcePackIds.stream().filter(id -> !PACK_ID.equals(id)).sorted().toList()) {
+            // Hytale also registers packs whose names are not plugin IDs (for example world-generation
+            // version packs registered after startup). They cannot be manifest dependencies; skipping
+            // them keeps every reload from failing on a server that has one.
             try { PluginIdentifier.fromString(id); }
-            catch (RuntimeException invalid) { throw new IllegalArgumentException("Invalid generated-pack dependency ID.", invalid); }
+            catch (RuntimeException invalid) {
+                if (WARNED_PACK_IDS.add(id)) {
+                    System.getLogger(StartupPackPublisher.class.getName()).log(System.Logger.Level.WARNING,
+                            "Patchwork generated pack does not depend on source pack '" + id + "': its name is not a Group:Name plugin ID.");
+                }
+                continue;
+            }
             dependencies.addProperty(id, "*");
         }
         root.add("Dependencies", dependencies);

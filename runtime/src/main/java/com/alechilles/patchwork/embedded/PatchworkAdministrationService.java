@@ -201,6 +201,10 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     }
 
     private void recordOutcome(long admittedEpoch, PatchReloadCoordinator.ReloadOutcome outcome) {
+        if (!outcome.diagnostic().isBlank()) {
+            System.getLogger(PatchworkAdministrationService.class.getName()).log(System.Logger.Level.WARNING,
+                    "Patchwork reload (epoch " + outcome.epoch() + ", manifest " + outcome.manifestState() + "): " + outcome.diagnostic());
+        }
         Map<String, byte[]> actual = null;
         boolean known = false;
         try { actual = snapshots.snapshot(); known = true; } catch (Exception ignored) { }

@@ -210,7 +210,10 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
     Map<String, com.google.gson.JsonElement> settingValues() {
         List<ContributionBridge> bridges;
         synchronized (gate) {
-            if (!accepting) return Map.of();
+            if (!accepting) {
+                LOG.log(System.Logger.Level.WARNING, "Patchwork generation pass read no host settings: the runtime is not accepting contributions.");
+                return Map.of();
+            }
             bridges = contributions.values().stream()
                     .sorted(java.util.Comparator.comparing(ContributionBridge::host).thenComparing(ContributionBridge::token)).toList();
         }
@@ -228,6 +231,7 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
                 }
             });
         }
+        LOG.log(System.Logger.Level.INFO, "Patchwork generation pass read " + merged.size() + " host setting(s) from " + bridges.size() + " contribution(s).");
         return java.util.Collections.unmodifiableMap(merged);
     }
 
@@ -249,6 +253,9 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
                 case STALE, ROLLBACK_FAILED, FAILED -> failed++;
             }
         }
+        // A pass whose new output was never committed changed nothing live; report it as a failure, not success.
+        if (outcome.started() && outcome.targets().isEmpty() && outcome.manifestState() != PatchReloadCoordinator.ManifestState.COMMITTED
+                && !outcome.diagnostic().isBlank()) failed++;
         return Map.of("started", outcome.started(), "hotReloadedTargets", hot, "restartRequiredTargets", restart, "failedTargets", failed);
     }
 
@@ -510,7 +517,10 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
         Map<String, com.google.gson.JsonElement> settingValues() {
             java.lang.reflect.Method method;
             try { method = receiver.getClass().getMethod("settingValuesJson"); }
-            catch (NoSuchMethodException olderHost) { return Map.of(); }
+            catch (NoSuchMethodException olderHost) {
+                LOG.log(System.Logger.Level.INFO, "Patchwork contribution from " + host + " predates host settings; it provides none.");
+                return Map.of();
+            }
             String json = guarded(() -> (String) method.invoke(receiver));
             if (json == null || json.isBlank()) return Map.of();
             Map<String, com.google.gson.JsonElement> values = new LinkedHashMap<>();
