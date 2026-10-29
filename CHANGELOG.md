@@ -16,6 +16,13 @@
 - Added `Setting` to the native Asset Editor condition choices and to the portable authoring schemas and
   capabilities.
 
+### Fixed
+
+- `/patchwork reload` no longer fails with "Invalid generated-pack dependency ID" on servers that have
+  asset packs whose names are not `Group:Name` plugin IDs. Those packs are left out of the generated pack's
+  dependencies, with one warning naming each.
+- A reload that reports a diagnostic now writes it to the server log, as its message already said.
+
 ## 1.4.4 - Update Checker and Telemetry Hotfix - 2026-10-22
 
 ### Added
