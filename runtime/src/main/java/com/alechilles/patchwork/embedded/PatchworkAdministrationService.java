@@ -205,6 +205,14 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
             System.getLogger(PatchworkAdministrationService.class.getName()).log(System.Logger.Level.WARNING,
                     "Patchwork reload (epoch " + outcome.epoch() + ", manifest " + outcome.manifestState() + "): " + outcome.diagnostic());
         }
+        for (PatchReloadCoordinator.TargetOutcome target : outcome.targets()) {
+            switch (target.state()) {
+                case HOT_RELOADED, ADAPTER_RELOADED, REMOVED -> { }
+                default -> System.getLogger(PatchworkAdministrationService.class.getName()).log(System.Logger.Level.WARNING,
+                        "Patchwork reload target " + target.target() + ": " + target.state()
+                                + (target.diagnostic() == null || target.diagnostic().isBlank() ? "" : " (" + target.diagnostic() + ")"));
+            }
+        }
         Map<String, byte[]> actual = null;
         boolean known = false;
         try { actual = snapshots.snapshot(); known = true; } catch (Exception ignored) { }

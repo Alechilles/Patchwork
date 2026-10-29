@@ -51,6 +51,24 @@ final class HytaleReloadEvidenceCorrelatorTest {
     }
 
     @Test
+    void removingAnOverrideIsConfirmedByTheLowerPackReloadingTheSameAsset() throws Exception {
+        // Hytale keeps the key when another pack provides it and reloads that pack's file instead of
+        // sending a removal; without this every revert to a mod's shipped asset rolled back.
+        Files.createDirectories(temporary.resolve("generated/Server/Common"));
+        String target = "Server/Common/A.json";
+        String token = "pass:3";
+        PatchReloadTracker tracker = new PatchReloadTracker();
+        tracker.activate(token);
+        var future = tracker.expect(token, 3L, target, PatchReloadTracker.REMOVED_HASH, true);
+        HytaleReloadEvidenceCorrelator correlator = new HytaleReloadEvidenceCorrelator(tracker, temporary.resolve("generated"));
+        correlator.expect(new HytaleReloadEvidenceCorrelator.Expectation(token, 3L, target, PatchReloadTracker.REMOVED_HASH, true, StartupPackPublisher.PACK_ID));
+
+        assertFalse(correlator.confirmAny(StartupPackPublisher.PACK_ID, target, false));
+        assertTrue(correlator.confirmAny("Pack:Base", target, false));
+        assertTrue(future.isDone());
+    }
+
+    @Test
     void monitorHostEpochDoesNotBlockCurrentCoordinatorEpochConfirmation() throws Exception {
         Path generated = Files.createDirectories(temporary.resolve("generated/Server/AssetStore"));
         String target = "Server/AssetStore/A.json";

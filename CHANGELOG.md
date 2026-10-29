@@ -22,6 +22,9 @@
   asset packs whose names are not `Group:Name` plugin IDs. Those packs are left out of the generated pack's
   dependencies, with one warning naming each.
 - A reload that reports a diagnostic now writes it to the server log, as its message already said.
+- Removing a generated override of an asset another pack also provides now reloads live. Hytale reloads the
+  other pack's file instead of reporting a removal; Patchwork used to treat that as unconfirmed and roll back.
+- Each reload target that does not reload live is now logged with its state and reason.
 
 ## 1.4.4 - Update Checker and Telemetry Hotfix - 2026-10-22
 

@@ -69,6 +69,10 @@ public final class HytaleReloadEvidenceCorrelator {
     public synchronized boolean confirmAny(String provider, String assetPath, boolean removal) {
         for (Expectation expected : java.util.List.copyOf(pending.values())) {
             if (confirm(new Evidence(expected.token(), expected.reloadEpoch(), expected.target(), provider, assetPath, removal))) return true;
+            // Deleting a generated override of an asset another pack also provides does not remove the key:
+            // Hytale reloads it from that pack instead, so that load is the evidence the removal is live.
+            if (!removal && expected.removal()
+                    && confirm(new Evidence(expected.token(), expected.reloadEpoch(), expected.target(), provider, assetPath, true))) return true;
         }
         return false;
     }
