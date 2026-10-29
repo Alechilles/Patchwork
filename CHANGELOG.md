@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.5.0 - Host Settings - Unreleased
+## 1.5.0 - Host Settings - 2026-10-29
 
 ### Added
 
