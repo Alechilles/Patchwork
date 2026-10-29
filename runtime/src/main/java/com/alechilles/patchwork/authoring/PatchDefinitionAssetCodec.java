@@ -46,7 +46,6 @@ final class PatchDefinitionAssetCodec implements AssetCodec<String, PatchDefinit
 
     @Override
     public PatchDefinitionAsset decode(BsonValue value, ExtraInfo extraInfo) {
-        validateDocument(value.asDocument());
         return PatchDefinitionAsset.fromPortableJson(
                 JsonParser.parseString(value.asDocument().toJson()).getAsJsonObject(), extraInfo);
     }
@@ -66,7 +65,6 @@ final class PatchDefinitionAssetCodec implements AssetCodec<String, PatchDefinit
             @Nonnull BsonDocument document,
             PatchDefinitionAsset parent,
             ExtraInfo extraInfo) {
-        validateDocument(document);
         return decode(document, extraInfo);
     }
 
@@ -76,7 +74,6 @@ final class PatchDefinitionAssetCodec implements AssetCodec<String, PatchDefinit
             PatchDefinitionAsset asset,
             PatchDefinitionAsset parent,
             ExtraInfo extraInfo) {
-        validateDocument(document);
         asset.copyFrom(decode(document, extraInfo));
     }
 
@@ -135,14 +132,6 @@ final class PatchDefinitionAssetCodec implements AssetCodec<String, PatchDefinit
         return schema;
     }
 
-    private static void validateDocument(BsonDocument document) {
-        PatchDefinitionAsset.parsePortableDefinition(
-                JsonParser.parseString(document.toJson()).getAsJsonObject(),
-                "native-asset-store",
-                "definition.json",
-                0);
-    }
-
     private static PatchDefinitionAsset decodePortableJson(RawJsonReader reader, ExtraInfo extraInfo) throws IOException {
         reader.consumeWhiteSpace();
         reader.mark();
@@ -155,7 +144,9 @@ final class PatchDefinitionAssetCodec implements AssetCodec<String, PatchDefinit
         }
         var root = PatchDefinitionReader.parse(
                 source.getBytes(StandardCharsets.UTF_8), "native-asset-store", "definition.json", 0);
-        PatchDefinitionAsset.parsePortableDefinition(root, "native-asset-store", "definition.json", 0);
+        // Only malformed JSON fails decoding. Every installed copy of Patchwork registers this store's
+        // codec, including an older standalone that loses the runtime election, so a definition using
+        // newer syntax must still load here; the validator warns and the elected runtime decides.
         return PatchDefinitionAsset.fromPortableJson(root, extraInfo);
     }
 }

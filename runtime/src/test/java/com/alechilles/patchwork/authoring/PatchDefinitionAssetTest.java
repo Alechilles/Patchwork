@@ -218,24 +218,23 @@ final class PatchDefinitionAssetTest {
     }
 
     @Test
-    void nativeCodecRejectsDefinitionsThatViolateThePortableRuntimeContract() {
-        assertThrows(RuntimeException.class, () -> PatchDefinitionAsset.CODEC.decode(BsonDocument.parse("""
+    void nativeCodecLoadsDefinitionsItCannotParseButTheRuntimeStillRejectsThem() {
+        // An older standalone copy registers this codec even when a newer embedded runtime generates
+        // patches. Throwing here failed the whole pack of any mod using newer syntax (a 1.4.x standalone
+        // broke Animal Husbandry 4.2.0's Setting condition), so decoding must keep the file unchanged.
+        String json = """
                 {
-                  "FormatVersion": 2,
-                  "Id": "missing-sentinel",
+                  "Id": "future-syntax",
                   "Target": "Server/Test.json",
+                  "When": { "FutureCondition": { "Id": "X" } },
                   "Operations": [{"Op": "Replace", "Path": "/Enabled", "Value": true}]
                 }
-                """), EmptyExtraInfo.EMPTY));
-        assertThrows(RuntimeException.class, () -> PatchDefinitionAsset.CODEC.decode(BsonDocument.parse("""
-                {
-                  "FormatVersion": 2,
-                  "Id": "editor-wrapper-field",
-                  "Target": "Server/Test.json",
-                  "$Title": "must not become part of the portable format",
-                  "Operations": [{"Op": "RequireFormat", "Version": 2}]
-                }
-                """), EmptyExtraInfo.EMPTY));
+                """;
+        PatchDefinitionAsset asset = PatchDefinitionAsset.CODEC.decode(BsonDocument.parse(json), EmptyExtraInfo.EMPTY);
+
+        assertEquals(com.google.gson.JsonParser.parseString(json), asset.toPortableJson());
+        assertThrows(IllegalArgumentException.class, () -> PatchDefinitionAsset.parsePortableDefinition(
+                asset.toPortableJson(), "test", "future-syntax.json", 0));
     }
 
     @Test

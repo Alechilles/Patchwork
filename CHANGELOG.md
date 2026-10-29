@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A patch file using syntax this copy of Patchwork does not know no longer fails its whole mod's asset pack.
+  Every installed copy registers patch files with Hytale, including an older standalone that a newer embedded
+  copy outvotes, so an outdated standalone Patchwork 1.4.x made Animal Husbandry 4.2.0 fail to load. Such files
+  now load with a warning, and the newest copy still decides whether they apply.
+
 ## 1.5.0 - Host Settings - 2026-10-29
 
 ### Added

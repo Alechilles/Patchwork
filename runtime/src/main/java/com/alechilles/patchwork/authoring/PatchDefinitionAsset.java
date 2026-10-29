@@ -142,7 +142,8 @@ public final class PatchDefinitionAsset
         if (root.get("Operations") instanceof JsonArray values) {
             asset.operations = new PatchOperationAsset[values.size()];
             for (int index = 0; index < values.size(); index++) {
-                asset.operations[index] = PatchOperationAsset.fromPortableJson(values.get(index).getAsJsonObject());
+                asset.operations[index] = PatchOperationAsset.fromPortableJson(
+                        values.get(index) instanceof JsonObject operation ? operation : new JsonObject());
             }
         }
         return asset;
@@ -189,7 +190,9 @@ public final class PatchDefinitionAsset
             String sourcePath = asset.assetId == null ? "definition.json" : asset.assetId + ".json";
             parsePortableDefinition(asset.toPortableJson(), "native-asset-store", sourcePath, 0);
         } catch (IllegalArgumentException failure) {
-            results.fail(failure.getMessage());
+            // A warning, not a failure: an asset that fails validation fails its whole pack, and this copy
+            // may be older than the runtime that actually generates patches (see PatchDefinitionAssetCodec).
+            results.warn(failure.getMessage());
         }
     }
 
