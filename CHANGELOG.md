@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.5.0 - Host Settings - Unreleased
+
+### Added
+
+- Added the `Setting` condition. It checks a setting supplied by a host mod such as Tamework, for example
+  `{ "Setting": { "Id": "AH_WildDragons", "Is": false } }`, with `Is`, `AtLeast`, and `AtMost` tests.
+  If no host provides the setting, the condition does not match and the asset keeps its shipped value.
+- Added `{ "$Setting": "<id>" }` values. Inside any operation `Value`, an object with only `$Setting` is
+  replaced by that setting's current value. A missing setting fails the operation, following its `Required` setting.
+- Added `PatchworkHostContribution.settingValues()` so an embedding host can supply settings. Patchwork reads
+  them once at the start of every generation pass.
+- Added `EmbeddedPatchworkService.requestRegeneration()` and `PatchworkRegenerationResult` so a host can ask
+  for the same pass as `/patchwork reload` after a setting changes.
+- Added `Setting` to the native Asset Editor condition choices and to the portable authoring schemas and
+  capabilities.
+
 ## 1.4.4 - Update Checker and Telemetry Hotfix - 2026-10-22
 
 ### Added

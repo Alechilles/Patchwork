@@ -19,11 +19,11 @@ Depend on `patchwork-runtime`, not `patchwork-standalone`:
 <dependency>
   <groupId>com.alechilles</groupId>
   <artifactId>patchwork-runtime</artifactId>
-  <version>1.4.1</version>
+  <version>1.5.0</version>
 </dependency>
 ```
 
-Patchwork 1.4.1 carries `com.alechilles:beacon-runtime:2.0.0` transitively. The
+Patchwork 1.5.0 carries `com.alechilles:beacon-runtime:2.0.5` transitively. The
 namespaced Patchwork project is hosted-only, has independent consent, and supports uncaught
 exception crash reports plus anonymous aggregate stats. Initialization, writes, and shutdown are
 best-effort; telemetry failures never block Patchwork. Do not add a second standalone Beacon
@@ -74,8 +74,23 @@ Patchwork keeps contributions from passive embedded services and replays them to
 
 See [Macros and Reload Adapters](/mod/patchwork/macros-and-reload-adapters) to contribute host-specific behavior.
 
+## Supply Settings and Request Regeneration
+
+Since 1.5.0, a contribution can override `settingValues()` to supply named settings. Patch authors test them with the `Setting` condition and insert them with `{ "$Setting": "<id>" }` values.
+
+```java
+@Override
+public Map<String, JsonElement> settingValues() {
+    return Map.of("AH_WildDragons", new JsonPrimitive(config.wildDragons()));
+}
+```
+
+Patchwork calls `settingValues()` once at the start of every generation pass, so keep it fast and thread-safe and return an immutable map of booleans, numbers, or strings. If the call throws, that contribution supplies nothing for the pass. If two contributions supply the same ID, the first in host-identifier order wins.
+
+After a setting changes, call `patchwork.requestRegeneration()`. It runs the same pass as `/patchwork reload` on a Patchwork worker thread and completes with a `PatchworkRegenerationResult`. When no pass could start, for example because one is already running, `started()` is `false`; the stage does not fail. The result also counts hot-reloaded, restart-required, and failed targets.
+
 Patchwork's embedded telemetry descriptor is loaded from
 `META-INF/beacon/projects/patchwork.json` and uses logical owner
 `Alechilles:Patchwork`. It supports only the Crash and Stats consent categories and does not
 consume the host's `Server/Beacon/project.json` slot. Base-project ID collisions are rejected,
-and same-ID fallback promotion requires a server restart in the 1.4.1 release.
+and same-ID fallback promotion requires a server restart in the 1.5.0 release.

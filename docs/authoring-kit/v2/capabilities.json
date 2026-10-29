@@ -33,12 +33,19 @@
     "JsonPathEquals",
     "All",
     "Any",
-    "Not"
+    "Not",
+    "Setting"
   ],
   "TargetProvidedBy": {
     "conditionKey": "TargetProvidedBy",
     "value": "winning-source-pack-id",
     "comparison": "exact-case-sensitive"
+  },
+  "settings": {
+    "conditionKey": "Setting",
+    "valueReference": "$Setting",
+    "source": "host-provided",
+    "missing": "condition-not-matched-and-operation-fails"
   },
   "macroDescriptors": {
     "builtInVersion": null,

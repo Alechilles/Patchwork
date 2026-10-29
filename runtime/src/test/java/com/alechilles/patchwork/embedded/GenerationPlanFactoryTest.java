@@ -123,4 +123,46 @@ final class GenerationPlanFactoryTest {
         assertEquals(List.of("Server/Tamework/Patches (active)"), metadata.getFirst().legacyRoots());
         assertEquals(List.of("Server/Tamework/Patches (ineligible)"), metadata.getLast().legacyRoots());
     }
+
+    @Test void contributionSettingsCrossTheHostBridgeIntoAGenerationPass() throws Exception {
+        // Catches host setting values not reaching the elected runtime's pass, and one failing
+        // contribution breaking the pass instead of contributing nothing.
+        Path pack = Files.createDirectories(temporary.resolve("settings-pack"));
+        Files.createDirectories(pack.resolve("Server/Patchwork/Patches"));
+        Files.writeString(pack.resolve("Server/Target.json"), "{\"value\":1,\"wild\":true}");
+        Files.writeString(pack.resolve("Server/Patchwork/Patches/target.json"), """
+                {"Id":"target","Target":"Server/Target.json","When":{"Setting":{"Id":"AH_WildDragons","Is":false}},"Operations":[
+                  {"Op":"Replace","Path":"/value","Value":{"$Setting":"AH_DragonWeight"}},
+                  {"Op":"Replace","Path":"/wild","Value":{"$Setting":"AH_WildDragons"}}
+                ]}
+                """);
+        PatchworkRuntimeHost host = new PatchworkRuntimeHost(temporary.resolve("generated"), () -> { });
+        host.activate(1L);
+        host.replayContributions(1L, List.of(
+                contribution("a-failing", () -> { throw new IllegalStateException("settings unavailable"); }),
+                contribution("b-settings", () -> Map.of("AH_WildDragons", new com.google.gson.JsonPrimitive(false),
+                        "AH_DragonWeight", new com.google.gson.JsonPrimitive(3)))));
+        GenerationPlanFactory factory = new GenerationPlanFactory(new PatchMacroRegistry(), () ->
+                new HytaleRuntimeInputsSnapshotter.Inputs(List.of(PatchSource.directory("Test:Pack", 0, pack)),
+                        Set.of(), Map.of(), new ModDataRootRegistry(Map.of()), List.of("Test:Pack")),
+                () -> "1", ConditionDocumentCache::new, (roots, cache) -> new ConditionSourceResolver(new PatchTargetResolver(), roots, cache),
+                ignored -> { }, host::settingValues);
+
+        var plan = factory.createPlan();
+
+        assertEquals(1, plan.entries().size());
+        assertEquals("{\"value\":3,\"wild\":false}", new String(plan.entries().getFirst().bytes(), java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    private static Map<String, ?> contribution(String host, java.util.function.Supplier<Map<String, com.google.gson.JsonElement>> settings) {
+        PatchworkHostContribution contribution = new PatchworkHostContribution() {
+            public String hostPluginIdentifier() { return host; }
+            public String contributionVersion() { return "1"; }
+            public List<PatchworkMacroProvider> macroProviders() { return List.of(); }
+            public List<PatchworkTargetAdapter> targetAdapters() { return List.of(); }
+            @Override public Map<String, com.google.gson.JsonElement> settingValues() { return settings.get(); }
+        };
+        return Map.of("contributionToken", host, "hostPluginIdentifier", host, "contributionVersion", "1",
+                "macroIds", List.of(), "adapterIds", List.of(), "bridge", new EmbeddedPatchworkBootstrap.HostBridge(contribution));
+    }
 }

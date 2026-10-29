@@ -1,13 +1,18 @@
 package com.alechilles.patchwork.embedded;
 
+import com.google.gson.JsonElement;
 import java.util.List;
+import java.util.Map;
 
-/** Versioned macro and reload capabilities supplied by an embedding host. */
+/** Versioned macro, reload, and setting capabilities supplied by an embedding host. */
 public interface PatchworkHostContribution {
     String hostPluginIdentifier();
     String contributionVersion();
     List<PatchworkMacroProvider> macroProviders();
     List<PatchworkTargetAdapter> targetAdapters();
+
+    /** Current setting values by exact setting id. Called once per generation pass on the elected runtime; must be fast, thread-safe, and return an immutable snapshot. */
+    default Map<String, JsonElement> settingValues() { return Map.of(); }
 
     static void validate(String host, String version, List<?> macros, List<?> adapters) {
         if (host == null || host.isBlank() || version == null || version.isBlank() || macros == null || adapters == null) {

@@ -33,6 +33,7 @@ import java.util.function.Consumer;
  */
 public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
     private static final Duration DRAIN_TIMEOUT = Duration.ofSeconds(3);
+    private static final System.Logger LOG = System.getLogger(PatchworkRuntimeHost.class.getName());
     private final Path generatedRoot;
     private final PatchMacroRegistry macros = new PatchMacroRegistry();
     private final PatchReloadTracker tracker = new PatchReloadTracker();
@@ -200,6 +201,56 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
 
     /** Package-local access for elected composition only; macro ownership remains with this host. */
     PatchMacroRegistry macros() { return macros; }
+
+    /**
+     * Takes one immutable snapshot of every contribution's setting values for a generation pass.
+     * Contributions are read in host-identifier then token order; the first provider of an ID wins.
+     * A contribution that fails, or an older host without settings, contributes nothing.
+     */
+    Map<String, com.google.gson.JsonElement> settingValues() {
+        List<ContributionBridge> bridges;
+        synchronized (gate) {
+            if (!accepting) return Map.of();
+            bridges = contributions.values().stream()
+                    .sorted(java.util.Comparator.comparing(ContributionBridge::host).thenComparing(ContributionBridge::token)).toList();
+        }
+        Map<String, com.google.gson.JsonElement> merged = new LinkedHashMap<>();
+        for (ContributionBridge bridge : bridges) {
+            Map<String, com.google.gson.JsonElement> values;
+            try { values = bridge.settingValues(); }
+            catch (RuntimeException failure) {
+                LOG.log(System.Logger.Level.WARNING, "Patchwork ignored setting values from " + bridge.host() + ": " + failure.getMessage());
+                continue;
+            }
+            values.forEach((id, value) -> {
+                if (merged.putIfAbsent(id, value) != null) {
+                    LOG.log(System.Logger.Level.WARNING, "Patchwork setting " + id + " is provided by more than one host; " + bridge.host() + " was ignored.");
+                }
+            });
+        }
+        return java.util.Collections.unmodifiableMap(merged);
+    }
+
+    /**
+     * Runs one administration reload pass, the same as {@code /patchwork reload}, and returns a
+     * JDK-only result map: {@code started}, {@code hotReloadedTargets}, {@code restartRequiredTargets},
+     * and {@code failedTargets}.
+     */
+    @Override public Map<String, ?> requestRegeneration() {
+        return regenerationResult(administration().regenerate());
+    }
+
+    private static Map<String, ?> regenerationResult(PatchReloadCoordinator.ReloadOutcome outcome) {
+        int hot = 0, restart = 0, failed = 0;
+        for (PatchReloadCoordinator.TargetOutcome target : outcome.targets()) {
+            switch (target.state()) {
+                case HOT_RELOADED, ADAPTER_RELOADED, REMOVED -> hot++;
+                case RESTART_REQUIRED -> restart++;
+                case STALE, ROLLBACK_FAILED, FAILED -> failed++;
+            }
+        }
+        return Map.of("started", outcome.started(), "hotReloadedTargets", hot, "restartRequiredTargets", restart, "failedTargets", failed);
+    }
 
     /** Records a startup plan only after the early-load publisher has completed successfully. */
     void seedPublishedInventory(com.alechilles.patchwork.generation.PatchGenerationService.GenerationPlan plan) {
@@ -454,6 +505,20 @@ public final class PatchworkRuntimeHost implements PatchworkCoordinatorBridge {
                 result.add(PatchOperation.parseHostOperation(value.getAsJsonObject(), operation.id(), operation.formatVersion()));
             }
             return List.copyOf(result);
+        }
+        /** Reads the host's JSON-object snapshot; a host built before settings existed has no such method. */
+        Map<String, com.google.gson.JsonElement> settingValues() {
+            java.lang.reflect.Method method;
+            try { method = receiver.getClass().getMethod("settingValuesJson"); }
+            catch (NoSuchMethodException olderHost) { return Map.of(); }
+            String json = guarded(() -> (String) method.invoke(receiver));
+            if (json == null || json.isBlank()) return Map.of();
+            Map<String, com.google.gson.JsonElement> values = new LinkedHashMap<>();
+            for (Map.Entry<String, com.google.gson.JsonElement> entry : JsonParser.parseString(json).getAsJsonObject().entrySet()) {
+                if (entry.getValue().isJsonPrimitive()) values.put(entry.getKey(), entry.getValue());
+                else LOG.log(System.Logger.Level.WARNING, "Patchwork ignored setting " + entry.getKey() + " from " + host + ": values must be booleans, numbers, or strings.");
+            }
+            return values;
         }
         private PatchworkReloadResult decodeReloadResult(Object value) {
             if (!(value instanceof Map<?, ?> raw)) throw new IllegalStateException("Host reload result is not a map.");

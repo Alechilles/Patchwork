@@ -35,7 +35,7 @@ New neutral roots accept only these structural fields. Read [Patch Anatomy](/mod
 | `Op` | string | Required operation name. |
 | `Required` | boolean | Defaults to `true`; makes an applicability failure a skip when `false`. |
 | `Path` | JSON Pointer | Destination field, object, or array, where the operation needs one. |
-| `Value` | JSON value | The value to add, merge, replace, or insert. |
+| `Value` | JSON value | The value to add, merge, replace, or insert. An object whose only key is `$Setting` is replaced by that host setting's current value. |
 
 Supported neutral operation names are `Add`, `Merge`, `Replace`, `Remove`, `Insert`, `ReplaceMatching`, `RemoveMatching`, `MoveMatching`, `MergeMatching`, `UpsertMatching`, `OverlayFromAsset`, `MergeObjectFromAsset`, and `Macro`.
 
@@ -67,6 +67,7 @@ One condition object has exactly one key, except that `$Comment` may accompany i
 | `TargetProvidedBy` | The exact winning source-pack ID for the target. |
 | `JsonPathExists` | A pointer exists in the target or selected source document. |
 | `JsonPathEquals` | A pointer has the requested JSON value. |
+| `Setting` | A setting from a host mod such as Tamework: `Id` plus `Is`, `AtLeast`, or `AtMost`. A missing setting does not match. |
 | `All`, `Any`, `Not` | Boolean composition. |
 
 See [Conditions: Apply Only When Needed](/mod/patchwork/conditions-apply-only-when-needed) for sources and examples.

@@ -17,6 +17,7 @@ import com.alechilles.patchwork.engine.PatchEngine;
 import com.alechilles.patchwork.engine.PatchMacroRegistry;
 import com.alechilles.patchwork.engine.MutationEffect;
 import com.alechilles.patchwork.format.Utf8Ordering;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.nio.charset.StandardCharsets;
@@ -52,7 +53,7 @@ public final class PatchGenerationService {
                 (request, target) -> resolveSnapshot(request.assetSnapshot(), target),
                 (definition, request, resolved) -> new PatchConditionEvaluator().evaluate(
                         request.conditionsByPatchId().getOrDefault(definition.id(), definition.condition()),
-                        new PatchConditionEvaluator.EvaluationContext(request.installedIds(), request.versions(), request.serverVersion(), resolved.target(), resolved.bytes(), request.conditionResolver(), request.sources(), resolved.sourcePackId())),
+                        new PatchConditionEvaluator.EvaluationContext(request.installedIds(), request.versions(), request.serverVersion(), resolved.target(), resolved.bytes(), request.conditionResolver(), request.sources(), resolved.sourcePackId(), request.settings())),
                 patchEngine::apply,
                 patchEngine::applyDefinition);
     }
@@ -136,7 +137,7 @@ public final class PatchGenerationService {
             List<MutationEffect> acceptedEffects = List.of();
             List<ConflictRecord> targetConflicts = new ArrayList<>();
             long operationOrder = 0;
-            PatchEngine.ApplicationContext context = new PatchEngine.ApplicationContext(target, request.assetSnapshot());
+            PatchEngine.ApplicationContext context = new PatchEngine.ApplicationContext(target, request.assetSnapshot(), request.settings());
             for (PatchDefinition definition : eligible.stream().sorted(PatchDefinition.ORDERING).toList()) {
                 PatchEngine.DefinitionResult candidate = definitionApply.apply(working, definition, context, operationOrder);
                 ConflictAnalyzer.Analysis analysis = conflictAnalyzer.analyze(
@@ -202,14 +203,24 @@ public final class PatchGenerationService {
         PatchEngine.DefinitionResult apply(com.google.gson.JsonObject source, PatchDefinition definition,
                                            PatchEngine.ApplicationContext context, long firstOperationOrder);
     }
-    /** Immutable generation inputs; the resolver/cache instance is deliberately shared for the entire pass. */
+    /**
+     * Immutable generation inputs; the resolver/cache instance is deliberately shared for the entire pass,
+     * and {@code settings} is the one host setting snapshot every condition and substitution in the pass uses.
+     */
     public record GenerationRequest(GenerationAssetSnapshot assetSnapshot, Set<String> installedIds, Map<String, String> versions,
                                     String serverVersion, ConditionSourceResolver conditionResolver,
-                                    Map<String, PatchCondition> conditionsByPatchId) {
+                                    Map<String, PatchCondition> conditionsByPatchId, Map<String, JsonElement> settings) {
         public GenerationRequest(GenerationAssetSnapshot assetSnapshot, Set<String> installedIds,
                                  Map<String, String> versions, String serverVersion,
                                  ConditionSourceResolver conditionResolver) {
             this(assetSnapshot, installedIds, versions, serverVersion, conditionResolver, Map.of());
+        }
+
+        public GenerationRequest(GenerationAssetSnapshot assetSnapshot, Set<String> installedIds,
+                                 Map<String, String> versions, String serverVersion,
+                                 ConditionSourceResolver conditionResolver,
+                                 Map<String, PatchCondition> conditionsByPatchId) {
+            this(assetSnapshot, installedIds, versions, serverVersion, conditionResolver, conditionsByPatchId, Map.of());
         }
 
         /** Compatibility constructor for callers that still provide live filesystem sources. */
@@ -235,6 +246,7 @@ public final class PatchGenerationService {
             serverVersion = Objects.requireNonNull(serverVersion);
             conditionResolver = Objects.requireNonNull(conditionResolver, "conditionResolver").withAssets(assetSnapshot);
             conditionsByPatchId = Collections.unmodifiableMap(new LinkedHashMap<>(conditionsByPatchId));
+            settings = settings == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(settings));
         }
 
         /** Compatibility view of the captured source descriptors. */

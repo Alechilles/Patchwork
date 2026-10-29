@@ -2,6 +2,7 @@ package com.alechilles.patchwork.conditions;
 
 import com.alechilles.patchwork.format.PatchFormat;
 import com.google.gson.JsonElement;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
 
@@ -9,7 +10,7 @@ import java.util.Objects;
 public sealed interface PatchCondition permits PatchCondition.Always, PatchCondition.ModInstalled, PatchCondition.AssetExists,
         PatchCondition.AssetMissing, PatchCondition.TargetExists, PatchCondition.ModVersion, PatchCondition.ServerVersion,
         PatchCondition.TargetProvidedBy, PatchCondition.JsonPathExists, PatchCondition.JsonPathEquals, PatchCondition.All,
-        PatchCondition.Any, PatchCondition.Not {
+        PatchCondition.Any, PatchCondition.Not, PatchCondition.Setting {
     record Always() implements PatchCondition { }
     record ModInstalled(String modId) implements PatchCondition { public ModInstalled { modId = required(modId); } }
     record AssetExists(String path) implements PatchCondition { public AssetExists { path = required(path); } }
@@ -45,6 +46,15 @@ public sealed interface PatchCondition permits PatchCondition.Always, PatchCondi
     record All(List<PatchCondition> children) implements PatchCondition { public All { children = List.copyOf(children); } }
     record Any(List<PatchCondition> children) implements PatchCondition { public Any { children = List.copyOf(children); } }
     record Not(PatchCondition child) implements PatchCondition { public Not { child = Objects.requireNonNull(child); } }
+    /** Tests one host-supplied setting value; at least one of {@code is}, {@code atLeast}, or {@code atMost} is set. */
+    record Setting(String id, JsonElement is, BigDecimal atLeast, BigDecimal atMost) implements PatchCondition {
+        public Setting {
+            id = required(id);
+            is = is == null ? null : is.deepCopy();
+            if (is == null && atLeast == null && atMost == null) throw new IllegalArgumentException("Setting must define Is, AtLeast, or AtMost.");
+        }
+        @Override public JsonElement is() { return is == null ? null : is.deepCopy(); }
+    }
     record VersionMatcher(String equals, String atLeast, String atMost, String above, String below) { }
     private static String required(String value) { if (value == null || value.trim().isEmpty()) throw new IllegalArgumentException("Condition text must not be blank."); return value.trim(); }
     private static String pointer(String value, int formatVersion) {

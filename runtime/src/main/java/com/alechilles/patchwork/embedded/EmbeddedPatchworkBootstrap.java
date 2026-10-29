@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Hytale-facing entry point for a host that embeds the plain Patchwork runtime jar. */
@@ -105,6 +107,18 @@ public final class EmbeddedPatchworkBootstrap {
         public void recordObservation(PatchworkReloadObservation observation) {
             if (closed.get()) return; Map<String, Object> map = new LinkedHashMap<>(); map.put("epoch", observation.epoch()); map.put("adapterId", observation.adapterId()); map.put("target", observation.target()); map.put("expectedHash", observation.expectedHash()); map.put("outcome", observation.outcome().name()); PatchworkCoordinatorRegistry.recordObservation(map);
         }
+        /** Runs the blocking pass on its own daemon thread so a caller on a game thread is never held up. */
+        public CompletionStage<PatchworkRegenerationResult> requestRegeneration() {
+            if (closed.get()) return CompletableFuture.completedFuture(regenerationResult(PatchworkCoordinatorRegistry.regenerationNotStarted()));
+            return CompletableFuture.supplyAsync(() -> regenerationResult(PatchworkCoordinatorRegistry.requestRegeneration()),
+                            task -> Thread.ofPlatform().daemon().name("Patchwork-Regeneration").start(task))
+                    .exceptionally(failure -> regenerationResult(PatchworkCoordinatorRegistry.regenerationNotStarted()));
+        }
+        private static PatchworkRegenerationResult regenerationResult(Map<String, ?> values) {
+            return new PatchworkRegenerationResult(Boolean.TRUE.equals(values.get("started")), count(values, "hotReloadedTargets"),
+                    count(values, "restartRequiredTargets"), count(values, "failedTargets"));
+        }
+        private static int count(Map<String, ?> values, String key) { return values.get(key) instanceof Number number ? number.intValue() : 0; }
         public synchronized void close() { if (closed.get()) return; RuntimeException combined = null; for (Contribution contribution : List.copyOf(contributions)) try { contribution.close(); } catch (RuntimeException failure) { if (combined == null) combined = failure; else combined.addSuppressed(failure); } try { telemetry.close(); } catch (RuntimeException failure) { if (combined == null) combined = failure; else combined.addSuppressed(failure); } try { provider.close(); } catch (RuntimeException failure) { if (combined == null) combined = failure; else combined.addSuppressed(failure); } if (combined != null) throw combined; closed.set(true); }
         private final class Contribution implements PatchworkContributionHandle {
             private final String token; private final AtomicBoolean closed = new AtomicBoolean();
@@ -119,8 +133,16 @@ public final class EmbeddedPatchworkBootstrap {
     public static final class HostBridge {
         private final List<MacroEntry> macros;
         private final List<AdapterEntry> adapters;
+        private final java.util.function.Supplier<Map<String, com.google.gson.JsonElement>> settings;
         HostBridge(PatchworkHostContribution contribution) { this(ContributionSnapshot.capture(contribution)); }
-        private HostBridge(ContributionSnapshot snapshot) { macros = snapshot.macros(); adapters = snapshot.adapters(); }
+        private HostBridge(ContributionSnapshot snapshot) { macros = snapshot.macros(); adapters = snapshot.adapters(); settings = snapshot.settings(); }
+        /** JDK-only setting snapshot, serialized as one JSON object, read reflectively once per generation pass. */
+        public String settingValuesJson() {
+            com.google.gson.JsonObject values = new com.google.gson.JsonObject();
+            Map<String, com.google.gson.JsonElement> current = settings.get();
+            if (current != null) current.forEach((id, value) -> { if (id != null && value != null) values.add(id, value.deepCopy()); });
+            return values.toString();
+        }
         public String expand(String macroId, String operationJson) {
             for (MacroEntry macro : macros) if (macro.id().equals(macroId)) return macro.provider().expand(com.google.gson.JsonParser.parseString(operationJson).getAsJsonObject()).toString();
             throw new IllegalArgumentException("Unknown host macro: " + macroId);
@@ -142,14 +164,16 @@ public final class EmbeddedPatchworkBootstrap {
         }
     }
     /** Immutable registration-time contribution view that never calls host getters again. */
-    private record ContributionSnapshot(String hostPluginIdentifier, String contributionVersion, List<MacroEntry> macros, List<AdapterEntry> adapters) {
+    /** Setting values are live by design, so the snapshot keeps only the narrow {@code settingValues} getter. */
+    private record ContributionSnapshot(String hostPluginIdentifier, String contributionVersion, List<MacroEntry> macros, List<AdapterEntry> adapters,
+                                        java.util.function.Supplier<Map<String, com.google.gson.JsonElement>> settings) {
         List<PatchworkMacroProvider> macroProviders() { return macros.stream().map(MacroEntry::provider).toList(); }
         List<PatchworkTargetAdapter> targetAdapters() { return adapters.stream().map(AdapterEntry::adapter).toList(); }
         static ContributionSnapshot capture(PatchworkHostContribution contribution) {
             Objects.requireNonNull(contribution, "contribution");
             List<MacroEntry> macros = contribution.macroProviders().stream().map(provider -> new MacroEntry(provider.macroId(), provider)).toList();
             List<AdapterEntry> adapters = contribution.targetAdapters().stream().map(adapter -> new AdapterEntry(adapter.adapterId(), adapter)).toList();
-            return new ContributionSnapshot(contribution.hostPluginIdentifier(), contribution.contributionVersion(), macros, adapters);
+            return new ContributionSnapshot(contribution.hostPluginIdentifier(), contribution.contributionVersion(), macros, adapters, contribution::settingValues);
         }
         void validate() {
             if (hostPluginIdentifier == null || hostPluginIdentifier.isBlank() || contributionVersion == null || contributionVersion.isBlank()) throw new IllegalArgumentException("Contribution host identifier and version are required.");

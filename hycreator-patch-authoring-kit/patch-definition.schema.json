@@ -648,8 +648,33 @@
             "JsonPathEquals": {"$ref": "#/$defs/jsonEqualsCondition"},
             "$Comment": {"type": "string"}
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["Setting"],
+          "properties": {
+            "Setting": {"$ref": "#/$defs/settingCondition"},
+            "$Comment": {"type": "string"}
+          }
         }
       ]
+    },
+    "settingCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["Id"],
+      "anyOf": [
+        {"required": ["Is"]},
+        {"required": ["AtLeast"]},
+        {"required": ["AtMost"]}
+      ],
+      "properties": {
+        "Id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "Is": {"type": ["boolean", "number", "string"]},
+        "AtLeast": {"type": "number"},
+        "AtMost": {"type": "number"}
+      }
     },
     "assetRef": {
       "oneOf": [

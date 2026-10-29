@@ -720,8 +720,67 @@
         },
         {
           "$ref": "#/$defs/notCondition"
+        },
+        {
+          "$ref": "#/$defs/settingCondition"
         }
       ]
+    },
+    "settingCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Setting"
+      ],
+      "properties": {
+        "Setting": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "Id"
+          ],
+          "anyOf": [
+            {
+              "required": [
+                "Is"
+              ]
+            },
+            {
+              "required": [
+                "AtLeast"
+              ]
+            },
+            {
+              "required": [
+                "AtMost"
+              ]
+            }
+          ],
+          "properties": {
+            "Id": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "Is": {
+              "type": [
+                "boolean",
+                "number",
+                "string"
+              ]
+            },
+            "AtLeast": {
+              "type": "number"
+            },
+            "AtMost": {
+              "type": "number"
+            }
+          }
+        },
+        "$Comment": {
+          "$ref": "#/$defs/comment"
+        }
+      }
     },
     "modInstalled": {
       "type": "object",

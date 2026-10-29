@@ -303,6 +303,38 @@ final class PatchConditionEvaluatorTest {
                 new PatchConditionEvaluator().evaluate(condition, contextWithProvider(null)).status());
     }
 
+    @Test
+    void settingConditionsCompareHostValuesAndTreatMissingSettingsAsNotMatched() {
+        // Catches a missing host turning into FAILED (which would retain stale patched bytes) and
+        // numeric equality or range checks comparing JSON text instead of numbers.
+        PatchConditionParser parser = new PatchConditionParser();
+        PatchCondition wildOff = parser.parse(JsonParser.parseString("{\"Setting\":{\"Id\":\"AH_WildDragons\",\"Is\":false}}").getAsJsonObject(), 2);
+        PatchCondition weightTwo = parser.parse(JsonParser.parseString("{\"Setting\":{\"Id\":\"AH_DragonWeight\",\"Is\":2.0}}").getAsJsonObject(), 2);
+        PatchCondition weightRange = parser.parse(JsonParser.parseString("{\"Setting\":{\"Id\":\"AH_DragonWeight\",\"AtLeast\":2,\"AtMost\":5}}").getAsJsonObject(), 2);
+        PatchCondition wildRange = parser.parse(JsonParser.parseString("{\"Setting\":{\"Id\":\"AH_WildDragons\",\"AtLeast\":1}}").getAsJsonObject(), 2);
+        PatchConditionEvaluator evaluator = new PatchConditionEvaluator();
+        var weightTwoSettings = contextWithSettings(Map.of("AH_WildDragons", JsonParser.parseString("false"), "AH_DragonWeight", JsonParser.parseString("2")));
+        var weightNineSettings = contextWithSettings(Map.of("AH_DragonWeight", JsonParser.parseString("9")));
+
+        assertTrue(evaluator.evaluate(wildOff, weightTwoSettings).matched());
+        assertTrue(evaluator.evaluate(weightTwo, weightTwoSettings).matched());
+        assertTrue(evaluator.evaluate(weightRange, weightTwoSettings).matched());
+        assertEquals(PatchConditionEvaluator.Status.NOT_MATCHED, evaluator.evaluate(weightRange, weightNineSettings).status());
+        assertEquals(PatchConditionEvaluator.Status.NOT_MATCHED, evaluator.evaluate(wildRange, weightTwoSettings).status());
+        PatchConditionEvaluator.Evaluation missing = evaluator.evaluate(wildOff, weightNineSettings);
+        assertEquals(PatchConditionEvaluator.Status.NOT_MATCHED, missing.status());
+        assertEquals("Setting is not provided: AH_WildDragons", missing.diagnostic());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> parser.parse(
+                JsonParser.parseString("{\"Setting\":{\"Id\":\"AH_WildDragons\",\"Is\":false,\"Default\":true}}").getAsJsonObject(), 2));
+    }
+
+    private PatchConditionEvaluator.EvaluationContext contextWithSettings(Map<String, com.google.gson.JsonElement> settings) {
+        ConditionSourceResolver resolver = new ConditionSourceResolver(
+                new PatchTargetResolver(), new ModDataRootRegistry(Map.of()), new ConditionDocumentCache());
+        return new PatchConditionEvaluator.EvaluationContext(Set.of(), Map.of(), "1.0", "Server/Target.json",
+                "{}".getBytes(StandardCharsets.UTF_8), resolver, List.of(), null, settings);
+    }
+
     private PatchConditionEvaluator.EvaluationContext contextWithProvider(String sourcePackId) {
         ConditionSourceResolver resolver = new ConditionSourceResolver(
                 new PatchTargetResolver(), new ModDataRootRegistry(Map.of()), new ConditionDocumentCache());

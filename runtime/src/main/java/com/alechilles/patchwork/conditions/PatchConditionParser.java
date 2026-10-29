@@ -4,6 +4,7 @@ import com.alechilles.patchwork.format.JsonPointer;
 import com.alechilles.patchwork.format.PatchFormat;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -65,9 +66,29 @@ public final class PatchConditionParser {
             case "All" -> composite(value, true, formatVersion);
             case "Any" -> composite(value, false, formatVersion);
             case "Not" -> new PatchCondition.Not(parse(object(value, "Not"), formatVersion));
+            case "Setting" -> setting(object(value, key));
             case "TameworkSetting" -> throw bad("TameworkSetting is retired; migrate it to JsonPathEquals with a ModData Source.");
             default -> throw bad("Unsupported condition key: " + key);
         };
+    }
+
+    /** Setting is new syntax, so its descriptor is closed in every format. */
+    private PatchCondition setting(JsonObject condition) {
+        validateKeys(condition, Set.of("Id", "Is", "AtLeast", "AtMost"), "Setting");
+        String id = field(condition, "Setting", "Id");
+        JsonElement is = condition.get("Is");
+        if (is != null && !is.isJsonPrimitive()) throw bad("Setting.Is must be a boolean, number, or string.");
+        BigDecimal atLeast = number(condition, "AtLeast");
+        BigDecimal atMost = number(condition, "AtMost");
+        if (is == null && atLeast == null && atMost == null) throw bad("Setting must define Is, AtLeast, or AtMost.");
+        return new PatchCondition.Setting(id, is, atLeast, atMost);
+    }
+
+    private static BigDecimal number(JsonObject condition, String field) {
+        JsonElement value = condition.get(field);
+        if (value == null) return null;
+        if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) throw bad("Setting." + field + " must be a number.");
+        return value.getAsBigDecimal();
     }
 
     private PatchCondition jsonExists(JsonObject condition, int formatVersion) {

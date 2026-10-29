@@ -139,14 +139,33 @@ final class PatchworkAdministrationService implements PatchworkCommandActions {
     }
 
     @Override public CompletionStage<List<String>> reload() {
+        PatchReloadCoordinator.ReloadOutcome outcome;
+        try { outcome = authorizedReload(); }
+        catch (RuntimeException failure) {
+            return CompletableFuture.completedFuture(List.of("Patchwork reload failed; inspect server diagnostics."));
+        }
+        if (outcome == null) return CompletableFuture.completedFuture(List.of("Patchwork reload was not started: runtime is inactive or busy."));
+        return CompletableFuture.completedFuture(reloadLines(outcome));
+    }
+
+    /** Runs the same admitted pass as {@link #reload()} for an embedding host; never throws for "not started". */
+    PatchReloadCoordinator.ReloadOutcome regenerate() {
+        try {
+            PatchReloadCoordinator.ReloadOutcome outcome = authorizedReload();
+            return outcome == null ? notStarted("Patchwork reload was not started: runtime is inactive or busy.") : outcome;
+        } catch (RuntimeException failure) {
+            return notStarted("Patchwork reload failed; inspect server diagnostics.");
+        }
+    }
+
+    /** Returns {@code null} when the pass was not admitted. */
+    private PatchReloadCoordinator.ReloadOutcome authorizedReload() {
         long admittedEpoch = admit();
-        if (admittedEpoch < 0) return CompletableFuture.completedFuture(List.of("Patchwork reload was not started: runtime is inactive or busy."));
+        if (admittedEpoch < 0) return null;
         try {
             PatchReloadCoordinator.ReloadOutcome outcome = reloads.get().reload(PatchReloadCoordinator.ReloadRequest.authorized(() -> buildPlan(admittedEpoch)));
             recordOutcome(admittedEpoch, outcome);
-            return CompletableFuture.completedFuture(reloadLines(outcome));
-        } catch (RuntimeException failure) {
-            return CompletableFuture.completedFuture(List.of("Patchwork reload failed; inspect server diagnostics."));
+            return outcome;
         } finally { release(); }
     }
 

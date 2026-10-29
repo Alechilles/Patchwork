@@ -172,6 +172,12 @@ public final class PatchOperation {
                 language, version, match, matchPolicy);
     }
 
+    /** Returns this operation with a resolved Value; used only for setting substitution. */
+    PatchOperation withValue(JsonElement resolvedValue) {
+        return new PatchOperation(id, op, path, source, sourcePath, position, macro, required, resolvedValue, find, existing, options,
+                language, version, match, matchPolicy);
+    }
+
     public String id() { return id; }
     public String op() { return op; }
     public String path() { return path; }

@@ -89,7 +89,8 @@ public final class PatchEngine {
                               List<String> applied, List<String> skipped, EffectTrace trace) {
         String label = definition.id() + ":" + operation.id();
         try {
-            String skip = raw(root, definition, operation, context, trace);
+            // Substitute after macro expansion so host-expanded operations see the same snapshot.
+            String skip = raw(root, definition, withSettings(operation, context.settings()), context, trace);
             if (skip == null) {
                 applied.add(label);
                 return;
@@ -690,12 +691,66 @@ public final class PatchEngine {
         return basePath.endsWith("/") ? basePath + escaped : basePath + "/" + escaped;
     }
 
-    /** Context bound to one target and one immutable source snapshot. */
-    public record ApplicationContext(String target, GenerationAssetSnapshot assets) {
+    /** Context bound to one target, one immutable source snapshot, and one pass-wide setting snapshot. */
+    public record ApplicationContext(String target, GenerationAssetSnapshot assets, Map<String, JsonElement> settings) {
+        public ApplicationContext(String target, GenerationAssetSnapshot assets) {
+            this(target, assets, Map.of());
+        }
         public ApplicationContext {
             target = Objects.requireNonNull(target, "target");
             assets = Objects.requireNonNull(assets, "assets");
+            settings = settings == null ? Map.of() : Map.copyOf(settings);
         }
+    }
+
+    /**
+     * Replaces every single-key {@code {"$Setting": "<id>"}} object inside an operation Value with
+     * that setting's current value. Any other value, including objects with extra keys, is left as is.
+     */
+    private static PatchOperation withSettings(PatchOperation operation, Map<String, JsonElement> settings) {
+        JsonElement value = operation.value();
+        if (value == null || !referencesSetting(value)) return operation;
+        return operation.withValue(substituteSettings(value, settings));
+    }
+
+    private static boolean referencesSetting(JsonElement value) {
+        if (value.isJsonObject()) {
+            if (settingId(value.getAsJsonObject()) != null) return true;
+            for (Map.Entry<String, JsonElement> entry : value.getAsJsonObject().entrySet()) {
+                if (referencesSetting(entry.getValue())) return true;
+            }
+        } else if (value.isJsonArray()) {
+            for (JsonElement entry : value.getAsJsonArray()) {
+                if (referencesSetting(entry)) return true;
+            }
+        }
+        return false;
+    }
+
+    private static JsonElement substituteSettings(JsonElement value, Map<String, JsonElement> settings) {
+        if (value.isJsonObject()) {
+            JsonObject object = value.getAsJsonObject();
+            String id = settingId(object);
+            if (id != null) {
+                JsonElement setting = settings.get(id);
+                if (setting == null) throw new IllegalArgumentException("Setting is not provided: " + id);
+                return setting.deepCopy();
+            }
+            for (String key : List.copyOf(object.keySet())) object.add(key, substituteSettings(object.get(key), settings));
+            return object;
+        }
+        if (value.isJsonArray()) {
+            JsonArray array = value.getAsJsonArray();
+            for (int index = 0; index < array.size(); index++) array.set(index, substituteSettings(array.get(index), settings));
+            return array;
+        }
+        return value;
+    }
+
+    private static String settingId(JsonObject object) {
+        if (object.size() != 1) return null;
+        JsonElement id = object.get("$Setting");
+        return id != null && id.isJsonPrimitive() && id.getAsJsonPrimitive().isString() ? id.getAsString() : null;
     }
 
     /** Result of applying one definition to an isolated source copy. */

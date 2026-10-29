@@ -285,6 +285,45 @@ public final class PatchworkCoordinatorRegistry {
     public static String expandOperationJson(String operationJson) { return withRegistry("expandOperationJson", operationJson); }
 
     /**
+     * Asks the elected runtime to run one normal regeneration pass and blocks until it finishes.
+     * Returns a JDK-only map ({@code started}, {@code hotReloadedTargets}, {@code restartRequiredTargets},
+     * {@code failedTargets}); it reports {@code started=false} instead of throwing when no runtime can run it,
+     * including when the installed registry or elected runtime predates this API.
+     */
+    public static Map<String, ?> requestRegeneration() {
+        Object state = installedRegistry();
+        if (state instanceof PatchworkCoordinatorRegistry registry) return registry.requestRegenerationLocal();
+        try {
+            Object result = state.getClass().getMethod("requestRegeneration").invoke(null);
+            if (result instanceof Map<?, ?> map) return immutableJdkMap(map);
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            // An older or failing foreign registry cannot regenerate on request.
+        }
+        return regenerationNotStarted();
+    }
+
+    /** The JDK-only result used whenever a regeneration request could not start a pass. */
+    public static Map<String, ?> regenerationNotStarted() {
+        return Map.of("started", false, "hotReloadedTargets", 0L, "restartRequiredTargets", 0L, "failedTargets", 0L);
+    }
+
+    /** Resolves the elected bridge under the monitor, then runs the pass outside it so observations can still be recorded. */
+    private Map<String, ?> requestRegenerationLocal() {
+        PatchworkRuntimeCandidate active;
+        synchronized (this) {
+            if (failedClosed || transitioning) return regenerationNotStarted();
+            active = activeCandidate();
+        }
+        if (active == null) return regenerationNotStarted();
+        try {
+            Map<String, ?> result = active.bridge().requestRegeneration();
+            return result == null ? regenerationNotStarted() : immutableJdkMap(result);
+        } catch (RuntimeException failure) {
+            return regenerationNotStarted();
+        }
+    }
+
+    /**
      * Returns a loader-neutral administration view.  Its recursive contents are limited to JDK
      * maps, lists, strings, numbers, booleans, and paths so either runtime copy can render it.
      */
@@ -579,6 +618,10 @@ public final class PatchworkCoordinatorRegistry {
         public void replayContributions(long value, List<Map<String, ?>> contributions) { if (replay != null) invoke(replay, value, contributions, Void.class); }
         public String generatedPatchRoot() { return generatedRoot == null ? null : (String) invoke(generatedRoot, String.class); }
         public boolean recordObservation(Map<String, ?> value) { return observation != null && (Boolean) invoke(observation, value, Boolean.class); }
+        public Map<String, ?> requestRegeneration() {
+            Method method = optionalNoArgMethod(receiver.getClass(), "requestRegeneration", Map.class);
+            return method == null ? regenerationNotStarted() : (Map<String, ?>) invoke(method, Map.class);
+        }
         public String expandOperationJson(String value) { try { Method method = receiver.getClass().getMethod("expandOperationJson", String.class); return (String) invoke(method, value, String.class); } catch (ReflectiveOperationException exception) { throw new IllegalStateException("Macro expansion is unavailable.", exception); } }
 
         private static Method method(Class<?> type, String name, Class<?> result) throws ReflectiveOperationException {

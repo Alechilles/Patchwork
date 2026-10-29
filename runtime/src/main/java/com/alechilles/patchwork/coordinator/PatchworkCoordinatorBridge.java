@@ -22,4 +22,9 @@ public interface PatchworkCoordinatorBridge {
     default boolean recordObservation(Map<String, ?> observation) { return false; }
     /** Expands a macro operation encoded as JSON across the JDK-only loader boundary. */
     default String expandOperationJson(String operationJson) { throw new IllegalStateException("Macro expansion is unavailable."); }
+    /**
+     * Runs one normal regeneration pass and returns JDK-only counts: {@code started} (Boolean) and
+     * {@code hotReloadedTargets}, {@code restartRequiredTargets}, {@code failedTargets} (Numbers).
+     */
+    default Map<String, ?> requestRegeneration() { return PatchworkCoordinatorRegistry.regenerationNotStarted(); }
 }

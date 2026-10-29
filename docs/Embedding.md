@@ -8,11 +8,11 @@ Patchwork can be shaded into another Hytale Java plugin. Embedded and standalone
 <dependency>
   <groupId>com.alechilles</groupId>
   <artifactId>patchwork-runtime</artifactId>
-  <version>1.4.1</version>
+  <version>1.5.0</version>
 </dependency>
 ```
 
-Patchwork 1.4.1 brings `com.alechilles:beacon-runtime:2.0.0` transitively. It registers the
+Patchwork 1.5.0 brings `com.alechilles:beacon-runtime:2.0.5` transitively. It registers the
 namespaced `patchwork` project automatically when the host starts. The project uses the Beacon
 hosted destination, supports uncaught exception crash reports and anonymous aggregate
 stats, and has independent consent from the host's telemetry project. No second standalone
@@ -70,7 +70,7 @@ macros and adapters from that startup pass.
 
 ## Stable API surface
 
-Patchwork 1.4.1 exposes these host-facing contracts from `com.alechilles.patchwork.embedded`:
+Patchwork 1.5.0 exposes these host-facing contracts from `com.alechilles.patchwork.embedded`:
 
 ```java
 public final class EmbeddedPatchworkBootstrap {
@@ -82,6 +82,7 @@ public interface EmbeddedPatchworkService extends AutoCloseable {
     PatchworkContributionHandle registerContribution(PatchworkHostContribution contribution);
     Path generatedPatchRoot();
     void recordObservation(PatchworkReloadObservation observation);
+    CompletionStage<PatchworkRegenerationResult> requestRegeneration(); // 1.5.0
     void close();
 }
 
@@ -94,7 +95,11 @@ public interface PatchworkHostContribution {
     String contributionVersion();
     List<PatchworkMacroProvider> macroProviders();
     List<PatchworkTargetAdapter> targetAdapters();
+    default Map<String, JsonElement> settingValues() { return Map.of(); } // 1.5.0
 }
+
+public record PatchworkRegenerationResult(boolean started, int hotReloadedTargets,
+                                          int restartRequiredTargets, int failedTargets) { } // 1.5.0
 
 public interface PatchworkMacroProvider {
     String macroId();
@@ -116,7 +121,7 @@ public record PatchworkReloadObservation(long epoch, String adapterId, String ta
 public enum PatchworkObservationOutcome { LOADED, REMOVED, FAILED }
 ```
 
-Patchwork 1.4.1 sends exactly one `PatchworkTargetExpectation` in each adapter invocation, even though the request type uses a list for forward compatibility. Implementations must handle the current singleton contract and must not assume unrelated targets are batched together.
+Patchwork 1.5.0 sends exactly one `PatchworkTargetExpectation` in each adapter invocation, even though the request type uses a list for forward compatibility. Implementations must handle the current singleton contract and must not assume unrelated targets are batched together.
 
 ## Contributions
 
@@ -138,6 +143,39 @@ public final class ExampleContribution implements PatchworkHostContribution {
 Contribution metadata is captured at registration time. Return immutable or defensively copied lists. Macro IDs share a case-insensitive namespace; adapter IDs must also be unique.
 
 When election changes, the coordinator replays current contributions to the new winner. The host must not re-bootstrap or re-register merely because another copy won.
+
+## Settings and regeneration
+
+A contribution can supply named settings that patch definitions test with the `Setting` condition and insert with `{ "$Setting": "<id>" }` values (see [Patch Format](Patch-Format.md)).
+
+```java
+@Override
+public Map<String, JsonElement> settingValues() {
+    return Map.of(
+        "AH_WildDragons", new JsonPrimitive(config.wildDragons()),
+        "AH_DragonWeight", new JsonPrimitive(config.dragonWeight()));
+}
+```
+
+- Unlike the other contribution getters, `settingValues()` is called again at the start of every generation pass, on the elected runtime's thread. Keep it fast and thread-safe, and return an immutable snapshot.
+- Values must be booleans, numbers, or strings. Other values are ignored and logged.
+- If two contributions provide the same ID, the first one in host-identifier order wins and the duplicate is logged.
+- If the call throws, that contribution provides no settings for the pass; the pass still runs.
+- A missing setting makes a `Setting` condition false and makes a `$Setting` value fail its operation, so assets stay at their shipped values when the host is absent.
+
+After a setting changes, ask the elected runtime for a normal regeneration pass, the same work as `/patchwork reload`:
+
+```java
+patchwork.requestRegeneration().thenAccept(result -> {
+    if (!result.started()) {
+        // No active runtime, or a pass was already running. Try again later.
+    }
+});
+```
+
+The pass runs on a Patchwork worker thread, so the returned stage may complete later. It never completes exceptionally for a pass that could not start; `started()` is `false` instead. The counts cover generated targets that changed: `hotReloadedTargets` (including host adapter reloads and removals), `restartRequiredTargets`, and `failedTargets` (including rolled-back targets). Targets whose patches were rejected during generation keep their last good output and are not counted.
+
+Settings and regeneration cross the runtime classloader boundary as JSON text and JDK maps, so an embedding copy and a different elected copy can still cooperate. An elected runtime older than 1.5.0 ignores settings and reports `started()` as `false`.
 
 ## Macro providers
 
@@ -184,16 +222,16 @@ public final class ExampleAdapter implements PatchworkTargetAdapter {
 }
 ```
 
-Each request carries one coordinator epoch and one immutable target expectation in 1.4.1. Return exact reloaded, restart-required, and failed target lists.
+Each request carries one coordinator epoch and one immutable target expectation in 1.5.0. Return exact reloaded, restart-required, and failed target lists.
 
 ## Beacon contribution contract
 
 The Patchwork runtime's descriptor is namespaced at
 `META-INF/beacon/projects/patchwork.json`, so it can be shaded beside a host's
 conventional descriptor. It declares the logical owner `Alechilles:Patchwork`, project ID
-`patchwork`, runtime version `1.4.1`, and only the Crash and Stats consent categories. Do not
+`patchwork`, the matching Patchwork runtime version, and only the Crash and Stats consent categories. Do not
 copy it to `Server/Beacon/project.json` or replace it with a custom endpoint: contributed
-projects are hosted-only in 1.4.1.
+projects are hosted-only in 1.5.0.
 
 If a host already contains another conventional project with the same logical ID, the base
 project remains authoritative and the Patchwork contribution is rejected. If an active

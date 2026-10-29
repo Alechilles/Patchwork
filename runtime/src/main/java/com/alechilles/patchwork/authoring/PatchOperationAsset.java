@@ -121,7 +121,7 @@ final class PatchOperationAsset {
             .add()
             .append(new KeyedCodec<>("Value", PatchJsonValueCodec.INSTANCE),
                     (operation, value) -> operation.value = value, operation -> operation.value)
-            .documentation("JSON value to add, merge, replace, or insert. Its allowed shape depends on Op; Merge, MergeMatching, and UpsertMatching require an object.")
+            .documentation("JSON value to add, merge, replace, or insert. Its allowed shape depends on Op; Merge, MergeMatching, and UpsertMatching require an object. To use a host setting, enter an object with only $Setting set to the setting ID; Patchwork replaces it with the setting's current value.")
             .add()
             .append(new KeyedCodec<>("Position", POSITION_CODEC),
                     (operation, value) -> operation.position = value, operation -> operation.position)

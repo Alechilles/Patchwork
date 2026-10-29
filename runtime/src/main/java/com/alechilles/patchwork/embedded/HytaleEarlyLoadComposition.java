@@ -30,6 +30,8 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
     private final GeneratedPackLayout layout;
     private final HytaleRuntimeInputsSnapshotter inputs = new HytaleRuntimeInputsSnapshotter();
     private volatile PatchworkAdministrationService administration;
+    /** The elected host's setting snapshot source; installed with administration, before any pass runs. */
+    private volatile java.util.function.Supplier<java.util.Map<String, com.google.gson.JsonElement>> settings = java.util.Map::of;
 
     HytaleEarlyLoadComposition(JavaPlugin plugin, GeneratedPackLayout layout) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
@@ -49,6 +51,7 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
     }
 
     @Override public PatchworkAdministrationService createAdministration(PatchworkRuntimeHost host, PatchworkTelemetry ignored) {
+        settings = host::settingValues;
         PatchworkAdministrationService created = new PatchworkAdministrationService(
                 () -> planFor(host.macros()).createPlan(),
                 () -> host.reloadCoordinator(java.time.Duration.ofSeconds(3))::reload,
@@ -108,7 +111,7 @@ final class HytaleEarlyLoadComposition implements PatchworkRuntimeHost.EarlyLoad
                 metadata -> {
                     PatchworkAdministrationService current = administration;
                     if (current != null) current.configureRoots(metadata.neutralRoot(), metadata.legacyRoots());
-                });
+                }, settings);
     }
 
     static void reportRecoverableDiagnostics(PatchStatusSnapshot status, Consumer<String> warningSink) {

@@ -438,6 +438,36 @@ final class PatchGenerationServiceTest {
         return PatchDefinition.parse(JsonParser.parseString("{\"Id\":\"" + id + "\",\"Target\":\"" + target + "\",\"Operations\":[{\"Op\":\"Replace\",\"Path\":\"" + path + "\",\"Value\":2}]}" ).getAsJsonObject(), "test", id + ".json");
     }
 
+    @Test
+    void settingReferencesWriteTheSnapshotValueAndAMissingSettingRejectsOnlyThatTarget() throws Exception {
+        // Catches $Setting objects being written literally, and a missing setting silently patching
+        // a required value instead of rejecting the target (which keeps its last good output).
+        Path patches = Files.createDirectories(temporary.resolve("settings/Server/Patchwork/Patches"));
+        Path root = patches.getParent().getParent().getParent();
+        Files.writeString(root.resolve("Server/Dragon.json"), "{\"NPCs\":[{\"Weight\":1,\"Tags\":[\"wild\"]}]}");
+        Files.writeString(root.resolve("Server/Missing.json"), "{\"Weight\":1}");
+        Files.writeString(patches.resolve("dragon.json"), """
+                {"Id":"dragon","Target":"Server/Dragon.json","Operations":[
+                  {"Op":"Replace","Path":"/NPCs/0/Weight","Value":{"$Setting":"AH_DragonWeight"}},
+                  {"Op":"Replace","Path":"/NPCs/0/Tags","Value":[{"$Setting":"AH_Tag"},{"$Setting":"AH_Tag","Note":"kept"}]}
+                ]}
+                """);
+        Files.writeString(patches.resolve("missing.json"), """
+                {"Id":"missing","Target":"Server/Missing.json","Operations":[
+                  {"Op":"Replace","Path":"/Weight","Value":{"$Setting":"AH_Unknown"}}
+                ]}
+                """);
+        GenerationAssetSnapshot assets = GenerationAssetSnapshot.capture(List.of(PatchSource.directory("Test:Pack", 0, root)));
+
+        var plan = new PatchGenerationService().generate(new PatchGenerationService.GenerationRequest(assets, Set.of(), Map.of(), "1",
+                resolver(), Map.of(), Map.of("AH_DragonWeight", JsonParser.parseString("4"), "AH_Tag", JsonParser.parseString("\"tame\""))));
+
+        assertEquals(1, plan.entries().size());
+        assertEquals(JsonParser.parseString("{\"NPCs\":[{\"Weight\":4,\"Tags\":[\"tame\",{\"$Setting\":\"AH_Tag\",\"Note\":\"kept\"}]}]}"),
+                JsonParser.parseString(new String(plan.entries().getFirst().bytes(), java.nio.charset.StandardCharsets.UTF_8)));
+        assertTrue(plan.status().rejectedTargets().get("Server/Missing.json").contains("Setting is not provided: AH_Unknown"));
+    }
+
     private static PatchDefinition neutralDefinition(String id, String target, String path, int value, ConflictPolicy policy) {
         String json = "{\"Id\":\"" + id + "\",\"Target\":\"" + target + "\",\"ConflictPolicy\":\""
                 + policy.name().charAt(0) + policy.name().substring(1).toLowerCase() + "\",\"Operations\":[{\"Op\":\"Replace\",\"Path\":\""

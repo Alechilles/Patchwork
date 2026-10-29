@@ -63,6 +63,7 @@ final class PatchConditionCodec implements Codec<BsonDocument> {
                 "Namespaced ID of the mod that must currently provide the target asset."));
         properties.put("JsonPathExists", jsonPathFields(context, false));
         properties.put("JsonPathEquals", jsonPathFields(context, true));
+        properties.put("Setting", settingSchema(context));
         properties.put("All", recursiveList(context, "All conditions",
                 "Applies only when every nested condition is true."));
         properties.put("Any", recursiveList(context, "Any conditions",
@@ -157,6 +158,29 @@ final class PatchConditionCodec implements Codec<BsonDocument> {
             fields.setAnyOf(required("Value"), required("Equals"));
         }
         return fields;
+    }
+
+    private static ObjectSchema settingSchema(SchemaContext context) {
+        ObjectSchema setting = documented(closedObject(), "Host setting",
+                "Checks a setting supplied by a host mod such as Tamework. If no host provides the setting, this condition is false.");
+        Map<String, Schema> properties = new LinkedHashMap<>();
+        properties.put("Id", nonblankString("Setting ID",
+                "Exact ID of the setting to check, such as AH_WildDragons."));
+        Schema is = documented(new Schema(), "Must equal",
+                "The setting must have exactly this value. Numbers compare by value, so 2 equals 2.0.");
+        is.setOneOf(
+                documented(Codec.BOOLEAN.toSchema(context), "Boolean", "Requires true or false."),
+                documented(Codec.DOUBLE.toSchema(context), "Number", "Requires this number."),
+                documented(Codec.STRING.toSchema(context), "String", "Requires this exact text."));
+        properties.put("Is", is);
+        properties.put("AtLeast", documented(Codec.DOUBLE.toSchema(context), "Minimum number",
+                "Requires a number setting that is this value or higher."));
+        properties.put("AtMost", documented(Codec.DOUBLE.toSchema(context), "Maximum number",
+                "Requires a number setting that is this value or lower."));
+        setting.setProperties(properties);
+        setting.setRequired("Id");
+        setting.setAnyOf(required("Is"), required("AtLeast"), required("AtMost"));
+        return setting;
     }
 
     private static Schema required(String field) {

@@ -148,6 +148,7 @@ Patchwork can condition changes on:
 *   Whether the target asset exists
 *   JSON fields and values within an asset
 *   JSON configuration stored in another installed Java mod’s registered data directory
+*   Settings supplied by a host mod such as Tamework, which patches can also insert into values with `{ "$Setting": "<id>" }`
 *   Nested combinations of conditions
 
 This allows a mod to ship its integrations directly, rather than asking server owners to download and arrange a collection of separate compatibility packs.

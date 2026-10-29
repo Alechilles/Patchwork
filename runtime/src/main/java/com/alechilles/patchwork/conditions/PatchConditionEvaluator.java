@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.math.BigDecimal;
 import java.math.BigInteger;
 
 /** Evaluates immutable patch conditions against one target and a per-generation source resolver. */
@@ -29,6 +30,7 @@ public final class PatchConditionEvaluator {
         if (c instanceof PatchCondition.ServerVersion v) return version(x.serverVersion(), v.matcher()) ? matched() : no("Server version does not match.");
         if (c instanceof PatchCondition.JsonPathExists v) return json(v.source(), v.path(), null, false, v.formatVersion(), x);
         if (c instanceof PatchCondition.JsonPathEquals v) return json(v.source(), v.path(), v.expected(), true, v.formatVersion(), x);
+        if (c instanceof PatchCondition.Setting v) return setting(v, x);
         if (c instanceof PatchCondition.All v) { for (PatchCondition child : v.children()) { Evaluation e = evaluateNode(child, x); if (e.status() != Status.MATCHED) return e; } return matched(); }
         if (c instanceof PatchCondition.Any v) { Evaluation last = no("No Any condition matched."); for (PatchCondition child : v.children()) { Evaluation e = evaluateNode(child, x); if (e.status() == Status.MATCHED) return e; if (e.status() == Status.FAILED) return e; last = e; } return last; }
         return invert(evaluateNode(((PatchCondition.Not) c).child(), x));
@@ -67,6 +69,26 @@ public final class PatchConditionEvaluator {
         }
         return value.value().equals(expected) ? matched() : no("JSON value did not match.");
     }
+
+    /** Missing settings are NOT_MATCHED, not FAILED, so a missing host leaves the asset at its shipped default. */
+    private static Evaluation setting(PatchCondition.Setting condition, EvaluationContext x) {
+        JsonElement value = x.settings().get(condition.id());
+        if (value == null) return no("Setting is not provided: " + condition.id());
+        if (condition.is() != null && !sameSettingValue(value, condition.is())) return no("Setting does not match: " + condition.id());
+        if (condition.atLeast() == null && condition.atMost() == null) return matched();
+        if (!isNumber(value)) return no("Setting is not a number: " + condition.id());
+        BigDecimal number = value.getAsBigDecimal();
+        if (condition.atLeast() != null && number.compareTo(condition.atLeast()) < 0) return no("Setting does not match: " + condition.id());
+        if (condition.atMost() != null && number.compareTo(condition.atMost()) > 0) return no("Setting does not match: " + condition.id());
+        return matched();
+    }
+
+    private static boolean sameSettingValue(JsonElement actual, JsonElement expected) {
+        if (isNumber(actual) && isNumber(expected)) return actual.getAsBigDecimal().compareTo(expected.getAsBigDecimal()) == 0;
+        return actual.equals(expected);
+    }
+
+    private static boolean isNumber(JsonElement value) { return value.isJsonPrimitive() && value.getAsJsonPrimitive().isNumber(); }
 
     private static Pointer legacyPointer(JsonElement doc, String path) {
         if (path.isEmpty()) return new Pointer(true, doc);
@@ -113,8 +135,8 @@ public final class PatchConditionEvaluator {
     private static int compare(String a, String b) { String[] x = a.split("\\."), y = b.split("\\."); for (int i = 0; i < Math.max(x.length, y.length); i++) { int c = (i < x.length ? new BigInteger(x[i]) : BigInteger.ZERO).compareTo(i < y.length ? new BigInteger(y[i]) : BigInteger.ZERO); if (c != 0) return c; } return 0; }
     private record Pointer(boolean present, JsonElement value) { }
     private static Evaluation matched() { return new Evaluation(Status.MATCHED, ""); } private static Evaluation no(String d) { return new Evaluation(Status.NOT_MATCHED, d); } private static Evaluation failed(String d) { return new Evaluation(Status.FAILED, d); } private static Evaluation invert(Evaluation e) { return e.status() == Status.FAILED ? e : e.status() == Status.MATCHED ? no("Not condition matched its child.") : matched(); }
-    /** Immutable evaluation inputs; target bytes are defensively copied. */
-    public record EvaluationContext(Set<String> installedIds, Map<String, String> versions, String serverVersion, String targetPath, byte[] targetBytes, ConditionSourceResolver resolver, List<PatchSource> sources, String targetSourcePackId) {
+    /** Immutable evaluation inputs; target bytes are defensively copied and settings are one pass-wide snapshot. */
+    public record EvaluationContext(Set<String> installedIds, Map<String, String> versions, String serverVersion, String targetPath, byte[] targetBytes, ConditionSourceResolver resolver, List<PatchSource> sources, String targetSourcePackId, Map<String, JsonElement> settings) {
         public EvaluationContext(List<String> installed, Map<String, String> versions, String serverVersion, String targetPath, byte[] targetBytes, ConditionSourceResolver resolver) {
             this(Set.copyOf(installed), Map.copyOf(versions), serverVersion, targetPath, targetBytes, resolver, List.of(), null);
         }
@@ -124,7 +146,10 @@ public final class PatchConditionEvaluator {
         public EvaluationContext(List<String> installed, Map<String, String> versions, String serverVersion, String targetPath, byte[] targetBytes, ConditionSourceResolver resolver, List<PatchSource> sources, String targetSourcePackId) {
             this(Set.copyOf(installed), Map.copyOf(versions), serverVersion, targetPath, targetBytes, resolver, sources, targetSourcePackId);
         }
-        public EvaluationContext { installedIds = Set.copyOf(installedIds); versions = Map.copyOf(versions); targetPath = Objects.requireNonNull(targetPath); targetBytes = targetBytes == null ? null : targetBytes.clone(); resolver = Objects.requireNonNull(resolver); sources = List.copyOf(sources); }
+        public EvaluationContext(Set<String> installedIds, Map<String, String> versions, String serverVersion, String targetPath, byte[] targetBytes, ConditionSourceResolver resolver, List<PatchSource> sources, String targetSourcePackId) {
+            this(installedIds, versions, serverVersion, targetPath, targetBytes, resolver, sources, targetSourcePackId, Map.of());
+        }
+        public EvaluationContext { installedIds = Set.copyOf(installedIds); versions = Map.copyOf(versions); targetPath = Objects.requireNonNull(targetPath); targetBytes = targetBytes == null ? null : targetBytes.clone(); resolver = Objects.requireNonNull(resolver); sources = List.copyOf(sources); settings = settings == null ? Map.of() : Map.copyOf(settings); }
         @Override public byte[] targetBytes() { return targetBytes == null ? null : targetBytes.clone(); }
     }
     /** Immutable condition outcome and safe diagnostic. */

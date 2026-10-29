@@ -244,6 +244,18 @@ An embedding plugin can contribute macro IDs that expand into ordinary operation
 
 Macro names and option schemas belong to the contributing host. A missing provider fails the affected target; Patchwork never publishes a partially modified target.
 
+### Host setting values
+
+A host mod such as Tamework can supply named settings. To use a setting's current value in an operation, put an object whose only key is `$Setting` anywhere inside `Value`:
+
+```json
+{ "Op": "Replace", "Path": "/NPCs/0/Weight", "Value": { "$Setting": "AH_DragonWeight" } }
+```
+
+Patchwork replaces the object with the setting's value (a boolean, number, or string) before the operation runs. This works at any depth inside objects and arrays, and also inside operations produced by a host macro. An object with any other key next to `$Setting` is written as is.
+
+If no host provides the setting, the operation fails. A required operation rejects its target, which keeps its last good output; an operation with `"Required": false` is skipped. Settings are a separate, explicit source: values read by `ModData` conditions are never written into output.
+
 ## Conditions
 
 A condition object defines exactly one condition key. `$Comment` may accompany that key.
@@ -360,6 +372,30 @@ Mod IDs match exactly. Paths are relative, remain below the selected plugin data
 Installing a patch-bearing asset pack grants it read-only conditional access to non-secret JSON under registered Java mod data directories. Patchwork does not substitute source values into output and does not include actual or expected values in status output. Mods should not store secrets in JSON intended for cross-mod conditions.
 
 `TameworkSetting` is retired. Migrate it to `JsonPathEquals` with a `ModData` source as shown above.
+
+### Host settings
+
+`Setting` checks a setting supplied by a host mod such as Tamework:
+
+```json
+{ "Setting": { "Id": "AH_WildDragons", "Is": false } }
+```
+
+```json
+{ "Setting": { "Id": "AH_DragonWeight", "AtLeast": 2, "AtMost": 5 } }
+```
+
+`Id` is required and matches exactly. Set at least one of these:
+
+- `Is`: the setting must equal this boolean, number, or string. Numbers compare by value, so `2` equals `2.0`.
+- `AtLeast`: the setting must be a number this value or higher.
+- `AtMost`: the setting must be a number this value or lower.
+
+A text or boolean setting tested with `AtLeast` or `AtMost` does not match. Other keys inside `Setting` are rejected.
+
+If no host provides the setting (the host is not installed, or the ID is unknown), the condition does not match. The patch is skipped and the asset keeps its shipped value; it is not treated as an error. Remember that `Not` turns a missing setting into a match.
+
+Patchwork reads every host's settings once at the start of each generation pass, so every condition and `$Setting` value in that pass sees the same values. When a host changes a setting, it asks Patchwork to regenerate (see [Embedding](Embedding.md)). Status output names the setting but never shows its value.
 
 ### Boolean composition
 
