@@ -50,7 +50,7 @@ tasks.named('jar') {
 }
 
 tasks.named('shadowJar', ShadowJar) {
-    archiveFileName = "Patchwork v${project.version}.jar"
+    archiveFileName = "Patchwork-v${project.version}.jar"
     archiveClassifier = ''
     exclude 'META-INF/MANIFEST.MF', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/versions/9/module-info.class'
     manifest {

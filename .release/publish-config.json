@@ -2,7 +2,7 @@
   "modName": "Patchwork",
   "repository": "Alechilles/Patchwork",
   "packaging": "jar",
-  "artifactNameTemplate": "Patchwork v{version}.jar",
+  "artifactNameTemplate": "Patchwork-v{version}.jar",
   "versionSource": "pom",
   "versionFile": "pom.xml",
   "requiresTameworkDependency": false,

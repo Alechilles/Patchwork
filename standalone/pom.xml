@@ -110,7 +110,7 @@
                                     <target>
                                         <mkdir dir="${hytale.userdata.path}/Mods"/>
                                         <copy file="${project.build.directory}/${project.build.finalName}.jar"
-                                              tofile="${hytale.userdata.path}/Mods/Patchwork v${project.version}.jar"
+                                              tofile="${hytale.userdata.path}/Mods/Patchwork-v${project.version}.jar"
                                               overwrite="true"/>
                                     </target>
                                 </configuration>
