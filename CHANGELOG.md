@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A short Windows file lock while Patchwork swaps in its generated patches no longer leaves the world with no
+  patches for that session. Patchwork now retries the swap for about a second and a half, and if it still fails,
+  the log names the error.
+- `Diagnostics` no longer grows forever. A successful startup keeps the five newest prior and failed-new copies
+  and deletes older ones.
+
 ## 1.5.1 - Older Copies Stop Breaking Packs - 2026-10-29
 
 ### Fixed

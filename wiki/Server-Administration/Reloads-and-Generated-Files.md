@@ -44,4 +44,4 @@ Patchwork calls a target `hot-reloaded` only after Hytale reports the expected g
 
 ## Last-Known-Good Evidence
 
-Startup publication is staged and verified. When replacing a generated pack, Patchwork keeps the prior generated root under `Diagnostics/GeneratedPatches-prior-*` as evidence. A prior directory alone is normal; it is not automatically a failure. Preserve diagnostic folders while investigating. Remove an old successful prior copy only in an offline maintenance window after the active pack is verified.
+Startup publication is staged and verified. When replacing a generated pack, Patchwork keeps the prior generated root under `Diagnostics/GeneratedPatches-prior-*` as evidence. A prior directory alone is normal; it is not automatically a failure. After each successful startup Patchwork keeps the five newest prior and failed-new copies and deletes older ones, so copy out anything you need to investigate before restarting.

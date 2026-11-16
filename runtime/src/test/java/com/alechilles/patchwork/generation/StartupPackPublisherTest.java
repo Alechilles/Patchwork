@@ -132,6 +132,60 @@ final class StartupPackPublisherTest {
     }
 
     @Test
+    void briefWindowsLockOnActivationIsRetriedAndPublishes() throws Exception {
+        GeneratedPackLayout layout = new GeneratedPackLayout(temporary);
+        Files.createDirectories(layout.generatedRoot());
+        java.util.concurrent.atomic.AtomicInteger lockedAttempts = new java.util.concurrent.atomic.AtomicInteger(2);
+        AtomicBoolean registered = new AtomicBoolean();
+        StartupPackPublisher.MoveStrategy moves = new StartupPackPublisher.MoveStrategy() {
+            @Override public void atomicMove(Path from, Path to) throws IOException {
+                if (to.equals(layout.generatedRoot()) && lockedAttempts.getAndDecrement() > 0) throw new java.nio.file.AccessDeniedException(from + " -> " + to);
+                Files.move(from, to);
+            }
+            @Override public void nonAtomicMove(Path from, Path to) throws IOException { Files.move(from, to); }
+        };
+        StartupPackPublisher publisher = new StartupPackPublisher(layout, id -> registered.set(true), moves, (staging, plan) -> { });
+        var publication = publisher.publish(plan());
+        assertTrue(publication.published(), publication.diagnostic());
+        assertTrue(registered.get());
+        assertTrue(Files.exists(layout.generatedRoot().resolve("Server/Test.json")));
+    }
+
+    @Test
+    void persistentLockFailsWithNamedExceptionInDiagnostic() {
+        GeneratedPackLayout layout = new GeneratedPackLayout(temporary);
+        StartupPackPublisher.MoveStrategy moves = new StartupPackPublisher.MoveStrategy() {
+            @Override public void atomicMove(Path from, Path to) throws IOException { throw new java.nio.file.AccessDeniedException(from + " -> " + to); }
+            @Override public void nonAtomicMove(Path from, Path to) throws IOException { Files.move(from, to); }
+        };
+        var publication = new StartupPackPublisher(layout, id -> { }, moves, (staging, plan) -> { }).publish(plan());
+        assertFalse(publication.published());
+        assertTrue(publication.diagnostic().startsWith("AccessDeniedException: "), publication.diagnostic());
+    }
+
+    @Test
+    void successfulPublishPrunesOldDiagnosticsCopiesButKeepsForeignFolders() throws Exception {
+        GeneratedPackLayout layout = new GeneratedPackLayout(temporary);
+        Files.createDirectories(layout.generatedRoot());
+        for (int index = 0; index < 8; index++) {
+            Path old = layout.quarantineRoot(java.util.UUID.randomUUID().toString());
+            Files.createDirectories(old.resolve("Server"));
+            Files.writeString(old.resolve("Server/Old.json"), "old");
+            Files.setLastModifiedTime(old, java.nio.file.attribute.FileTime.fromMillis(1_000_000L * (index + 1)));
+        }
+        Path foreign = layout.diagnosticsRoot().resolve("GeneratedPatches-prior-keep-me");
+        Files.createDirectories(foreign);
+
+        assertTrue(new StartupPackPublisher(layout, id -> { }).publish(plan()).published());
+
+        try (var entries = Files.list(layout.diagnosticsRoot())) {
+            // 5 newest old copies + the copy this publish just quarantined + the foreign folder.
+            assertEquals(7, entries.count());
+        }
+        assertTrue(Files.exists(foreign));
+    }
+
+    @Test
     void corruptionDetectedBeforeActivationNeverRegisters() {
         GeneratedPackLayout layout = new GeneratedPackLayout(temporary); AtomicBoolean registered = new AtomicBoolean();
         StartupPackPublisher publisher = new StartupPackPublisher(layout, id -> registered.set(true), new StartupPackPublisher.FileMoveStrategy(),

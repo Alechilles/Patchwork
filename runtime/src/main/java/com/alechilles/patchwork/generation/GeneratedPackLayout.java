@@ -52,18 +52,26 @@ public final class GeneratedPackLayout {
     }
 
     Path stagingRoot(String token) { return dataRoot.resolve(".GeneratedPatches-staging-" + ownedToken(token)).normalize(); }
-    Path quarantineRoot(String token) { return diagnosticsRoot().resolve("GeneratedPatches-prior-" + ownedToken(token)).normalize(); }
-    Path failedNewRoot(String token) { return diagnosticsRoot().resolve("GeneratedPatches-failed-new-" + ownedToken(token)).normalize(); }
+    static final String PRIOR_PREFIX = "GeneratedPatches-prior-";
+    static final String FAILED_NEW_PREFIX = "GeneratedPatches-failed-new-";
+
+    Path quarantineRoot(String token) { return diagnosticsRoot().resolve(PRIOR_PREFIX + ownedToken(token)).normalize(); }
+    Path failedNewRoot(String token) { return diagnosticsRoot().resolve(FAILED_NEW_PREFIX + ownedToken(token)).normalize(); }
 
     boolean isOwnedStagingChild(Path path) {
-        return directChild(path, ".GeneratedPatches-staging-");
+        return directChild(dataRoot, path, ".GeneratedPatches-staging-");
     }
 
-    private boolean directChild(Path path, String prefix) {
+    /** True only for a Diagnostics child named exactly prefix + canonical UUID. */
+    boolean isOwnedDiagnosticsChild(Path path, String prefix) {
+        return directChild(diagnosticsRoot(), path, prefix);
+    }
+
+    private static boolean directChild(Path parent, Path path, String prefix) {
         if (path == null) return false;
         Path normalized = path.toAbsolutePath().normalize();
         Path name = normalized.getFileName();
-        if (!dataRoot.equals(normalized.getParent()) || name == null || !name.toString().startsWith(prefix)) return false;
+        if (!parent.equals(normalized.getParent()) || name == null || !name.toString().startsWith(prefix)) return false;
         try { String token = name.toString().substring(prefix.length()); return UUID.fromString(token).toString().equals(token); }
         catch (IllegalArgumentException invalid) { return false; }
     }

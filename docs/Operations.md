@@ -105,7 +105,7 @@ Patchwork owns this directory. Do not edit generated files by hand or place patc
 
 Startup generation is staged under a unique sibling directory and verified before activation. If a previous generated pack exists, Patchwork preserves it as last-known-good until the replacement is proven active.
 
-Diagnostic names include unique staging, prior, and failed-new directories. A successful replacement normally retains the previous generated root under `Diagnostics/GeneratedPatches-prior-*` as last-known-good evidence, so a prior directory alone does not indicate failure. A failed-new directory or a prior directory referenced by an unresolved publication result is failure evidence. Patchwork 1.4.1 has no automatic evidence-pruning command; preserve evidence while diagnosing, and remove an old successful prior copy only during an offline maintenance window after the active pack has been verified.
+Diagnostic names include unique staging, prior, and failed-new directories. A successful replacement normally retains the previous generated root under `Diagnostics/GeneratedPatches-prior-*` as last-known-good evidence, so a prior directory alone does not indicate failure. A failed-new directory or a prior directory referenced by an unresolved publication result is failure evidence. After each successful publication Patchwork keeps the five newest prior and five newest failed-new copies (plus the copy that publication just made) and deletes older ones. Copy anything you need to keep for diagnosis out of `Diagnostics` before the next restart.
 
 A target can be rejected without blocking unrelated valid targets. Patchwork reports scan failures and rejected targets while publishing only a verified generated pack.
 

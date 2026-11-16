@@ -8,7 +8,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -32,6 +34,8 @@ public final class StartupPackPublisher {
     private final StagingVerifier verifier;
     private final FileDeletion deletion;
     private final OwnedPathAccess access;
+    private static final long[] MOVE_RETRY_DELAYS_MS = {50, 100, 200, 400, 800};
+    private static final int KEPT_DIAGNOSTICS_PER_KIND = 5;
 
     public StartupPackPublisher(GeneratedPackLayout layout, PackRegistrar registrar) {
         this(layout, registrar, new FileMoveStrategy(), StartupPackPublisher::verifyDefault, Files::delete, new OwnedPathAccess(layout));
@@ -75,6 +79,7 @@ public final class StartupPackPublisher {
             layout.requireSafeExistingComponents(live);
             registration = registrar.prepare(PACK_ID, plan);
             registration.commit();
+            pruneDiagnostics(evidence);
             return new Publication(true, "", live, List.copyOf(evidence), List.of(), false);
         } catch (Exception failure) {
             boolean unresolved = false;
@@ -177,10 +182,56 @@ public final class StartupPackPublisher {
     }
 
     private void move(Path from, Path to) throws IOException {
+        for (int attempt = 0; ; attempt++) {
+            try { moveOnce(from, to); return; }
+            catch (FileSystemException failure) {
+                // Windows briefly locks freshly written or recently loaded files (antivirus, indexer, a server
+                // that is still shutting down). Retry only while nothing moved, so a committed move is never repeated.
+                if (attempt >= MOVE_RETRY_DELAYS_MS.length || !isTransientLock(failure)
+                        || !Files.exists(from, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                        || Files.exists(to, java.nio.file.LinkOption.NOFOLLOW_LINKS)) throw failure;
+                try { Thread.sleep(MOVE_RETRY_DELAYS_MS[attempt]); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw failure; }
+            }
+        }
+    }
+    private void moveOnce(Path from, Path to) throws IOException {
         access.guard(from); access.guard(to.getParent());
         if (SecureOwnedDirectories.moveOwnedDirectory(from, to)) return;
         try { moves.atomicMove(from, to); }
         catch (AtomicMoveNotSupportedException unsupported) { moves.nonAtomicMove(from, to); }
+    }
+    private static boolean isTransientLock(FileSystemException failure) {
+        return failure instanceof AccessDeniedException || failure.getClass() == FileSystemException.class;
+    }
+
+    /** Best effort: keeps the newest few prior and failed-new copies so Diagnostics does not grow without bound. */
+    private void pruneDiagnostics(List<Path> keep) {
+        Path root = layout.diagnosticsRoot();
+        if (!Files.isDirectory(root, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return;
+        for (String prefix : List.of(GeneratedPackLayout.PRIOR_PREFIX, GeneratedPackLayout.FAILED_NEW_PREFIX)) {
+            try (var children = Files.list(root)) {
+                List<Path> owned = children.filter(child -> layout.isOwnedDiagnosticsChild(child, prefix) && !keep.contains(child))
+                        .sorted(Comparator.comparing(StartupPackPublisher::modifiedTime).reversed()).toList();
+                for (Path old : owned.subList(Math.min(KEPT_DIAGNOSTICS_PER_KIND, owned.size()), owned.size())) {
+                    try { deleteOwnedTree(old); }
+                    catch (IOException | RuntimeException skipped) { /* a locked copy is retried on the next publish */ }
+                }
+            } catch (IOException | RuntimeException skipped) { return; }
+        }
+    }
+    private void deleteOwnedTree(Path root) throws IOException {
+        layout.requireSafeExistingComponents(root);
+        try (var paths = Files.walk(root)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                layout.requireSafeExistingLeaf(path);
+                deletion.delete(path);
+            }
+        }
+    }
+    private static java.nio.file.attribute.FileTime modifiedTime(Path path) {
+        try { return Files.getLastModifiedTime(path, java.nio.file.LinkOption.NOFOLLOW_LINKS); }
+        catch (IOException unreadable) { return java.nio.file.attribute.FileTime.fromMillis(0); }
     }
     private void move(Path from, Path to, String kind, String phase, List<MoveIntent> intents) throws IOException {
         MoveIntent intent = new MoveIntent(from, to, kind, phase);
@@ -250,7 +301,11 @@ public final class StartupPackPublisher {
         try { return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)); }
         catch (Exception unavailable) { throw new IOException("SHA-256 is unavailable.", unavailable); }
     }
-    private static String message(Exception failure) { return failure.getMessage() == null ? "Publication failed." : failure.getMessage(); }
+    private static String message(Exception failure) {
+        String text = failure.getMessage() == null ? "Publication failed." : failure.getMessage();
+        // A Windows lock reports only "from -> to"; name the exception so the log says what went wrong.
+        return failure instanceof FileSystemException ? failure.getClass().getSimpleName() + ": " + text : text;
+    }
     private static List<Path> ordered(List<Path> paths) { return paths.stream().distinct().sorted(Comparator.comparing(Path::toString)).toList(); }
     private static List<Path> existing(List<Path> paths) { return paths.stream().filter(path -> Files.exists(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)).toList(); }
 
