@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.5.2 - Patches Survive a Windows File Lock - 2026-11-16
 
 ### Fixed
 
