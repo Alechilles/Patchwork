@@ -1,6 +1,5 @@
 # Patchwork Agent Guidelines
 
-- Use Git Bash for repository commands and do not leave processes running.
 - Keep the reusable runtime free of Hytale plugin identity files; the standalone module owns the plugin manifest and shaded artifact.
 - Use Java 25. The runtime has a compile-only Hytale server JAR path; the standalone module uses the AzureDoom Hytale Gradle plugin.
 - Run `bash ../gradlew :patchwork:runtime:test :patchwork:standalone:test` after code changes and `bash ../gradlew :patchwork:standalone:build` after packaging changes.
